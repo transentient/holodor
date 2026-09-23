@@ -30,6 +30,12 @@ I apologize for subjecting you to a manifesto, but there are three points I woul
 
 I have extensively dogfooded and iterated through Holodor with my own devices. I have gone over and re-written most of this documentation, though the code is festooned with comments in Claudish. I hired a human artist to do the pixel art, the very reliable and talented SSalmon. I sincerely hope this is okay with you.
 
+## About the pixel art
+
+I thought it would be neat to have some boot image and a little animation for Holodor. I didn't really want it to be AI slop, though, and interesting true story, Claude discouraged me from asking it to generate the art ("I could do it for you, but that would just be slop. Art is something humans are optimized for, so if your skills aren't up to it, you should commission an artist to do the work for you.")
+
+I found s.salmon on /r/pixelart. It was a great experience working with them! They were extremely professional and prompt, and did excellent work! https://ssalmon-px.carrd.co/
+
 ## What Works
 
 | Feature | Status |
