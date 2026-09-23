@@ -145,7 +145,7 @@ EOF
   # DEV-ONLY Wi-Fi preseed: any *.nmconnection in config/local/ (GITIGNORED — holds the PSK)
   # is baked in so a dev image comes up on the network without OOBE — invaluable while the
   # session is unstable and SSH is the only debug path. Release/polished images: empty the
-  # directory first (see HANDOFF known-open work).
+  # directory first (known open work).
   if [ "${HOLODOR_RELEASE:-0}" = "1" ] && compgen -G "${POCKNIX_ROOT}/config/local/*.nmconnection" >/dev/null; then
     log "RELEASE build: refusing to bake config/local Wi-Fi profiles (dev-only)"
   elif compgen -G "${POCKNIX_ROOT}/config/local/*.nmconnection" >/dev/null; then
