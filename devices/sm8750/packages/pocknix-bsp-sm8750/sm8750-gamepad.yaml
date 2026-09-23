@@ -55,7 +55,7 @@ mapping:
   # map LOOKS wrong and is right; both "consistent" variants are half-broken.
   # (History: -4 had this right; -5 "fixed" it backwards off a misread of the
   # deck-diagram test screen; the wiretap settled it: with -5, Steam emitted
-  # xinput-Y for label-X. Full story: HANDOFF "button saga".)
+  # xinput-Y for label-X. Full story in the maintainer notes.)
   - name: West Button (label Y, west position)
     source_events:
       - evdev: { event_type: KEY, event_code: BTN_WEST, value_type: button }

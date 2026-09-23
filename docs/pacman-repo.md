@@ -68,7 +68,7 @@ DEVICE=sm8750 scripts/publish-repo.sh --serve      # on fusor
 # on the device (temporary stanza, staging tree, REAL signature verification):
 #   [pocknix]
 #   SigLevel = Required DatabaseOptional
-#   Server = http://192.168.1.70:8000/sm8750
+#   Server = http://<build-host>:8000/sm8750
 # device must trust the key first (images built after 2026-08-18 already do):
 #   pacman-key --add /path/to/pocknix-repo.gpg && pacman-key --lsign-key BD9D2DF8…
 pacman -Syy && pacman -Sup                          # sanity: db verifies, upgrades listed

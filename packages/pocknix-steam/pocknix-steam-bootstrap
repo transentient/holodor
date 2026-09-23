@@ -105,7 +105,7 @@ wait_for_network() {
 
 # --- downloads ---------------------------------------------------------------
 # One curl policy everywhere: fail on HTTP errors, follow redirects, resume (-C -),
-# spaced retries (no tight loops — see the SourceForge lesson in HANDOFF.md), and the
+# spaced retries (no tight loops — see the maintainer notes), and the
 # progress bar drawn on the status screen so the user watches the real download.
 fetch() { # fetch <url> <dest> [description]
   local url="$1" dest="$2" desc="${3:-$(basename "$2")}"
