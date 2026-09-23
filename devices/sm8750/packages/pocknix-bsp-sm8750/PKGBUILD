@@ -17,7 +17,8 @@
 #                                matches devices/sm8750/profile.conf
 pkgname=pocknix-bsp-sm8750
 pkgver=0.2.0
-pkgrel=17   # 17: 91-pocknix-cmdline.hook — cmdline-only bsp bumps now rebuild /flash/KERNEL
+pkgrel=18   # 18: HiFi.conf jack routing restored (MBHC detection works with kernel-26)
+            # 17: 91-pocknix-cmdline.hook — cmdline-only bsp bumps now rebuild /flash/KERNEL
             # (the kernel pkg's 90-hook doesn't watch kernel-cmdline; bsp-16 shipped stale on-device)
             # 16: kernel-cmdline mem_sleep_default=s2idle (sleeps 5x deeper than "deep" on sm8750; validated 08-31)
 pkgdesc="pocknix board support: SM8750 family (AYN Odin 3) — runtime board dispatch, input map, suspend quirks, audio UCM"

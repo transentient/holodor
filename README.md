@@ -62,7 +62,7 @@ I found s.salmon on /r/pixelart. It was a great experience working with them! Th
 
 ## Installation
 
-Read **[INSTALL.md](INSTALL.md)** for the step-by-step guide. The latest image is here: `https://holodor.bonesaw.com/holodor-odin3-20260920b-seedless.img.zst` (3.2 GB) (checksum is next to it).
+Read **[INSTALL.md](INSTALL.md)** for the step-by-step guide. The latest image is here: `https://holodor.bonesaw.com/holodor-odin3-20260923e-seedless.img.zst` (3.2 GB) (checksum is next to it).
 
 **TL;DR:** Grab the image and the ROCKNIX bootloader. Flash them to an SD card, use the new bootloader to set up the boot menu from Android (back up your stock bootloader when it tells you to!). Boot from the SD card to test it out. If you like it, use the Holodor Installer app to flash it to your internal storage alongside Android. The guide also covers how to revert back to stock.
 

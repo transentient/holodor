@@ -6,8 +6,12 @@ Wants=multi-user.target
 [Service]
 Type=oneshot
 # delay so device probing AND a wifi association attempt have time to settle
-ExecStartPre=/bin/sh -c 'sleep 30'
+# Support report, not boot-critical: 90 s in (well past Steam's start, which it was
+# competing with at 30 s on SD cards) and at idle CPU/IO priority.
+ExecStartPre=/bin/sh -c 'sleep 90'
 ExecStart=/usr/local/bin/pocknix-diag
+Nice=19
+IOSchedulingClass=idle
 RemainAfterExit=yes
 
 [Install]

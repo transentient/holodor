@@ -16,7 +16,14 @@ RestartSec=5
 KillMode=mixed
 TimeoutStopSec=15
 WorkingDirectory=/home/deck/homebrew/services
+# x86 Python under FEX is CPU-heavy while it imports; it only injects into a RUNNING Steam
+# client (and polls for it), so start after Steam is up (60 s cap) and below it in priority
+# so boot-time CPU goes to gamescope/Steam first.
+ExecStartPre=/bin/sh -c 'for i in $(seq 60); do pidof steam >/dev/null 2>&1 && exit 0; sleep 1; done; exit 0'
 ExecStart=/usr/lib/pocknix/pocknix-decky-run
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
 Environment=UNPRIVILEGED_PATH=/home/deck/homebrew
 Environment=PRIVILEGED_PATH=/home/deck/homebrew
 Environment=PLUGIN_PATH=/home/deck/homebrew/plugins

@@ -15,7 +15,7 @@ A quick heads-up about your first boot: Holodor will download Steam and let it u
 * An **AYN Odin 3**.
 * A **microSD card** (32 GB or larger). The bootloader can be surprisingly picky about SD cards. For instance, I found that a couple of newer Silicon Power A2 cards wouldn't work at all. Part II, step 8 will help you confirm if your card is compatible.
 * A PC with an SD card reader.
-* The Holodor image: `https://holodor.bonesaw.com/holodor-odin3-20260920b-seedless.img.zst` (3.2 GB) and its checksum file `https://holodor.bonesaw.com/holodor-odin3-20260920b-seedless.img.zst.sha256`.
+* The Holodor image: `https://holodor.bonesaw.com/holodor-odin3-20260923e-seedless.img.zst` (3.2 GB) and its checksum file `https://holodor.bonesaw.com/holodor-odin3-20260923e-seedless.img.zst.sha256`.
 
 ---
 
@@ -23,8 +23,8 @@ A quick heads-up about your first boot: Holodor will download Steam and let it u
 
 1. Download both the image and the checksum file into the same folder on your PC.
 2. Verify the download:
-    * **Linux or Mac:** Run `sha256sum -c holodor-odin3-20260920b-seedless.img.zst.sha256`
-    * **Windows:** Run `certutil -hashfile holodor-odin3-20260920b-seedless.img.zst SHA256` and visually compare the output to the contents of the checksum file.
+    * **Linux or Mac:** Run `sha256sum -c holodor-odin3-20260923e-seedless.img.zst.sha256`
+    * **Windows:** Run `certutil -hashfile holodor-odin3-20260923e-seedless.img.zst SHA256` and visually compare the output to the contents of the checksum file.
 3. Write the image to your SD card.
     * **Linux or Mac:** Run `zstd -d holodor-*.img.zst`, and then `sudo dd if=holodor-*.img of=/dev/sdX bs=4M conv=fsync status=progress`. Please triple-check your `/dev/sdX` path, as this command will entirely erase the target disk!
     * **Windows:** Decompress the file, then write the `.img` using Rufus or balenaEtcher.

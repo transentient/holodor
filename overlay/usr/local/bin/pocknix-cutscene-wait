@@ -1,0 +1,42 @@
+#!/bin/sh
+# pocknix-cutscene-wait — ExecStartPre for plymouth-quit.service (drop-in
+# /etc/systemd/system/plymouth-quit.service.d/10-holodor-cutscene.conf).
+#
+# Holds the boot splash's quit until the Holodor cutscene has played: the theme
+# preloads its 34 frames (~1 s) then plays them at 10 fps (3.4 s). The splash is on
+# the panel from the moment plymouth-start.service finishes (`plymouth show-splash`),
+# which is 0.1-2.2 s after plymouthd itself starts (measured 2026-09-23), so the wait
+# counts from THAT timestamp: POCKNIX_CUTSCENE_SECS (default 6 = 4.4 s of cutscene +
+# margin). Fallback if the unit timestamp is unavailable: 8 s from plymouthd start.
+# plymouth-quit-wait then blocks until plymouthd is really gone, and getty@tty1 is
+# ordered after plymouth-quit-wait, so the deck session (and gamescope's DRM master
+# grab) always starts after the splash has released the panel.
+#
+# This must be root's plymouth-quit: plymouthd ignores commands from non-root
+# clients, so a `plymouth quit` from the deck session never worked (2026-09-23:
+# plymouthd stayed alive holding DRM master; gamescope ran blind, Steam audible).
+pidof plymouthd >/dev/null 2>&1 || exit 0
+need="${POCKNIX_CUTSCENE_SECS:-6}"
+shown_us="$(systemctl show -p ActiveEnterTimestampMonotonic --value plymouth-start.service 2>/dev/null)"
+if [ -n "$shown_us" ] && [ "$shown_us" -gt 0 ] 2>/dev/null; then
+  now_us="$(awk '{printf "%d", $1 * 1000000}' /proc/uptime)"
+  up=$(( (now_us - shown_us) / 1000000 ))
+else
+  need=$(( need + 2 ))
+  pid="$(pidof plymouthd 2>/dev/null | awk '{print $1}')"
+  up="$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')"
+  [ -n "$up" ] || exit 0
+fi
+[ "$up" -lt "$need" ] 2>/dev/null && sleep $(( need - up ))
+
+# Then hold the (static) logo until the deck session is about to launch its compositor:
+# the session supervisor touches this flag, and getty@tty1 no longer orders after
+# plymouth-quit-wait (overlay drop-in), so login + systemd --user happen under the splash
+# instead of on a black panel. Fail-safe: never hold longer than POCKNIX_SPLASH_MAX_SECS.
+flag=/run/user/1001/pocknix-session-ready
+max="${POCKNIX_SPLASH_MAX_SECS:-30}"
+i=0
+while [ ! -e "$flag" ] && [ "$i" -lt $(( max * 10 )) ]; do
+  sleep 0.1; i=$(( i + 1 ))
+done
+exit 0
