@@ -128,7 +128,7 @@ PANEL_MM="${POCKNIX_PANEL_MM:-177x100}"
 # LOGICAL output itself (g_nOutputWidth = mode->vdisplay = 1920, g_nOutputHeight = mode->hdisplay
 # = 1080) for the 90/270 orientations. (Line numbers = 3.16.29.) Passing the landscape size would make find_mode() miss
 # (no 1920x1080 mode on a portrait DSI panel) and fall through to a generated timing — the same
-# family as the -r 120 DPU wedge (HANDOFF "Hard-won knowledge" 2). --force-orientation keeps the
+# family as the -r 120 DPU wedge (maintainer notes). --force-orientation keeps the
 # same token as well: the orientation enum feeds both the touch mapping
 # (wlserver.cpp apply_touchscreen_orientation) and the plane rotation property, so touch and
 # picture rotate together in either mode.
