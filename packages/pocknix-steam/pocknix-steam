@@ -1,0 +1,178 @@
+#!/bin/bash
+# pocknix-steam — launch the native ARM64 Steam client in Big Picture under gamescope on the RP6.
+# Client setup modeled on armada's launch-steam (native, NON-FEX): cd into steamrtarm64,
+# steamrtarm64 first on LD_LIBRARY_PATH. Panel geometry fixed for the RP6.
+#
+# Performance overlay: gamescope --mangoapp spawns the `mangoapp` process (from the mangohud dep)
+# that Steam's built-in 'Performance' overlay drives. IMPORTANT: it only renders once you enable
+# Steam Settings > In Game > Performance > "Show performance metrics in this game" — the overlay
+# being blank in earlier testing was that toggle being OFF, NOT a mangoapp/gamescope coupling
+# problem. So this is just `--mangoapp` + the mangohud dep; no MANGOHUD_CONFIGFILE plumbing needed.
+# GPU load/clock/temp + power draw now render too (mangohud carries the ROCKNIX/armada Adreno+
+# Qualcomm reader patches — vanilla mangohud has no msm/freedreno reader). See progress.md.
+set -e
+
+export HOME="${HOME:-/root}"
+STEAM="${HOME}/.local/share/Steam"
+CLIENT_DIR="${STEAM}/steamrtarm64"
+CLIENT="${CLIENT_DIR}/steam"
+
+# armada's LD_LIBRARY_PATH: the client's own dir FIRST (bundled libvpx.so.6 etc.), then the
+# aarch64 shim dir (libibus shim). steamrtarm64/steam re-execs into its runtime from here.
+LDLP="${CLIENT_DIR}:${STEAM}/lib/aarch64-linux-gnu"
+
+# The client tree is either PRE-EXTRACTED at build time (seeded/dev images: build-image.sh's
+# bootstrap_steam_seed) or absent (SEEDLESS public images) — in which case pocknix-steam-bootstrap
+# downloads Valve's client on this first launch, with an honest status screen on tty1 (network
+# wait, wifi.txt instructions, resumable verified downloads; see docs/steam-bootstrap-design.md).
+# Its staging->rename is atomic, so this check only ever sees absent-or-complete. On failure it
+# exits non-zero after >5s -> our exit 1 sends the session supervisor around its loop for a retry
+# (never tripping the 3x-fast-fail shell drop).
+if [ ! -x "${CLIENT}" ]; then
+  /usr/bin/pocknix-steam-bootstrap || exit 1
+fi
+
+# CRITICAL: Steam resolves its legacy module paths (bin/vgui2_s.dll …) RELATIVE TO getcwd.
+# armada cd's into steamrtarm64 before launch; cd'ing to $HOME makes 'bin/vgui2_s' unresolvable
+# -> "Could not load module 'bin/vgui2_s.dll'". gamescope passes CWD to the client.
+cd "${CLIENT_DIR}" 2>/dev/null || { echo "missing ${CLIENT_DIR}" >&2; exit 1; }
+
+# Decky/CEF debugger marker armada touches (harmless if unused).
+touch "${STEAM}/.cef-enable-remote-debugging" 2>/dev/null || true
+
+# Pin the client beta channel EVERY launch. We ship the native ARM64 Big-Picture client on
+# steamdeck_stable; if anything flips package/beta to a different channel (e.g. a desktop-mode
+# `steam` launch, or a server-side channel change), Steam sees "installed version 0" for the new
+# channel and dead-ends forever on "Installing update" with steamwebhelper crash-looping -> the
+# session hangs. Re-asserting it here makes the session self-heal on the next launch.
+mkdir -p "${STEAM}/package"
+echo steamdeck_stable > "${STEAM}/package/beta"
+
+# --- Proton 11 ARM compat tool: register + keep usable, decoupled from Steam's own download/updates
+# so the FIRST in-Steam download works with NO reboot. The registration (compatibilitytools.d) is
+# read by Steam only at STARTUP, so it must exist before Steam launches — pocknix-proton-prep writes
+# it here unconditionally (even pre-download). The dist + toolmanifest (read at game launch) are
+# filled in / re-fixed by pocknix-proton-prep.service --watch the moment Proton is downloaded or
+# updated, so a mid-session download becomes usable immediately. See pocknix-proton-prep.
+/usr/bin/pocknix-proton-prep
+# (binfmt) The FEX x86 binfmt handlers are ON by default (pocknix-fex-binfmt.service applies the
+# persisted choice at boot, as root — the deck session can't write /proc/sys/fs/binfmt_misc).
+# Binfmt-on is what makes x86 Proton + Steam Linux Runtime work OOTB; hardware-validated harmless
+# for ARM Proton on both SoCs (2026-07-24). `pocknix-fex-binfmt off` opts out.
+
+# Self-heal a session SWITCH: steamos-session-select SIGTERMs gamescope to go to Plasma, but the
+# Steam client re-parents and keeps running (with its single-instance lock). On the way back the new
+# steam logs "Steam is already running, exiting", gamescope's primary child dies instantly, and the
+# supervisor hot-loops (black flashes). Clear any leftover Steam before launching so this instance
+# owns the session. Only ever runs at game-session START, when no legit Steam should be alive.
+uid="$(id -u)"
+if pgrep -u "${uid}" -x steam >/dev/null 2>&1 || pgrep -u "${uid}" -f steamwebhelper >/dev/null 2>&1; then
+  echo "[pocknix-steam] clearing a stale Steam from a previous session..."
+  env LD_LIBRARY_PATH="${LDLP}" "${CLIENT}" -shutdown >/dev/null 2>&1 || true
+  for _ in $(seq 1 8); do pgrep -u "${uid}" -x steam >/dev/null 2>&1 || break; sleep 1; done
+  pkill -u "${uid}" -KILL -x steam        2>/dev/null || true
+  pkill -u "${uid}" -KILL -f steamwebhelper 2>/dev/null || true
+fi
+
+# Default compat tool: seed the GLOBAL "run other titles with" mapping to the bundled ARM
+# proton-cachyos, so users who never open Settings get the fast ARM path instead of an x86
+# Proton (functional since the binfmt/SLR work, but fully-emulated Wine = subpar perf).
+# Seed-once (respects a user's own choice); must run while Steam is NOT running, which the
+# stale-client sweep above just guaranteed. See pocknix-steam-seed-default-compat.
+/usr/bin/pocknix-steam-seed-default-compat proton-cachyos || true
+
+# ES-DE + ES-DE favorites into the Steam library: pocknix-steam-sync (pocknix-emulation) writes
+# shortcuts.vdf DIRECTLY — no Steam ROM Manager (its Electron CLI deadlocked on every display
+# backend on this device; retired 2026-07-05). Right moment: Steam is guaranteed down (it rewrites
+# shortcuts.vdf on exit, clobbering live edits) and the sync needs no display. <1s, idempotent.
+if command -v pocknix-steam-sync >/dev/null 2>&1; then
+  pocknix-steam-sync || echo "[pocknix-steam] Steam-library sync failed (non-fatal)"
+fi
+
+# Panel geometry/orientation come from the DEVICE layer: /usr/lib/pocknix/device.conf is
+# shipped by the device's BSP (pocknix-bsp-<device>); /etc/pocknix/device.conf is the optional
+# admin override (sourced last, wins). Fallbacks = the RP6 values, so behavior is unchanged
+# if no device.conf exists. Rotation is done in a compute SHADER by default (--use-rotation-shader,
+# ROCKNIX 0005 patch): the composite is written transposed, which the msm DPU accepts (the shipped
+# kernel's planes advertise no rotate-90). NB -W/-H are the NATIVE PORTRAIT mode (1080x1920) —
+# gamescope picks the connector mode with them and derives the landscape logical size itself;
+# device.conf carries these values. --force-orientation sets the axis. See gamescope-rp6-gpu.
+# POCKNIX_ROTATION=hw (below) switches to DPU hardware rotation — same -W/-H, same orientation.
+for _dc in /usr/lib/pocknix/device.conf /etc/pocknix/device.conf; do
+  [ -r "${_dc}" ] && . "${_dc}"
+done
+W="${POCKNIX_PANEL_W:-1080}"; H="${POCKNIX_PANEL_H:-1920}"
+REFRESH="${POCKNIX_PANEL_REFRESH:-120}"; ORIENT="${POCKNIX_PANEL_ORIENT:-left}"
+PANEL_MM="${POCKNIX_PANEL_MM:-177x100}"
+
+# POCKNIX_ROTATION — where the 90-degree rotation happens (experiment 2026-09-20,
+# docs/rotation-experiment-2026-09-20.md). Read from the environment or from device.conf /
+# /etc/pocknix/device.conf (sourced above), so the switch can be flipped per device or per admin
+# without editing this file.
+#   shader (default) — --use-rotation-shader, ROCKNIX 0005 in packages/gamescope: every frame is
+#                      composited and written transposed; the plane rotation property stays
+#                      ROTATE_0. Works on the shipped kernel (DPU planes advertise no rotate-90).
+#   hw               — NO --use-rotation-shader. Needs BOTH gamescope-next (Valve 3.16.29 =
+#                      8f21264; it has no such flag — passing it would abort with "unrecognized
+#                      option") AND the 50-rotation-exp kernel (DPU inline rotation). gamescope
+#                      then rotates at scanout: DRMBackend.cpp drm_set_mode() (:3429-3435) sees
+#                      rotate-90/270 on the primary plane and leaves g_uOutputRotation=0, direct
+#                      scanout is back, and the liftoff layers carry rotation=ROTATE_90/270
+#                      (:2710). On a kernel WITHOUT the series, Valve's code falls back to
+#                      composited rotation by itself (38fb50f) — the picture stays right, only
+#                      the perf win is missing. --force-composition-rotation forces that
+#                      fallback on a kernel WITH the series (the A/B "off" switch, no reboot).
+# -W/-H are the SAME in both modes: they select the connector MODE (native portrait 1080x1920;
+# find_mode() at DRMBackend.cpp:978 matches hdisplay/vdisplay, called from setup_best_connector()
+# :1145 with the -W/-H values via init_drm :1256). drm_set_mode() :3411-3425 then transposes the
+# LOGICAL output itself (g_nOutputWidth = mode->vdisplay = 1920, g_nOutputHeight = mode->hdisplay
+# = 1080) for the 90/270 orientations. (Line numbers = 3.16.29.) Passing the landscape size would make find_mode() miss
+# (no 1920x1080 mode on a portrait DSI panel) and fall through to a generated timing — the same
+# family as the -r 120 DPU wedge (HANDOFF "Hard-won knowledge" 2). --force-orientation keeps the
+# same token as well: the orientation enum feeds both the touch mapping
+# (wlserver.cpp apply_touchscreen_orientation) and the plane rotation property, so touch and
+# picture rotate together in either mode.
+ROTATION="${POCKNIX_ROTATION:-shader}"
+case "${ROTATION}" in
+  hw)     GS_ROTATE_ARGS="" ;;
+  shader) GS_ROTATE_ARGS="--use-rotation-shader" ;;
+  *)      echo "[pocknix-steam] POCKNIX_ROTATION='${ROTATION}' unknown (shader|hw) — using shader"
+          GS_ROTATE_ARGS="--use-rotation-shader" ;;
+esac
+
+# NO core pin: scx_lavd (latency- + heterogeneity-aware, pocknix-lavd.service) places the bursty
+# game/compositor threads on the big cores itself, AND needs the A510 littles free to offload batch
+# work (e.g. in-game Steam downloads) so the UI stays responsive — a hard taskset would fight it.
+# (The manual 3-7 pin was for the plain-EEVDF kernel; lavd supersedes it.)
+
+# Steam client flags = armada's gamescope-session CLIENTCMD exactly
+# (`-gamepadui -steamos3 -steampal -steamdeck -noverifyfiles`). `-e` = gamescope --steam.
+#
+# LD_LIBRARY_PATH is set on the CLIENT via an INNER `env`, NOT on gamescope's environment. gamescope
+# carries CAP_SYS_NICE (a file capability, for realtime scheduling — see packages/gamescope), which
+# puts it in glibc secure-execution mode (AT_SECURE). In that mode glibc *removes* LD_LIBRARY_PATH
+# from the environment entirely; the steam client (gamescope's child) would then inherit an env
+# WITHOUT it and fail to load steamui.so's bundled libvpx.so.6 from steamrtarm64. Re-injecting it
+# with `env` right before the client restores it for the (non-secure) client. gamescope itself does
+# not need LD_LIBRARY_PATH (its libs are in the system paths).
+# Gamescope's output goes to its log file, NOT the tty: tty1 must stay blank, it's what shows
+# between compositors on a session switch (the supervisor keeps it cleared; a tee to tty+file here
+# used to replay the whole scrollback on every switch). Written in the deck HOME (deck can't write
+# /var/log — that failed with "Permission denied" and lost the log). pocknix-diag picks it up.
+# Truncated each launch. Still NOT exec'd; pkill -TERM gamescope (session switch) targets by name.
+GS_LOG="${HOME}/pocknix-steam.log"
+# Steam's gamepadui sizes its UI from the output's physical mm (DPI). 177x100 = armada's tested RP6
+# value (~275 DPI, handheld-correct UI); the old 508x286 was ~96 DPI -> a desktop monitor -> tiny UI.
+# The present-path env (vk_xwayland_wait_ready / GAMESCOPE_DISABLE_ASYNC_FLIPS / ENABLE_GAMESCOPE_WSI /
+# mesa_glthread), ported from gamescope-session-plus, was REMOVED 2026-07-01 after the deep off-CPU
+# investigation (docs/gamescope-fps-investigation.md): on-device A/B showed they don't affect fps, and
+# gamescope force-sets vk_xwayland_wait_ready / ENABLE_GAMESCOPE_WSI on its children anyway (so setting
+# them here was a no-op). GAMESCOPE_DISABLE_ASYNC_FLIPS=1 was a 120/3=40fps vsync staircase — dropping
+# it lets frames exceed 40. Now bare, matching ROCKNIX's launch. -noshaders matches ROCKNIX too (stops
+# Steam's fossilize background shader compile stealing CPU during play).
+env -u WAYLAND_DISPLAY \
+  GAMESCOPE_FAKE_OUTPUT_MM="${PANEL_MM}" \
+  gamescope -W "${W}" -H "${H}" --xwayland-count 2 --mangoapp --backend drm \
+    --force-orientation "${ORIENT}" ${GS_ROTATE_ARGS} -e -- \
+    env LD_LIBRARY_PATH="${LDLP}" "${CLIENT}" -gamepadui -steamos3 -steampal -steamdeck -noverifyfiles -noshaders \
+  >"${GS_LOG}" 2>&1

@@ -1,0 +1,62 @@
+# lsfg-vk — Lossless Scaling Frame Generation as a Vulkan implicit layer.
+#
+# The "frame insertion" feature the community runs on Armada (Cyberpunk at 48fps =
+# ~24fps base render x2). Built from UPSTREAM source pinned to the same develop
+# commit ROCKNIX ships (v2.0.0-dev line: LSFGVK_* env, VkLayer_LSFGVK manifest).
+# Do NOT substitute the decky-lsfg-vk plugin's prebuilt ARM blob — its provenance
+# is undocumented and its predecessor crashed in Vulkan init on Odin devices.
+#
+# Runtime requirements (user-facing, document in README):
+#  - The user must OWN Lossless Scaling on Steam and install it on-device (the
+#    Windows app won't run on ARM Linux — it's installed only so the layer can
+#    read Lossless.dll and extract the LSFG compute shaders at runtime).
+#  - x86_64 games only reach this HOST layer when FEX thunks guest Vulkan to the
+#    host loader (ThunksDB.Vulkan) — the launcher enables that for lsfg games.
+# Mobile-tuned defaults (per ROCKNIX): multiplier 2, flow_scale 0.30,
+# performance_mode 1, and cap the base rate so 2x lands on a steady target.
+pkgname=lsfg-vk
+pkgver=2.0.0dev
+pkgrel=1
+_commit=8b0da2661c6f3473a7fccc8ba643880050e71642
+pkgdesc="Lossless Scaling frame generation Vulkan layer (upstream develop, ROCKNIX-matched pin)"
+arch=('aarch64')
+url="https://github.com/PancakeTAS/lsfg-vk"
+license=('GPL-3.0-only')
+depends=('glibc' 'gcc-libs' 'vulkan-icd-loader')
+makedepends=('git' 'cmake' 'ninja' 'clang' 'vulkan-headers')
+source=("lsfg-vk::git+https://github.com/PancakeTAS/lsfg-vk.git#commit=${_commit}")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "${srcdir}/lsfg-vk"
+  # dxbc translator + pe-parse are vendored as submodules at this commit.
+  git submodule update --init --recursive
+}
+
+build() {
+  cd "${srcdir}/lsfg-vk"
+  # clang, IPO off: both ArmadaOS and ROCKNIX build aarch64 this way; gcc+LTO
+  # is the untested path.
+  CC=clang CXX=clang++ cmake -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DLSFGVK_BUILD_UI=OFF \
+    -DLSFGVK_BUILD_CLI=ON \
+    -DLSFGVK_INSTALL_DEVELOP=OFF \
+    -DLSFGVK_INSTALL_XDG_FILES=OFF \
+    -DLSFGVK_LAYER_LIBRARY_PATH=/usr/lib/liblsfg-vk-layer.so
+  cmake --build build
+}
+
+package() {
+  cd "${srcdir}/lsfg-vk"
+  DESTDIR="${pkgdir}" cmake --install build
+  # The implicit-layer manifest must land where both the host loader and
+  # pressure-vessel's host-graphics import can see it.
+  if [ ! -e "${pkgdir}/usr/share/vulkan/implicit_layer.d/VkLayer_LSFGVK_frame_generation.json" ]; then
+    echo "ERROR: layer manifest missing from install tree" >&2
+    find "${pkgdir}" -name '*.json' >&2
+    return 1
+  fi
+}

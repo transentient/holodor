@@ -1,0 +1,108 @@
+# pocknix-bsp-sm8750 — board support for the SM8750 FAMILY: Retroid Pocket 6
+# (+TOP-DPAD), AYN Odin 2 / Mini / Portal. ONE package serves every board on
+# the SoC (same shape as pocknix-bsp-sm8250): runtime board facts live in
+# /usr/lib/pocknix/boards/<board>.conf, /usr/lib/pocknix/device.conf is a
+# sourced DISPATCHER picking one by devicetree model, and the InputPlumber
+# config is dt-model gated. Successor to the retired per-device BSPs
+# (pocknix-bsp-{rp6,odin2,odin2mini,odin2portal}), whose contents were
+# identical apart from the board facts — 'replaces' migrates installed
+# devices on their next pacman -Syu.
+#
+# SoC-wide quirks (identical on every board, verified on the RP6):
+#   * 10-pocknix-deeponly.conf — pin SuspendState=mem (no standby/freeze fall-through);
+#                                the mem_sleep MODE (s2idle since bsp-16) comes from the cmdline
+#   * 30-pocknix-cpuidle.conf  — disable cpu0 idle state1 (GMU issues; ROCKNIX 096-cpuidle)
+#   * kernel-cmdline           — the family cmdline for the on-device /flash/KERNEL
+#                                rebuild (qcom-abl); build-packages.sh asserts it
+#                                matches devices/sm8750/profile.conf
+pkgname=pocknix-bsp-sm8750
+pkgver=0.2.0
+pkgrel=17   # 17: 91-pocknix-cmdline.hook — cmdline-only bsp bumps now rebuild /flash/KERNEL
+            # (the kernel pkg's 90-hook doesn't watch kernel-cmdline; bsp-16 shipped stale on-device)
+            # 16: kernel-cmdline mem_sleep_default=s2idle (sleeps 5x deeper than "deep" on sm8750; validated 08-31)
+pkgdesc="pocknix board support: SM8750 family (AYN Odin 3) — runtime board dispatch, input map, suspend quirks, audio UCM"
+arch=('any')
+url="https://github.com/shuuri-labs/pocknix-os"
+license=('GPL2')
+depends=('pocknix-bsp-common')
+# Exactly one device BSP may be installed (wrong-device guard for a shared repo).
+# 'replaces' migrates installs of the retired per-device BSPs (and the ancient
+# unified 'pocknix-bsp', carried over from the rp6 lineage).
+provides=('pocknix-bsp')
+conflicts=('pocknix-bsp')
+optdepends=('inputplumber: gamepad -> Steam Input mapping (01-rsinput-controller.yaml)'
+            'alsa-ucm-conf: base UCM (wcd939x/qcom-lpass include sequences for the AYN-Odin3 UCM)')
+# NOTE: the spurious deep-sleep wake is FIXED in the kernel — kernel/sm8750/patches/20-sm8750/
+# 0502-wakeup-qcom-ipcc-remove-IRQF-NO-SUSPEND.patch masks the IPCC mailbox during suspend.
+# See docs/archive/sm8750-suspend-wake-report.md.
+source=('device.conf'
+        '01-rsinput-controller.yaml' 'sm8750-gamepad.yaml'
+        'AYN-Odin3.conf' 'HiFi.conf'
+        '10-pocknix-deeponly.conf' '30-pocknix-cpuidle.conf'
+        '50-no-sink-suspend.conf'
+        'kernel-cmdline' '91-pocknix-cmdline.hook'
+        'pocknix-stick-leds' 'pocknix-stick-ledsd' 'pocknix-stick-leds.service')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+  # Runtime device facts: the model dispatcher + per-board files. boards/ is
+  # not in source= (makepkg local sources are flat); taken from startdir,
+  # which build-packages.sh populates with the whole package dir.
+  install -Dm644 "${srcdir}/device.conf" "${pkgdir}/usr/lib/pocknix/device.conf"
+  local b
+  for b in "${startdir}/boards/"*.conf; do
+    install -Dm644 "${b}" "${pkgdir}/usr/lib/pocknix/boards/$(basename "${b}")"
+  done
+
+  # Pin deep-only suspend (drop systemd's mem->standby->freeze fall-through; s2idle
+  # can wedge on SM8750). systemd reads sleep.conf drop-ins from this vendor dir.
+  install -Dm644 "${srcdir}/10-pocknix-deeponly.conf" \
+    "${pkgdir}/usr/lib/systemd/sleep.conf.d/10-pocknix-deeponly.conf"
+  # cpuidle quirk: disable cpu0 idle state1 (GMU issues) — ROCKNIX SM8750 096-cpuidle,
+  # re-asserted every boot via systemd-tmpfiles.
+  install -Dm644 "${srcdir}/50-no-sink-suspend.conf" \
+    "${pkgdir}/usr/share/wireplumber/wireplumber.conf.d/50-no-sink-suspend.conf"
+
+  install -Dm644 "${srcdir}/30-pocknix-cpuidle.conf" \
+    "${pkgdir}/usr/lib/tmpfiles.d/30-pocknix-cpuidle.conf"
+
+  # InputPlumber composite-device config (dt-model gated, one for the family) +
+  # the shared capability_map for the RSInput MCU + gpio-keys paddles.
+  install -Dm644 "${srcdir}/01-rsinput-controller.yaml" \
+    "${pkgdir}/usr/share/inputplumber/devices/01-rsinput-controller.yaml"
+  install -Dm644 "${srcdir}/sm8750-gamepad.yaml" \
+    "${pkgdir}/usr/share/inputplumber/capability_maps/sm8750-gamepad.yaml"
+
+  # ALSA UCM: the Odin 3 sound card reports longname "SM8750-AYN" (qcom-abl boot)
+  # or "ayn-AYNOdin3-" (EFI boot) — both matchers link to one profile. Ported from
+  # ROCKNIX alsa-ucm-conf patches (author Teguh Sobirin), HARDWARE-VERIFIED
+  # 2026-08-02: speakers (aw88166 amps) play; headphone profile arms on jack
+  # detect (wcd939x). Codec include sequences (/lib, /codecs/wcd939x,
+  # /codecs/qcom-lpass) come from base alsa-ucm-conf. This replaced the sm8550-era
+  # AYN-Odin2 UCM that shipped through pkgrel 2 — without a matching profile
+  # WirePlumber creates NO sinks at all (the "no sound" v0.2 symptom).
+  local ucm="${pkgdir}/usr/share/alsa/ucm2"
+  install -Dm644 "${srcdir}/AYN-Odin3.conf" "${ucm}/AYN/Odin3/AYN-Odin3.conf"
+  install -Dm644 "${srcdir}/HiFi.conf"      "${ucm}/AYN/Odin3/HiFi.conf"
+  # card-match files (matched by card longname under the sm8750 driver dir)
+  install -d "${ucm}/conf.d/sm8750"
+  ln -sf "../../AYN/Odin3/AYN-Odin3.conf" "${ucm}/conf.d/sm8750/SM8750-AYN.conf"
+  ln -sf "../../AYN/Odin3/AYN-Odin3.conf" "${ucm}/conf.d/sm8750/ayn-AYNOdin3-.conf"
+
+  # Thumbstick RGB helper (HTR3212 rings; needs kernel 7.1.3-9+ LEDS_HTR3212).
+  install -Dm755 "${srcdir}/pocknix-stick-leds" \
+    "${pkgdir}/usr/local/bin/pocknix-stick-leds"
+  install -Dm755 "${srcdir}/pocknix-stick-ledsd" \
+    "${pkgdir}/usr/local/bin/pocknix-stick-ledsd"
+  install -Dm644 "${srcdir}/pocknix-stick-leds.service" \
+    "${pkgdir}/usr/lib/systemd/system/pocknix-stick-leds.service"
+
+  # Kernel command line for the on-device /flash/KERNEL rebuild (pocknix-build-bootimg,
+  # shipped by linux-pocknix-sm8750). One family cmdline (the retired per-device ones
+  # were byte-identical); build-packages.sh asserts it matches the family profile.
+  install -Dm644 "${srcdir}/kernel-cmdline" "${pkgdir}/usr/lib/pocknix/kernel-cmdline"
+  # ...and the hook that keeps /flash/KERNEL in sync when ONLY the cmdline changes
+  # (the kernel package's 90-hook watches Image/dtbs/modules, not this file).
+  install -Dm644 "${srcdir}/91-pocknix-cmdline.hook" \
+    "${pkgdir}/usr/share/libalpm/hooks/91-pocknix-cmdline.hook"
+}

@@ -1,0 +1,18 @@
+[Unit]
+Description=pocknix: register the Flathub remote for Discover/flatpak
+# Adding the remote fetches flathub.flatpakrepo (the GPG key + URL), so it needs the network the
+# first time. After that the remote exists and ExecStart is a no-op even offline.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/pocknix-flathub-setup
+RemainAfterExit=yes
+# network-online.target fires before DNS is usable on some boots (flatpakrepo fetch fails
+# with a resolver error); retry instead of leaving the remote unregistered until a reboot.
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

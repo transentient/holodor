@@ -1,0 +1,176 @@
+#!/bin/bash
+# pocknix-roms-init — first-login setup for the emulation layer, run as the 'deck' user by
+# pocknix-roms-init.service (a --user oneshot). Two jobs, both idempotent:
+#
+#   1. Create the drop tree ~/Emulation/ROMs/<system> + ~/Emulation/BIOS (+Saves/States), and drop
+#      README.txt so the user knows exactly where to copy ROMs / BIOS / Switch keys. This is the
+#      whole "drop your files in a folder and they're picked up" promise. ES-DE defaults to ~/ROMs,
+#      so we also seed its ROMDirectory setting to the new location (es_settings.xml below).
+#
+#   2. Seed the ES-DE + RetroArch configs into $HOME IF THE USER HAS NONE (never clobber user
+#      edits). A pacman package cannot write /home/deck at install time, so the staged copies live
+#      in /usr/share/pocknix-emulation and land here on first login instead (robust-location
+#      pattern — see the fixes-go-in-robust-locations rationale in the repo).
+#
+# Safe to run repeatedly; re-runs only create what's missing. Guarded so it never fails the login.
+set -u
+
+SHARE=/usr/share/pocknix-emulation
+EMU="${HOME}/Emulation"
+
+# Panel refresh drives per-device seed values (RetroArch refresh/swap-interval, Eden vsync).
+# The seeds were authored on the RP6 (120Hz); 60Hz panels (RP5/Flip 2) need different values,
+# substituted at seed time below. Fallback = 120 (the authored values pass through unchanged).
+[ -r /usr/lib/pocknix/device.conf ] && . /usr/lib/pocknix/device.conf
+[ -r /etc/pocknix/device.conf ] && . /etc/pocknix/device.conf
+REFRESH="${POCKNIX_PANEL_REFRESH:-120}"
+# The ROM dir is MOVEABLE: ES-DE's ROMDirectory setting is the single source of truth (ES-DE
+# Menu > Other Settings > ROM directory — e.g. point it at an SD card). Everything follows it:
+# this script builds the system-folder skeleton there, pocknix-steam-sync resolves favorites
+# against it. Empty/absent = ES-DE's default ~/ROMs (also the legacy pocknix layout). The seed
+# below (only when ES-DE has never been configured) sets ~/Emulation/ROMs for fresh installs.
+ESDE_SETTINGS="${HOME}/ES-DE/settings/es_settings.xml"
+_roms_setting="$(sed -n 's/.*name="ROMDirectory" value="\([^"]*\)".*/\1/p' "${ESDE_SETTINGS}" 2>/dev/null | head -1)"
+case "${_roms_setting}" in "~"*) _roms_setting="${HOME}${_roms_setting#\~}" ;; esac
+if [ -n "${_roms_setting}" ]; then
+  ROMS="${_roms_setting}"
+elif [ -f "${ESDE_SETTINGS}" ]; then
+  ROMS="${HOME}/ROMs"          # settings exist but no/empty ROMDirectory = ES-DE default
+else
+  ROMS="${EMU}/ROMs"           # fresh install: the seed below points ES-DE here
+fi
+
+# ES-DE default folder names. Curated to the pocknix console list (RetroArch-core systems + the
+# standalone heavy hitters: gc/wii/wiiu, ps2, ps3, psvita, switch, xbox, n3ds). Creating the dir
+# just gives the user a labelled place to drop ROMs; ES-DE still only SHOWS systems once populated.
+SYSTEMS=(
+  nes snes n64 gb gbc gba nds n3ds
+  genesis megadrive mastersystem gamegear segacd saturn dreamcast
+  tg16 pcengine neogeo arcade mame
+  atari2600 atari7800 atarilynx atarijaguar wonderswan
+  psx ps2 ps3 psp psvita
+  gc wii wiiu switch xbox
+)
+
+mkdir -p "${EMU}/BIOS" "${EMU}/Saves" "${EMU}/States"
+for s in "${SYSTEMS[@]}"; do mkdir -p "${ROMS}/${s}"; done
+
+# Drop the guidance file at the root of the tree (refresh it each run so doc updates propagate).
+if [ -f "${SHARE}/ROMS-README.txt" ]; then
+  cp -f "${SHARE}/ROMS-README.txt" "${EMU}/README.txt" 2>/dev/null || true
+fi
+
+# --- seed ES-DE settings: ROM directory (only if the user has no settings yet) ---
+# ES-DE's default scan dir is ~/ROMs; ours is ~/Emulation/ROMs. Only seeded when ES-DE has never
+# run (no es_settings.xml) — after that, ES-DE's own setting is authoritative (see above).
+if [ ! -f "${ESDE_SETTINGS}" ]; then
+  mkdir -p "${HOME}/ES-DE/settings"
+  printf '<?xml version="1.0"?>\n<string name="ROMDirectory" value="%s" />\n' "${ROMS}" > "${ESDE_SETTINGS}" 2>/dev/null || true
+fi
+
+# --- seed ES-DE custom find-rules (only if the user has none) ---
+# ES-DE reads custom emulator lookup rules from ~/ES-DE/custom_systems/es_find_rules.xml. Ours
+# points ES-DE at the pocknix emulator install paths (see that file).
+ESDE_CUSTOM="${HOME}/ES-DE/custom_systems"
+if [ -f "${SHARE}/es_find_rules.xml" ] && [ ! -f "${ESDE_CUSTOM}/es_find_rules.xml" ]; then
+  mkdir -p "${ESDE_CUSTOM}"
+  cp "${SHARE}/es_find_rules.xml" "${ESDE_CUSTOM}/es_find_rules.xml" 2>/dev/null || true
+fi
+
+# --- seed ES-DE custom system definitions (only if the user has none) ---
+# Full-entry overrides for systems whose bundled launch command is wrong for pocknix (ps2:
+# ES-DE only offers the RetroArch pcsx2 core, which we don't ship — see that file's header).
+if [ -f "${SHARE}/es_systems.xml" ] && [ ! -f "${ESDE_CUSTOM}/es_systems.xml" ]; then
+  mkdir -p "${ESDE_CUSTOM}"
+  cp "${SHARE}/es_systems.xml" "${ESDE_CUSTOM}/es_systems.xml" 2>/dev/null || true
+fi
+
+# (Steam ROM Manager is RETIRED from the sync flow — its Electron CLI deadlocked on every display
+# backend on-device 2026-07-05. ES-DE + favorites reach Steam via pocknix-steam-sync's direct
+# shortcuts.vdf write, run by pocknix-steam at session start. The steam-rom-manager PKGBUILD
+# remains in-tree as an optional desktop tool; nothing here seeds or reads its config anymore.)
+
+# --- seed ARMSX2 (PS2) config: skip the setup wizard entirely ---
+# Template harvested from an on-device wizard run (2026-07-06): Vulkan renderer (Auto picked GL =
+# slow), full SDL pad bindings (the wizard writes none -> dead controller), 2.5x upscale (~1120p,
+# closest to the 1080p panel), BIOS = the standardized name ps2-bios.bin in ~/Emulation/BIOS
+# (users rename their dump to that -- see README). Never clobbers an existing config.
+if [ -f "${SHARE}/armsx2-PCSX2.ini.in" ] && [ ! -f "${HOME}/.config/PCSX2/inis/PCSX2.ini" ]; then
+  mkdir -p "${HOME}/.config/PCSX2/inis"
+  sed "s|__HOME__|${HOME}|g" "${SHARE}/armsx2-PCSX2.ini.in" > "${HOME}/.config/PCSX2/inis/PCSX2.ini" 2>/dev/null || true
+fi
+
+# --- seed Eden (Switch) config: pad bindings + per-device vsync + 1x resolution ---
+# Eden ships no pad bindings (dead controller otherwise). vsync is per-device: Mailbox (1) =
+# smoothest pacing on the 120Hz RP6 panel; FIFO (2) paces evenly on 60Hz panels (RP5-validated
+# 2026-07-22, Mailbox was bouncy there). resolution_setup=2 (1x) in the seed overrides Eden's
+# 1.5x default: 1620p internal render pegged the RP5 GPU and slipped frames; 1x = flat
+# frametimes, and docked 1x already matches the 1080p panels. Partial seed (Eden fills the
+# rest with its defaults on first run). Never clobbers an existing config.
+if [ -f "${SHARE}/eden-qt-config.ini.in" ] && [ ! -f "${HOME}/.config/eden/qt-config.ini" ]; then
+  mkdir -p "${HOME}/.config/eden"
+  _vs=2; [ "${REFRESH}" -ge 120 ] 2>/dev/null && _vs=1
+  sed "s/^use_vsync=.*/use_vsync=${_vs}/" "${SHARE}/eden-qt-config.ini.in" \
+    > "${HOME}/.config/eden/qt-config.ini" 2>/dev/null || true
+fi
+
+# --- seed Dolphin (GameCube/Wii) config: Vulkan + pad bindings + no blocking dialogs ---
+# Dolphin ships keyboard-only pad bindings (dead controller) and pops two modals unreachable in
+# game mode (analytics consent, confirm-stop). Never clobbers an existing config.
+if [ -f "${SHARE}/dolphin-Dolphin.ini.in" ] && [ ! -f "${HOME}/.config/dolphin-emu/Dolphin.ini" ]; then
+  mkdir -p "${HOME}/.config/dolphin-emu"
+  cp "${SHARE}/dolphin-Dolphin.ini.in"   "${HOME}/.config/dolphin-emu/Dolphin.ini"   2>/dev/null || true
+  cp "${SHARE}/dolphin-GFX.ini.in"       "${HOME}/.config/dolphin-emu/GFX.ini"       2>/dev/null || true
+  cp "${SHARE}/dolphin-GCPadNew.ini.in"  "${HOME}/.config/dolphin-emu/GCPadNew.ini"  2>/dev/null || true
+fi
+
+# --- seed RetroArch joypad autoconfig profiles (only what's missing) ---
+# From retroarch-autoconfig-pocknix (/usr/share/libretro/autoconfig). Copied (not symlinked) into
+# RetroArch's default, WRITABLE autoconfig dir so user-saved custom profiles coexist. Without
+# these, RetroArch sees Steam Input's virtual X360 pad but has no bindings: controls fully dead
+# (bitten on-device 2026-07-06). -n = never clobber a user-customized profile.
+RA_AUTOCFG_SRC=/usr/share/libretro/autoconfig/udev
+RA_AUTOCFG_DST="${HOME}/.config/retroarch/autoconfig/udev"
+if [ -d "${RA_AUTOCFG_SRC}" ]; then
+  mkdir -p "${RA_AUTOCFG_DST}"
+  cp -n "${RA_AUTOCFG_SRC}/"*.cfg "${RA_AUTOCFG_DST}/" 2>/dev/null || true
+fi
+
+# --- link the vendored slang shader set into RetroArch's shader dir ---
+# From retroarch-shaders-pocknix. Symlink (not copy — 79 MB): the shader dir itself stays the
+# writable user default so preset saving keeps working; presets reference shaders relative to the
+# shader dir and resolve through the link. Skipped if the user already has a real shaders_slang
+# (e.g. downloaded via Online Updater before this package existed).
+RA_SHADERS_SRC=/usr/share/libretro/shaders/shaders_slang
+RA_SHADERS_DST="${HOME}/.config/retroarch/shaders/shaders_slang"
+if [ -d "${RA_SHADERS_SRC}" ] && [ ! -e "${RA_SHADERS_DST}" ]; then
+  mkdir -p "${HOME}/.config/retroarch/shaders"
+  ln -s "${RA_SHADERS_SRC}" "${RA_SHADERS_DST}" 2>/dev/null || true
+fi
+
+# --- seed per-system RetroArch tuning (content-dir overrides + shader presets) ---
+# From /usr/share/pocknix-emulation/retroarch-config (e.g. mGBA/gba.cfg = integer scaling,
+# mGBA/gba.slangp = lcd3x). cp -Rn: a user's own saved overrides/presets are never clobbered.
+RA_CONF_SRC=/usr/share/pocknix-emulation/retroarch-config
+RA_CONF_DST="${HOME}/.config/retroarch/config"
+if [ -d "${RA_CONF_SRC}" ]; then
+  mkdir -p "${RA_CONF_DST}"
+  cp -Rn "${RA_CONF_SRC}/." "${RA_CONF_DST}/" 2>/dev/null || true
+fi
+
+# --- seed RetroArch defaults (only if the user has no retroarch.cfg) ---
+# system_directory -> ~/ROMs/bios etc. RetroArch expands any missing keys itself on first run, so a
+# minimal seed is fine; if the user already has a config we leave it entirely alone.
+RA_CFG="${HOME}/.config/retroarch/retroarch.cfg"
+# refresh/swap-interval are per-device: the seed's authored values (120Hz, interval 2 =
+# present-every-2nd-vblank) are right ONLY for 120Hz panels; on a 60Hz panel interval 2 paces
+# at 30fps (RP5 2026-07-22). Substitute from POCKNIX_PANEL_REFRESH: 60Hz -> 60/1, 120Hz -> 120/2.
+if [ -f "${SHARE}/retroarch.cfg" ] && [ ! -f "${RA_CFG}" ]; then
+  mkdir -p "${HOME}/.config/retroarch"
+  _si=$(( REFRESH / 60 )); [ "${_si}" -lt 1 ] && _si=1
+  sed -e "s/^video_refresh_rate = .*/video_refresh_rate = \"${REFRESH}.000000\"/" \
+      -e "s/^video_swap_interval = .*/video_swap_interval = \"${_si}\"/" \
+      "${SHARE}/retroarch.cfg" > "${RA_CFG}" 2>/dev/null || true
+fi
+
+exit 0

@@ -1,0 +1,11 @@
+[Unit]
+Description=pocknix: mark the active A/B slot successful (stop the bootloader depleting its retry counter)
+After=local-fs.target
+ConditionPathExistsGlob=/dev/disk/by-partlabel/boot_*
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pocknix-slot-successful
+
+[Install]
+WantedBy=multi-user.target

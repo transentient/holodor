@@ -1,0 +1,6 @@
+#!/bin/sh
+# Enable cpu0 deep idle (state1) for the suspend window only. Awake it stays
+# disabled (GMU quirk, 30-pocknix-cpuidle.conf). s2idle needs state1 to descend
+# past WFI toward cluster/domain sleep; harmless under deep. Pocknix pattern.
+echo 0 > /sys/devices/system/cpu/cpu0/cpuidle/state1/disable 2>/dev/null || true
+exit 0

@@ -1,0 +1,97 @@
+# vulkan-freedreno-next (x86_64) — the x86 turnip PAYLOAD for fex-rootfs.
+#
+# WHY THIS EXISTS: x86 Proton games under FEX load the x86 turnip from inside the
+# FEX rootfs (FEX Config.json ThunksDB is all-zero — no Vulkan host-thunk; see
+# packages/fex-emu/PKGBUILD). So any driver experiment for x86 games must land in
+# the x86 copy, not (only) the ARM one. This recipe builds x86_64 turnip from the
+# SAME pinned mesa-main commit and the SAME two a830/a8xx patches as
+# packages/mesa-next (one pin for both sides — the patch files here are symlinks
+# into ../../mesa-next/). Keep _commit/pkgrel in lockstep with mesa-next.
+#
+# HOW IT'S USED: built NATIVELY on an x86_64 Arch box (fusor) with plain
+# `makepkg -s` in this directory — NOT via scripts/build-packages.sh (the aarch64
+# chroot can't build x86_64; this dir is nested one level down precisely so the
+# packages/*/ build glob never picks it up). Copy the resulting
+# vulkan-freedreno-next-<ver>-<rel>-x86_64.pkg.tar.zst up into packages/fex-rootfs/
+# (gitignored binary) and pin its sha256 there; fex-rootfs extracts ONLY
+# usr/lib/libvulkan_freedreno.so into the rootfs image, exactly as it did with the
+# Arch-archive 26.1.5 payload. (Upstream pocknix ships Arch's prebuilt x86 binaries
+# instead — 791015e — but Arch has no mesa-main snapshot, so we build our own.)
+#
+# BUILD FLAGS: deliberately NO -march=native — the .so runs on the Odin under FEX,
+# not on the build box. /etc/makepkg.conf's Arch default (-march=x86-64
+# -mtune=generic) is the right baseline (same as the Arch archive payloads); the
+# fallback below reproduces it if makepkg.conf ever goes exotic.
+pkgname=vulkan-freedreno-next
+_commit=8e12d6000b247715b7c9bfaac67bca565dd8b9d8   # = packages/mesa-next _commit
+pkgver=26.3.0_devel
+pkgrel=6                                            # = packages/mesa-next pkgrel
+pkgdesc="x86_64 turnip at the mesa-next pin + a830/a8xx patches (FEX rootfs payload)"
+arch=('x86_64')
+url="https://www.mesa3d.org/"
+license=("MIT AND BSD-3-Clause AND SGI-B-2.0")
+makedepends=(glslang
+  meson ninja python-mako python-packaging python-yaml python-ply
+  expat libdrm libdisplay-info spirv-tools systemd-libs vulkan-icd-loader
+  wayland wayland-protocols zlib zstd
+  xorgproto libx11 libxcb libxshmfence xcb-util-keysyms
+)
+options=(!lto !debug)
+source=("mesa-${_commit}.tar.gz::https://gitlab.freedesktop.org/mesa/mesa/-/archive/${_commit}/mesa-${_commit}.tar.gz"
+        '0001-freedreno-a830-disable-fs-tex-prefetch.patch'
+        '0002-freedreno-a8xx-disable-64b-image-atomics.patch')
+sha256sums=('749575ee7c04b3431799f300efa116fca8cf8cddf8e6536fcb19be91d3c47d58'
+            'SKIP'
+            'SKIP')
+
+prepare() {
+  cd "mesa-${_commit}"
+  local p
+  for p in 0001 0002; do
+    patch -p1 < "${srcdir}/${p}-"*.patch
+  done
+  # Same driver-version stamp trick as mesa-next, x86-suffixed so an on-device
+  # vulkaninfo/Proton log names which side of the pair it is looking at.
+  echo "${pkgver}-pocknix-x86.${pkgrel}" > VERSION
+}
+
+build() {
+  # Turnip ONLY (the payload is one .so): no gallium, no GL/EGL/GBM. Same
+  # kmd/wsi choices as mesa-next: freedreno-kmds=msm, x11+wayland WSI.
+  meson setup build "mesa-${_commit}" --prefix=/usr --buildtype=plain \
+    -Db_ndebug=true \
+    -Dplatforms=x11,wayland \
+    -Dglx=disabled \
+    -Degl=disabled \
+    -Dgbm=disabled \
+    -Dopengl=false \
+    -Dgles1=disabled \
+    -Dgles2=disabled \
+    -Dgallium-drivers= \
+    -Dvulkan-drivers=freedreno \
+    -Dfreedreno-kmds=msm \
+    -Dvulkan-layers= \
+    -Dllvm=disabled \
+    -Ddraw-use-llvm=false \
+    -Dgallium-rusticl=false \
+    -Dgallium-va=disabled \
+    -Dgallium-extra-hud=false \
+    -Dshader-cache=enabled \
+    -Dandroid-libbacktrace=disabled \
+    -Dlibunwind=disabled \
+    -Dlmsensors=disabled \
+    -Dvalgrind=disabled \
+    -Dmicrosoft-clc=disabled \
+    -Dbuild-tests=false
+  meson compile -C build
+}
+
+package() {
+  depends=(expat glibc libdrm libdisplay-info libx11 libxcb libxshmfence
+           spirv-tools systemd-libs vulkan-icd-loader wayland xcb-util-keysyms
+           zlib zstd)
+  provides=("vulkan-freedreno=${pkgver}" vulkan-driver)
+  conflicts=(vulkan-freedreno)
+  meson install -C build --destdir "${pkgdir}" --no-rebuild
+  install -Dm644 "mesa-${_commit}/docs/license.rst" -t "${pkgdir}/usr/share/licenses/${pkgname}"
+}

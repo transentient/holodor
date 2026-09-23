@@ -1,0 +1,35 @@
+#!/bin/sh
+# pocknix-stick-leds — drive the Odin 3 thumbstick RGB rings (HTR3212, 4 zones/stick).
+# usage: pocknix-stick-leds RRGGBB | off | status | save RRGGBB | apply-saved
+#   save        set the color AND persist it to /var/lib/pocknix/led-color
+#   apply-saved re-apply the persisted color (boot service + resume hook use this)
+# LEDs appear as /sys/class/leds/{r,l}:{r,g,b}{1..4} (kernel 7.1.3-9+ LEDS_HTR3212).
+L=/sys/class/leds
+SAVE=/var/lib/pocknix/led-color
+MODEF=/var/lib/pocknix/led-mode
+
+apply() {  # $1 = RRGGBB or "off"
+  case "$1" in
+    off|OFF) R=0; G=0; B=0 ;;
+    [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F])
+      R=$((16#$(echo "$1"|cut -c1-2))); G=$((16#$(echo "$1"|cut -c3-4))); B=$((16#$(echo "$1"|cut -c5-6))) ;;
+    *) echo "bad color: $1"; return 2 ;;
+  esac
+  found=0
+  for side in r l; do for z in 1 2 3 4; do for c in r g b; do
+    f="$L/${side}:${c}${z}/brightness"; [ -w "$f" ] || continue
+    max=$(cat "$L/${side}:${c}${z}/max_brightness" 2>/dev/null || echo 255)
+    case $c in r) v=$R;; g) v=$G;; b) v=$B;; esac
+    echo $((v * max / 255)) > "$f" 2>/dev/null && found=$((found+1))
+  done; done; done
+  [ "$found" -gt 0 ]
+}
+
+case "${1:-status}" in
+  status)      ls -d $L/r:* 2>/dev/null | head -2 || echo "no stick LEDs (kernel too old?)" ;;
+  save)        mkdir -p "$(dirname "$SAVE")"; echo "$2" > "$SAVE"; echo "stick LEDs: color #$2 saved (live via daemon)" ;;
+  mode)        mkdir -p "$(dirname "$MODEF")"; echo "$2" > "$MODEF"; echo "stick LEDs: mode $2" ;;
+  apply-saved) [ -r "$SAVE" ] && apply "$(cat "$SAVE")" || exit 0 ;;
+  off)         apply off && echo "stick LEDs: off" ;;
+  *)           apply "$1" && echo "stick LEDs: #$1" ;;
+esac

@@ -1,0 +1,26 @@
+# wayland-protocols-next — newer wayland-protocols than Holo Core's 1.45, needed only to build
+# gamescope-next (its wlroots 0.20 subproject wants >= 1.47). OPTIONAL: built on request
+# (make packages PKG=wayland-protocols-next), never part of the default set. Data-only package.
+pkgname=wayland-protocols-next
+_pkgname=wayland-protocols
+pkgver=1.47   # 1.47 = wlroots 0.20's minimum; 1.48+ generate enum headers that need a newer wayland-scanner than Holo Core's 1.24
+pkgrel=1
+pkgdesc="Wayland protocol specifications ${pkgver} (build-time only; for gamescope-next)"
+arch=('any')
+url="https://gitlab.freedesktop.org/wayland/wayland-protocols"
+license=('MIT')
+makedepends=('meson' 'ninja' 'wayland')
+provides=("wayland-protocols=${pkgver}")
+conflicts=('wayland-protocols')
+source=("https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/${pkgver}/downloads/wayland-protocols-${pkgver}.tar.xz")
+sha256sums=('SKIP')
+
+build() {
+  arch-meson "${_pkgname}-${pkgver}" build -Dtests=false
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "${pkgdir}"
+  install -Dm644 "${_pkgname}-${pkgver}/COPYING" "${pkgdir}/usr/share/licenses/${pkgname}/COPYING"
+}

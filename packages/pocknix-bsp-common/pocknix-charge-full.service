@@ -1,0 +1,10 @@
+[Unit]
+Description=pocknix: restore full-charge behavior (battmgr firmware defaults to an 80% cap)
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pocknix-charge-full
+
+[Install]
+WantedBy=multi-user.target

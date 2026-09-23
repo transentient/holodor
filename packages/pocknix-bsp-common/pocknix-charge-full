@@ -1,0 +1,18 @@
+#!/bin/sh
+# Restore full-charge behavior. The Odin 3's battmgr firmware DEFAULTS to a
+# battery-care window (charge_control_end_threshold=80, start=70). That surprises
+# users badly: plugged in overnight, the device stops at 80%, the 70% restart does
+# not fire during deep suspend, and sleep drain walks the battery down from there
+# ("plugged in all night, woke to 58%" — 2026-08-28). Until a trustworthy opt-in
+# battery-care panel exists, ship stock full-charge expectations: end=100, start=95.
+# READ-before-write guard: only touch the knobs if they exist and differ.
+for d in /sys/class/power_supply/*/; do
+  end="$d/charge_control_end_threshold"
+  start="$d/charge_control_start_threshold"
+  [ -w "$end" ] || continue
+  [ "$(cat "$end" 2>/dev/null)" = "100" ] || echo 100 > "$end" 2>/dev/null || true
+  if [ -w "$start" ] && [ "$(cat "$start" 2>/dev/null)" != "95" ]; then
+    echo 95 > "$start" 2>/dev/null || true
+  fi
+done
+exit 0

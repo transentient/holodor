@@ -1,0 +1,33 @@
+# Local [pocknix] packages every device installs (build-image.sh install_local_packages).
+# All are installed pocknix/-qualified — see the QUALIFY comment in build-image.sh.
+# Device-specific packages (BSP, kernel, metapackage) come from devices/<name>/packages.list
+# + the kernel step, NOT this list.
+
+# our epoch-2 trimmed/tuned mesa (freedreno/turnip only) replaces ALARM's. HOLODOR ships the
+# -next 26.3.0-dev build: +4.6% native and fixes the continuous UCHE-fault storm 26.1.5 has
+# on A830 (docs/cyberpunk-bench-plan.md); provides/conflicts=mesa|vulkan-freedreno so pacman swaps cleanly.
+mesa-next
+vulkan-freedreno-next
+
+gamescope              # ROCKNIX-patched (composite rotation); vanilla black-screens rotated panels
+inputplumber           # gamepad -> Steam Input (device config shipped by the device BSP)
+pocknix-steamos-shim   # steamos-update/branch/BIOS stubs so the Deck UI OOBE doesn't dead-end
+pocknix-sdcard-automount
+mangohud               # patched (Adreno sysfs reader + mangoapp pacing)
+pocknix-steam          # the Steam session (launcher + installer)
+proton-cachyos         # CachyOS ARM64 Proton as a system compat tool (constant Steam entry, updates via pacman)
+fex-emu                # x86 emulator (thunks)
+fex-rootfs             # ~1.1 GB Arch x86 squashfs the games' libraries resolve from
+lsfg-vk                # Lossless Scaling frame-gen Vulkan layer (per-game "Frame Insertion";
+                       #   inert unless enabled; user must own+install Lossless Scaling)
+pocknix-desktop        # Plasma Mobile session + game<->desktop switch
+pocknix-decky          # Decky loader + Pocknix Control QAM plugin
+cloud-guest-utils      # growpart — pocknix-expand-root grows the root partition on first boot.
+                       #   NOT in Holo Core; ALARM aarch64 binary carried in the localrepo.
+scx-scheds             # sched_ext schedulers incl. scx_lavd (pocknix-lavd.service, autopilot).
+                       #   NOT in Holo Core; ALARM aarch64 binary carried in the localrepo.
+plymouth               # boot splash daemon. NOT in Holo Core; ALARM aarch64 binary repackaged
+                       #   in the localrepo (packages/plymouth). LATE mode — no initramfs, its
+                       #   units self-start at sysinit; cmdline already carries `splash`.
+pocknix-boot-art       # the Holodor boot cutscene as the plymouth theme (ssalmon_px art);
+                       #   selected by overlay /etc/plymouth/plymouthd.conf (Theme=holodor).

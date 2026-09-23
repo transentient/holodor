@@ -1,0 +1,64 @@
+Holodor provenance: REBASE of ROCKNIX distribution (next)
+projects/ROCKNIX/packages/apps/gamescope/patches/0006-steamcompmgr-fix-gamepad-cursor-sprite-frozen-via-XTest.patch
+(the same file we carry byte-identical in packages/gamescope for Valve 4286887) onto Valve
+gamescope 3.16.29 = 8f212644c46460549035971ab914421180f61a7c (2026-09-14). The original fails
+there because d12ec394a9 (2026-08-17, "steamcompmgr: Fix always considering pointer is relative
+in nested mode when pointer constraint exists but is not active") rewrote
+MouseCursor::UpdatePosition. Regenerated 2026-09-20 with the same intent (read the pointer via
+XQueryPointer so an XTest-moved gamepad cursor is repainted) while KEEPING d12ec39's semantics
+for m_bConstrained (true only for an active constraint with the cursor hint enabled; ROCKNIX's
+original sets it for any constraint object, which is the pre-d12ec39 behaviour). Two comments
+added in the body; no other change. Not build-tested (gamescope-next is prepared, not built).
+(The ROCKNIX original carries no From:/Subject: header — author unknown to us.)
+
+diff --git a/src/steamcompmgr.cpp b/src/steamcompmgr.cpp
+--- a/src/steamcompmgr.cpp
++++ b/src/steamcompmgr.cpp
+@@ -2020,23 +2020,35 @@
+ 
+ void MouseCursor::UpdatePosition()
+ {
++	// ROCKNIX 0006: take the position from the X server, so a cursor moved through XTest (Steam's
++	// gamepad mouse emulation) is seen even though that motion never passes through wlserver.
++	Window root_ret, child_ret;
++	int root_x = m_x, root_y = m_y, win_x = 0, win_y = 0;
++	unsigned int mask;
++	XQueryPointer( m_ctx->dpy, DefaultRootWindow( m_ctx->dpy ),
++	               &root_ret, &child_ret,
++	               &root_x, &root_y,
++	               &win_x, &win_y,
++	               &mask );
++
+ 	wlserver_lock();
++	// Keep d12ec39's meaning of m_bConstrained: only an ACTIVE constraint (cursor hint enabled)
++	// puts the pointer in relative mode, not the mere existence of a constraint object.
+ 	struct wlr_pointer_constraint_v1 *pConstraint = wlserver.GetCursorConstraint();
+-	if ( pConstraint && pConstraint->current.cursor_hint.enabled )
+-	{
+-		m_bConstrained = true;
++	m_bConstrained = pConstraint && pConstraint->current.cursor_hint.enabled;
++	wlserver_unlock();
+ 
+-		m_x = pConstraint->current.cursor_hint.x;
+-		m_y = pConstraint->current.cursor_hint.y;
+-	}
+-	else
++	if ( root_x != m_x || root_y != m_y )
+ 	{
+-		m_bConstrained = false;
+-
+-		m_x = wlserver.mouse_surface_cursorx;
+-		m_y = wlserver.mouse_surface_cursory;
++		m_x = root_x;
++		m_y = root_y;
++		if ( !m_imageEmpty )
++		{
++			wlserver.ulLastMovedCursorTime = get_time_in_nanos();
++			wlserver.bCursorHidden = !wlserver.bCursorHasImage;
++			hasRepaintNonBasePlane = true;
++		}
+ 	}
+-	wlserver_unlock();
+ }
+ 
+ void MouseCursor::checkSuspension()

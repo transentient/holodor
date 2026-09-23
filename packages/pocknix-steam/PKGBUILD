@@ -1,0 +1,95 @@
+# pocknix-steam — native ARM64 Steam (Big Picture under gamescope) for the Retroid Pocket 6.
+# Ships the native-ARM client installer (ported from ROCKNIX "Install Steam.sh") + the gamescope
+# launcher. The stock x86 steam-launcher .deb is NOT used (it pulls x86 binaries). Native ARM
+# Steam is experimental (Valve publicbeta linuxarm64).
+pkgname=pocknix-steam
+pkgver=0.1.0
+pkgrel=42   # 42: POCKNIX_ROTATION=shader|hw switch in the launcher (hw = drop --use-rotation-shader for
+            #     DPU hardware rotation with gamescope-next + the 50-rotation-exp kernel; default shader,
+            #     launch line unchanged). docs/rotation-experiment-2026-09-20.md
+pkgdesc="Native ARM64 Steam Big Picture (gamescope) for the RP6 — installer + launcher"
+arch=('any')
+url="https://github.com/shuuri-labs/pocknix-os"
+license=('GPL2')
+# gamescope = our ROCKNIX-patched compositor; wget/unzip/curl/tar fetch+unpack the client.
+# NB: wget/unzip/curl/tar + xorg-server-xvfb are GENUINE RUNTIME deps again: pocknix-steam-bootstrap
+# downloads+finalizes the client ON DEVICE on seedless images (curl/tar/unzip/xvfb), and
+# pocknix-steam-install still uses wget inside the build-time bake (which runs in this same rootfs).
+# seatd (gamescope seat) + pipewire (audio) come from the base image.
+# gtk2 (built by us; EOL in Arch) + gdk-pixbuf2 = libs steamui.so dlopens. Two deps the native
+# arm64 client needs that nothing else pulls in on a from-scratch ALARM base (Fedora/armada get
+# them transitively) — found via ldd ... | grep 'not found':
+#   openal   -> libopenal.so.1, a DT_NEEDED of vgui2_s.so; missing => "Could not load module
+#               'bin/vgui2_s.dll'" (the .so opens but dlopen fails on the unresolved dep).
+#   libcups  -> libcups.so.2, a DT_NEEDED of steamwebhelper + libcef.so (CEF always links cups
+#               for print support); missing => steamwebhelper (the Big-Picture CEF UI) crash-loops.
+# lsof: not a lib but a runtime tool — Steam shells out to `lsof` to find the port steamwebhelper
+#   listens on for its CEF websocket (steamui<->web UI IPC); missing => "Failed to connect to
+#   websocket" and gamepadui never connects.
+# noto-fonts(+cjk/emoji): the gamepadui renders UI text via system fonts (fontconfig). Without CJK
+#   coverage the language selector shows tofu for Chinese/Japanese/Korean (Latin works regardless).
+# networkmanager: Steam's gamepadui manages Wi-Fi exclusively via the NetworkManager D-Bus API
+#   (like SteamOS; ROCKNIX's steam pkg depends on it too). Without an NM backend the setup wizard
+#   shows "no connections found" even when online. NB: NM must actually run + manage wlan0 (via the
+#   iwd backend) — see build-sd-image.sh network plumbing, not just this dep.
+# mangohud: provides the `mangoapp` overlay binary that gamescope --mangoapp spawns; this is
+#   Steam's built-in performance overlay (FPS/frametime/CPU; GPU stats are limited on Adreno/msm).
+#   Without it gamescope's --mangoapp has nothing to launch and the overlay never appears.
+# xorg-server-xvfb provides the virtual X display used to bootstrap the client (no FEX).
+# Controller uaccess: the Arch steam/game-devices-udev rules aren't in ALARM, so pocknix-bsp ships
+# its own 60-pocknix-controllers.rules (the deck session needs uaccess to the gamepad hidraw nodes).
+# The rest of the native client's deps resolve from the base image / the steamrt runtime.
+depends=('gamescope' 'wget' 'unzip' 'curl' 'tar' 'gtk2' 'gdk-pixbuf2' 'openal' 'libcups' 'lsof'
+         'noto-fonts' 'noto-fonts-cjk' 'noto-fonts-emoji' 'networkmanager' 'mangohud'
+         'pocknix-steamos-shim' 'xorg-server-xvfb')
+source=('pocknix-steam-install' 'pocknix-steam' 'steam' 'steam.desktop'
+        'steam-256.png' 'steam-512.png' 'registry.vdf'
+        'proton-toolmanifest.vdf' 'proton-compatibilitytool.vdf'
+        'pocknix-proton-prep' 'pocknix-proton-prep.service'
+        'pocknix-steam-seed-default-compat'
+        'pocknix-proton' 'pocknix-proton-wrapper' 'fex-profiles.json'
+        'pocknix-steam-bootstrap' 'pocknix-wifi-import' 'pocknix-wifi-import.service')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP'
+            'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+  install -Dm755 "${srcdir}/pocknix-steam-install" "${pkgdir}/usr/bin/pocknix-steam-install"
+  install -Dm755 "${srcdir}/pocknix-steam"         "${pkgdir}/usr/bin/pocknix-steam"
+  # Seedless first boot: on-device client downloader (invoked by pocknix-steam/steam when the
+  # client tree is missing) + the /flash/wifi.txt keyboard-free Wi-Fi importer (root oneshot,
+  # enabled in build-sd-image.sh). Design: docs/steam-bootstrap-design.md.
+  install -Dm755 "${srcdir}/pocknix-steam-bootstrap"    "${pkgdir}/usr/bin/pocknix-steam-bootstrap"
+  install -Dm755 "${srcdir}/pocknix-wifi-import"        "${pkgdir}/usr/bin/pocknix-wifi-import"
+  install -Dm644 "${srcdir}/pocknix-wifi-import.service" "${pkgdir}/usr/lib/systemd/system/pocknix-wifi-import.service"
+  # Desktop-mode Steam: `/usr/bin/steam` runs the native client as a normal window (Plasma session)
+  # and is the `steam` command per-game shortcuts call; steam.desktop puts it in the app grid +
+  # registers the steam:// URL handler. (Game mode uses pocknix-steam/gamescope instead.)
+  install -Dm755 "${srcdir}/steam"                 "${pkgdir}/usr/bin/steam"
+  install -Dm644 "${srcdir}/steam.desktop"         "${pkgdir}/usr/share/applications/steam.desktop"
+  # `steam` themed icon for the app grid (steam.desktop + pocknix-desktop's return-to-gamemode.desktop
+  # both use Icon=steam). The native ARM client isn't a system package, so nothing else provides it.
+  # Official Steam icon (Wikimedia Commons), pre-sized to the two common hicolor app sizes.
+  install -Dm644 "${srcdir}/steam-256.png"         "${pkgdir}/usr/share/icons/hicolor/256x256/apps/steam.png"
+  install -Dm644 "${srcdir}/steam-512.png"         "${pkgdir}/usr/share/icons/hicolor/512x512/apps/steam.png"
+  # OOBE-complete registry seed (ROCKNIX resources/registry.vdf). Seeded to ~/.steam/registry.vdf
+  # by the installer so the gamepadui skips the Steam Deck OOBE — whose "required update" step
+  # tries to update SteamOS (which we aren't) and dead-ends with "Updater apply error: 2".
+  install -Dm644 "${srcdir}/registry.vdf"          "${pkgdir}/usr/share/pocknix-steam/registry.vdf"
+  # Proton-11-ARM compat-tool resources: a require_tool_appid-free toolmanifest + the custom
+  # compatibilitytool.vdf. pocknix-proton-prep applies these (see below).
+  install -Dm644 "${srcdir}/proton-toolmanifest.vdf"       "${pkgdir}/usr/share/pocknix-steam/proton-toolmanifest.vdf"
+  install -Dm644 "${srcdir}/proton-compatibilitytool.vdf"  "${pkgdir}/usr/share/pocknix-steam/proton-compatibilitytool.vdf"
+  # Registers + keeps the ARM Proton 11 compat tool usable, decoupled from Steam's own download/
+  # updates, so the first in-Steam download needs NO reboot. pocknix-steam runs it at game-session
+  # start; the user service (--watch) re-applies when Proton is downloaded/updated. Enabled globally
+  # in build-sd-image.sh. See pocknix-proton-prep for the full rationale.
+  install -Dm755 "${srcdir}/pocknix-proton-prep"           "${pkgdir}/usr/bin/pocknix-proton-prep"
+  install -Dm755 "${srcdir}/pocknix-steam-seed-default-compat" "${pkgdir}/usr/bin/pocknix-steam-seed-default-compat"
+  install -Dm644 "${srcdir}/pocknix-proton-prep.service"   "${pkgdir}/usr/lib/systemd/user/pocknix-proton-prep.service"
+  # Per-game FEX profiles (Pocknix Control plugin writes /etc/pocknix/game-tweaks.json; the
+  # wrapper applies the chosen profile via FEX_APP_CONFIG at game launch). The pocknix-proton
+  # shim is the toolmanifest's commandline entrypoint; prep installs it into the tool dirs.
+  install -Dm755 "${srcdir}/pocknix-proton-wrapper"        "${pkgdir}/usr/lib/pocknix/pocknix-proton-wrapper"
+  install -Dm755 "${srcdir}/pocknix-proton"                "${pkgdir}/usr/share/pocknix-steam/pocknix-proton"
+  install -Dm644 "${srcdir}/fex-profiles.json"             "${pkgdir}/usr/share/pocknix/fex-profiles.json"
+}

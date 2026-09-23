@@ -1,0 +1,51 @@
+# pocknix-steamos-shim — minimal stubs for the SteamOS update/branch/BIOS helper commands the
+# Steam Deck UI (-steamos3 -steamdeck) shells out to. pocknix-os isn't SteamOS and has no atomic
+# OTA backend yet, so without these the OOBE "required update" step dead-ends ("Updater apply
+# error: 2", "failed to query current OS branch", "steamos-select-branch: command not found").
+# These report "no update available" / no-op. The Steam-facing interface matches Valve's
+# steamos-update + armada-update, so when real OTA is built later it's a drop-in body swap.
+pkgname=pocknix-steamos-shim
+pkgver=0.1.0
+pkgrel=5
+pkgdesc="SteamOS update/branch/timezone/format helper stubs for the Steam Deck UI on a non-SteamOS base (until real OTA)"
+arch=('any')
+url="https://github.com/shuuri-labs/pocknix-os"
+license=('GPL2')
+# The format shims pkexec /usr/lib/hwsupport/format-device.sh, shipped by pocknix-sdcard-automount.
+depends=('pocknix-sdcard-automount' 'polkit')
+source=('steamos-update' 'steamos-select-branch' 'steamos-set-timezone'
+        'steamos-format-device' 'steamos-format-sdcard' 'jupiter-biosupdate')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+  # Steam calls the OS-update helper by its FULL polkit-helper path, not via PATH — verified in
+  # webhelper_js.txt: "… /usr/bin/steamos-polkit-helpers/steamos-update". Install it there (and the
+  # plain /usr/bin/ path the underlying check uses). This is the OOBE "required update" fix
+  # (YieldingCheckForUpdateOS -> steamos-update check -> exit 7 -> "up to date").
+  install -Dm755 "${srcdir}/steamos-update"        "${pkgdir}/usr/bin/steamos-polkit-helpers/steamos-update"
+  install -Dm755 "${srcdir}/steamos-update"        "${pkgdir}/usr/bin/steamos-update"
+  install -Dm755 "${srcdir}/steamos-select-branch" "${pkgdir}/usr/bin/steamos-select-branch"
+  # Timezone: the Deck UI calls steamos-set-timezone (like steamos-update, by its full polkit-helper
+  # path as well as the plain /usr/bin name). Install both so the Settings timezone picker actually
+  # applies. Real fix needs ownership of /etc correct too — see the --chown=root:root build rsyncs.
+  install -Dm755 "${srcdir}/steamos-set-timezone"  "${pkgdir}/usr/bin/steamos-polkit-helpers/steamos-set-timezone"
+  install -Dm755 "${srcdir}/steamos-set-timezone"  "${pkgdir}/usr/bin/steamos-set-timezone"
+  # Storage-UI "Format SD Card": Steam calls steamos-format-device (newer clients) / -sdcard (legacy)
+  # by their full polkit-helper path; both pkexec the hwsupport formatter. Ship both plus the plain
+  # /usr/bin names for good measure.
+  install -Dm755 "${srcdir}/steamos-format-device" "${pkgdir}/usr/bin/steamos-polkit-helpers/steamos-format-device"
+  install -Dm755 "${srcdir}/steamos-format-device" "${pkgdir}/usr/bin/steamos-format-device"
+  install -Dm755 "${srcdir}/steamos-format-sdcard" "${pkgdir}/usr/bin/steamos-polkit-helpers/steamos-format-sdcard"
+  install -Dm755 "${srcdir}/steamos-format-sdcard" "${pkgdir}/usr/bin/steamos-format-sdcard"
+  # jupiter-biosupdate: MUST be shimmed, but with a DEDICATED always-exit-0 stub. The manual
+  # Settings > System > Check for Updates flow treats a missing helper (127) as a check failure
+  # (YieldingCheckForUpdateBIOS: update check error -> "Update Error" dialog), unlike the
+  # OOBE/background flow which tolerates absence. Reusing the steamos-update script here is wrong:
+  # its `check` exits 7, which the BIOS check reads as "update available" (opposite convention) and
+  # prompts spuriously. exit 0 = "no BIOS update", same as the community BIOS-block stub on Decks.
+  install -Dm755 "${srcdir}/jupiter-biosupdate"    "${pkgdir}/usr/bin/steamos-polkit-helpers/jupiter-biosupdate"
+  install -Dm755 "${srcdir}/jupiter-biosupdate"    "${pkgdir}/usr/bin/jupiter-biosupdate"
+  # DO NOT shim jupiter-dock-updater / jupiter-initial-firmware-update. A present dock-updater
+  # makes Steam think a dock is plugged in (spurious "update available" prompt), and the
+  # initial-firmware helper's absence only costs a harmless startup log line. Leave them un-shimmed.
+}

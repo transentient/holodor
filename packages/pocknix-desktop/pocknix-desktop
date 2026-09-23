@@ -1,0 +1,102 @@
+#!/bin/bash
+# pocknix-desktop — launch the Desktop Mode session.
+#
+# HOLODOR 2026-09-15: on the Odin 3 (Holo Core repos) this is the REGULAR Plasma desktop via
+# startplasma-wayland, the same desktop SteamOS ships. Holo Core carries no plasma-mobile, no
+# plasma-nano and no kscreen, so the Plasma Mobile design below never ran on this device
+# ("Switch to Desktop" dropped to a tty: startplasmamobile not found). The history below is
+# kept for the RP6 profile, where Plasma Mobile was brought up from Arch Linux ARM.
+#
+# (original header, RP6 era) launch the Plasma Mobile desktop session on the RP6.
+#
+# This is the Desktop half of the two-session model (the Steam half is pocknix-steam). It is
+# exec'd by ~deck/.bash_profile on tty1 when the session-choice file says "plasma" — exactly the
+# same autologin path the game session uses, so we inherit the non-root 'deck' PAM session
+# (XDG_RUNTIME_DIR=/run/user/1001 + the per-user PipeWire stack) with no extra setup.
+#
+# Compositor: Plasma Mobile IS its own compositor (kwin_wayland + plasmashell mobileshell) — it is
+# NOT hosted in Sway or a bare compositor (locked decision; see the plasma-mobile-compositor memory
+# and docs/plasma-mobile-plan.md). The upstream entrypoint /usr/bin/startplasmamobile sets the
+# phone/handset env (PLASMA_PLATFORM, mobile QQC2 style, …), runs plasma-mobile-envmanager, then
+# execs startplasma-wayland, which brings up kwin_wayland on the DRM backend (default on a tty) and
+# launches the mobile shell. It self-handles the D-Bus session (plasma-dbus-run-session-if-needed),
+# so no dbus-run-session wrapper is needed here.
+#
+# Display rotation (the RP6 panel is portrait 1080x1920 mounted rotated): unlike gamescope, kwin
+# drives DRM directly and needs a REAL output transform, not a shader. That is applied once the
+# compositor is up by pocknix-desktop-rotate (shipped as an /etc/xdg/autostart entry), NOT here —
+# kscreen needs the running session to talk to. See pocknix-desktop-rotate.
+set -e
+export HOME="${HOME:-/home/deck}"
+
+# Device facts (scale/output) from the BSP's device.conf; /etc/pocknix/device.conf overrides.
+for _dc in /usr/lib/pocknix/device.conf /etc/pocknix/device.conf; do
+  [ -r "${_dc}" ] && . "${_dc}"
+done
+# 6" 1080x1920 panel: kwin's auto scale (no EDID on a DSI panel, no width-mm in the DT) lands
+# far too small. Holo Core ships no kscreen, so there is no Display settings page and no
+# kscreen-doctor: the ONLY lever is kwin's own output store, seeded once per fresh home.
+# Rotation is NOT set here: the panel driver exposes the DRM panel-orientation hint and kwin
+# applies it natively (confirmed on the RP6, same class of panel).
+SCALE="${POCKNIX_DESKTOP_SCALE:-1.5}"        # 1.5 = 1280x720 logical (Deck-sized). 2.0 (960x540) looked good but
+                                             # kdialog windows + tablet-mode padding overflowed it (Cliff, 09-18)
+OUTPUT="${POCKNIX_DESKTOP_OUTPUT:-DSI-1}"    # kwin matches a stored entry by connectorName when there is no EDID
+CFG="${XDG_CONFIG_HOME:-${HOME}/.config}"
+if [ ! -s "${CFG}/kwinoutputconfig.json" ]; then
+  mkdir -p "${CFG}"
+  cat > "${CFG}/kwinoutputconfig.json" <<EOF
+[
+    {
+        "data": [
+            {
+                "connectorName": "${OUTPUT}",
+                "scale": ${SCALE}
+            }
+        ],
+        "name": "outputs"
+    },
+    {
+        "data": [
+            {
+                "lidClosed": false,
+                "outputs": [
+                    {
+                        "enabled": true,
+                        "outputIndex": 0,
+                        "position": { "x": 0, "y": 0 },
+                        "priority": 0
+                    }
+                ]
+            }
+        ],
+        "name": "setups"
+    }
+]
+EOF
+fi
+# Touch first: Plasma's tablet mode (bigger hit targets, touch launcher/panel spacing). Set only
+# if the user has not chosen; kwin reads it at start. Off again with: kwriteconfig6 --file kwinrc
+# --group Input --key TabletMode off. Holo Core ships no on-screen keyboard; Steam's is the plan.
+if command -v kwriteconfig6 >/dev/null 2>&1 && ! grep -qs '^TabletMode=' "${CFG}/kwinrc"; then
+  kwriteconfig6 --file kwinrc --group Input --key TabletMode on 2>/dev/null || true
+fi
+# X11 apps under Xwayland follow kdeglobals' scale (harmless on Wayland-native apps).
+if command -v kwriteconfig6 >/dev/null 2>&1; then
+  kwriteconfig6 --file kdeglobals --group KScreen --key ScaleFactor "${SCALE}" 2>/dev/null || true
+  kwriteconfig6 --file kdeglobals --group KScreen --key ScreenScaleFactors "${OUTPUT}=${SCALE};" 2>/dev/null || true
+  kwriteconfig6 --file kglobalshortcutsrc --group org_kde_powerdevil \
+    --key "Turn Off Screen" "none,Power Off,Turn Off Screen" 2>/dev/null || true
+fi
+
+export LIBSEAT_BACKEND=seatd
+mkdir -p /tmp/.X11-unix 2>/dev/null || true
+chmod 1777 /tmp/.X11-unix 2>/dev/null || true
+
+# The regular Plasma desktop (SteamOS's choice). Plasma Mobile only if someone installed it.
+if command -v startplasma-wayland >/dev/null 2>&1; then
+  exec startplasma-wayland
+elif command -v startplasmamobile >/dev/null 2>&1; then
+  exec startplasmamobile
+fi
+echo "pocknix-desktop: no Plasma session found (startplasma-wayland / startplasmamobile) — is plasma-desktop installed?" >&2
+exit 1

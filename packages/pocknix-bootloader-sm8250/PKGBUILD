@@ -1,0 +1,56 @@
+# pocknix-bootloader-sm8250 — the arm-efi boot chain payload for SM8250 boards.
+#
+# SM8250 boot contract: XBL -> the device's FACTORY ABL (which provides UEFI) ->
+# GRUB (EFI/BOOT/bootaa64.efi on the FAT) -> boot/grub/grub.cfg -> "linux /KERNEL"
+# (raw Image from linux-pocknix-sm8250) + "devicetree /boot/grub/<board>.dtb".
+# pocknix does NOT flash an ABL: the RP5's factory ABL already chainloads UEFI
+# GRUB, and flashing the ROCKNIX ABL is neither required nor recommended here.
+# (Contrast sm8550, qcom-abl, where the ROCKNIX ABL IS needed — a different path.)
+#
+# Contents and provenance:
+#   bootaa64.efi   VENDORED ROCKNIX BINARY (grub 2.14-rc1 + their 5 patches:
+#                  silent boot, menu rotation, partfind/strsearch autodetect),
+#                  extracted from the official ROCKNIX-SM8250 release image
+#                  named by pkgver — the exact binary proven to chainload from
+#                  the RP5's factory ABL. See README.provenance. Fallback if we
+#                  ever need to self-build: ALARM's grub + grub-mkimage with
+#                  ROCKNIX's module list (their packages/tools/grub/package.mk).
+#   grub.cfg       pocknix-authored, static. Single source of truth for the
+#                  RUNTIME kernel cmdline; build-packages.sh enforces it
+#                  byte-matches the sm8250 profile's KERNEL_CMDLINE.
+#   grubenv        pristine GRUB env block (from ROCKNIX packages/tools/grub/
+#                  config). Only installed to /flash if missing — it stores the
+#                  user's saved menu choice.
+#
+# The alpm hook (95-pocknix-bootloader.hook -> pocknix-update-grub) refreshes
+# /flash from /usr/share/pocknix/bootloader on upgrade; build-sd-image.sh
+# populates a fresh SD from the same tree. Every source is vendored locally, so
+# the package builds with no network.
+pkgname=pocknix-bootloader-sm8250
+pkgver=20260701          # the ROCKNIX release bootaa64.efi was extracted from
+pkgrel=5
+pkgdesc="SM8250 arm-efi boot payload: ROCKNIX GRUB + pocknix grub.cfg"
+arch=('aarch64')
+url="https://github.com/shuuri-labs/pocknix-os"
+license=('GPL-3.0-or-later')   # GRUB
+source=('bootaa64.efi'
+        'grub.cfg'
+        'grubenv'
+        'pocknix-update-grub'
+        '95-pocknix-bootloader.hook')
+sha256sums=('SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP')
+
+package() {
+  local bl="${pkgdir}/usr/share/pocknix/bootloader"
+
+  install -Dm644 "${srcdir}/bootaa64.efi" "${bl}/EFI/BOOT/bootaa64.efi"
+  install -Dm644 "${srcdir}/grub.cfg"     "${bl}/boot/grub/grub.cfg"
+  install -Dm644 "${srcdir}/grubenv"      "${bl}/boot/grub/grubenv"
+
+  install -Dm755 "${srcdir}/pocknix-update-grub"        "${pkgdir}/usr/bin/pocknix-update-grub"
+  install -Dm644 "${srcdir}/95-pocknix-bootloader.hook" "${pkgdir}/usr/share/libalpm/hooks/95-pocknix-bootloader.hook"
+}

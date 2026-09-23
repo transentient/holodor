@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+# pocknix-proton-wrapper — apply the per-game FEX profile before Proton (ARM64/FEX) launches.
+# Ported from armada's armada-proton-wrapper (path swap: /etc/pocknix, /usr/share/pocknix).
+#
+# The Pocknix Control Decky plugin writes /etc/pocknix/game-tweaks.json (global + per-appid
+# fexProfile choices). At game launch, Steam's toolmanifest commandline points at the
+# pocknix-proton shim, which execs this wrapper around the real `proton` entrypoint. We merge
+# the chosen profile's knobs over the host base FEX config, write a per-launch app config
+# under XDG_RUNTIME_DIR, export FEX_APP_CONFIG, and exec Proton — its bundled FEX reads it.
+import json
+import os
+import pathlib
+import sys
+import time
+
+
+BASE_FEX_CONFIG = pathlib.Path("/usr/share/fex-emu/Config.json")
+TWEAKS_CONFIG = pathlib.Path("/etc/pocknix/game-tweaks.json")
+FEX_PROFILES_CONFIG = pathlib.Path("/usr/share/pocknix/fex-profiles.json")
+
+
+def appid():
+    for key in ("STEAM_COMPAT_APP_ID", "SteamAppId", "SteamGameId"):
+        value = os.environ.get(key, "").strip()
+        if value.isdigit():
+            return value
+    return None
+
+
+def load_fex_contract():
+    with FEX_PROFILES_CONFIG.open(encoding="utf-8") as f:
+        contract = json.load(f)
+    profiles = contract.get("profiles")
+    if not isinstance(contract.get("defaults"), dict) or not isinstance(profiles, dict) or "default" not in profiles:
+        raise ValueError("invalid FEX profile contract")
+    for profile in profiles.values():
+        if not isinstance(profile, dict) or not isinstance(profile.get("config"), dict):
+            raise ValueError("invalid FEX profile contract")
+    return contract
+
+
+def load_tweaks(defaults):
+    data = json.loads(json.dumps(defaults))
+    try:
+        with TWEAKS_CONFIG.open(encoding="utf-8") as f:
+            loaded = json.load(f)
+    except (OSError, ValueError):
+        return data
+    if not isinstance(loaded, dict):
+        return data
+    if isinstance(loaded.get("global"), dict):
+        data["global"].update(loaded["global"])
+    if isinstance(loaded.get("games"), dict):
+        data["games"] = loaded["games"]
+    return data
+
+
+def merged_settings(tweaks, game_id):
+    settings = dict(tweaks.get("global", {}))
+    if game_id:
+        game_settings = tweaks.get("games", {}).get(str(game_id))
+        if isinstance(game_settings, dict) and game_settings.get("enabled") is True:
+            settings.update(game_settings)
+    return settings
+
+
+def runtime_config_dir():
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        return pathlib.Path(runtime) / "pocknix-fex"
+    return pathlib.Path("/tmp") / f"pocknix-fex-{os.getuid()}"
+
+
+def resolve_fex_config(settings, profiles, allowed):
+    profile_id = settings.get("fexProfile")
+    if isinstance(profile_id, str) and profile_id in profiles:
+        config = dict(profiles[profile_id]["config"])
+    else:
+        config = dict(profiles["default"]["config"])
+    # Per-flag overrides (Armada-Control-style Advanced toggles) sit on top of
+    # the chosen preset. Only flags the profile contract knows, only "0"/"1" —
+    # this wrapper is the trust boundary for the plugin-written tweaks file.
+    flags = settings.get("fexFlags")
+    if isinstance(flags, dict):
+        config.update({k: v for k, v in flags.items() if k in allowed and v in ("0", "1")})
+    return config
+
+
+def write_fex_config(settings, game_id, profiles):
+    with BASE_FEX_CONFIG.open(encoding="utf-8") as f:
+        config = json.load(f)
+    allowed = set().union(*(profile["config"].keys() for profile in profiles.values()))
+    fex_config = resolve_fex_config(settings, profiles, allowed)
+    config.setdefault("Config", {}).update({k: v for k, v in fex_config.items() if k in allowed})
+
+    # Frame insertion (lsfg-vk) DEFAULT route is the GUEST x86_64 layer build
+    # (see apply_lsfg) — the game keeps its proven guest Vulkan stack.
+    # The host-thunk route (ThunksDB.Vulkan=1 -> host loader + aarch64 layer)
+    # is kept as an explicit experiment flag only: hw-tested 2026-08-13, the
+    # thunk worked for DXVK (Hades) but vkd3d-proton (Cyberpunk, D3D12)
+    # crashed on it with the layer disabled — the thunk path itself, not lsfg.
+    lsfg = settings.get("lsfg")
+    if isinstance(lsfg, dict) and lsfg.get("enabled") is True and lsfg.get("thunkExperiment") is True:
+        config.setdefault("ThunksDB", {})["Vulkan"] = 1
+
+    config_dir = runtime_config_dir()
+    config_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    cutoff = time.time() - 86400
+    for old in config_dir.glob("*.json"):
+        try:
+            if old.stat().st_mtime < cutoff:
+                old.unlink()
+        except OSError:
+            pass
+    name = f"{game_id or 'global'}.{os.getpid()}.json"
+    target = config_dir / name
+    tmp = target.with_name(f".{name}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, sort_keys=True)
+            f.write("\n")
+        os.replace(tmp, target)
+        os.environ["FEX_APP_CONFIG"] = str(target)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def apply_audio_latency(settings):
+    # Per-game audio buffer: exports PULSE_LATENCY_MSEC, which winepulse honors (verified
+    # on-device 2026-07-05: stream renegotiates 256/48000 -> e.g. 720/48000 and SFX-burst
+    # underruns drop ~10x — docs/gamescope-fps-investigation.md follow-up). The value is the
+    # game's audio buffer in ms; bigger absorbs FEX-translated mixer overruns at the cost of
+    # audio latency, so it's a PER-GAME tweak (rhythm games stay on the tight default).
+    # A Steam launch-option override (`PULSE_LATENCY_MSEC=... %command%`) is already in our
+    # env by the time we run — it wins; we only fill in when unset.
+    value = str(settings.get("audioLatency", "") or "").strip()
+    if value.isdigit() and 10 <= int(value) <= 500 and "PULSE_LATENCY_MSEC" not in os.environ:
+        os.environ["PULSE_LATENCY_MSEC"] = value
+
+
+def apply_lsfg(settings):
+    # lsfg-vk v2 env contract (LSFGVK_*, not the v1 LSFG_* names). Mobile-tuned
+    # defaults per ROCKNIX: 2x, flow_scale 0.30, performance_mode on. The user
+    # must own+install Lossless Scaling (we only read its Lossless.dll).
+    lsfg = settings.get("lsfg")
+    if not (isinstance(lsfg, dict) and lsfg.get("enabled") is True):
+        # Keep the implicit layer fully inert for non-lsfg games.
+        os.environ.setdefault("DISABLE_LSFGVK", "1")
+        return
+    home = pathlib.Path(os.environ.get("HOME", "/home/deck"))
+    dll = home / ".local/share/Steam/steamapps/common/Lossless Scaling/Lossless.dll"
+    multiplier = str(lsfg.get("multiplier", "2"))
+    flow_scale = str(lsfg.get("flowScale", "0.30"))
+    os.environ.pop("DISABLE_LSFGVK", None)
+    # Guest-arch layer (x86_64 build living under the user's home, visible both
+    # through FEX and inside pressure-vessel). VK_ADD_IMPLICIT_LAYER_PATH for
+    # modern loaders; XDG_DATA_DIRS append as the classic fallback.
+    guest_layer = home / "lsfg-x86"
+    if (guest_layer / "vulkan/implicit_layer.d").is_dir():
+        os.environ["VK_ADD_IMPLICIT_LAYER_PATH"] = str(guest_layer / "vulkan/implicit_layer.d")
+        xdg = os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share")
+        os.environ["XDG_DATA_DIRS"] = f"{xdg}:{guest_layer}"
+    os.environ["LSFGVK_ENV"] = "1"
+    os.environ.setdefault("LSFGVK_DLL_PATH", str(dll))
+    os.environ["LSFGVK_MULTIPLIER"] = multiplier if multiplier in ("2", "3", "4") else "2"
+    os.environ["LSFGVK_FLOW_SCALE"] = flow_scale
+    os.environ["LSFGVK_PERFORMANCE_MODE"] = "0" if lsfg.get("performanceMode") is False else "1"
+
+
+def main():
+    if len(sys.argv) < 2:
+        raise SystemExit("usage: pocknix-proton-wrapper PROTON_ENTRYPOINT [ARGS...]")
+
+    real_proton = sys.argv[1]
+    args = [real_proton, *sys.argv[2:]]
+    game_id = appid()
+    settings = {}
+    try:
+        contract = load_fex_contract()
+        settings = merged_settings(load_tweaks(contract["defaults"]), game_id)
+        write_fex_config(settings, game_id, contract["profiles"])
+    except Exception as exc:
+        print(f"pocknix-proton: failed to write FEX config: {exc}", file=sys.stderr)
+    try:
+        apply_audio_latency(settings)
+    except Exception as exc:
+        print(f"pocknix-proton: failed to apply audio latency: {exc}", file=sys.stderr)
+    try:
+        apply_lsfg(settings)
+    except Exception as exc:
+        print(f"pocknix-proton: failed to apply frame insertion: {exc}", file=sys.stderr)
+
+    try:
+        os.execv(real_proton, args)
+    except OSError as exc:
+        raise SystemExit(f"pocknix-proton: failed to exec Proton: {exc}")
+
+
+if __name__ == "__main__":
+    main()

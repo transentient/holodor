@@ -1,0 +1,40 @@
+# build output
+/build/*
+!/build/.gitkeep
+
+# vendored upstream (re-created by `make sync`)
+/vendor/*
+!/vendor/.gitkeep
+
+# locally built packages
+/packages/**/*.pkg.tar.zst
+/packages/**/src/
+/packages/**/pkg/
+# the makepkg srcdir rule above must not swallow the plugin's TypeScript sources
+!/packages/pocknix-decky/pocknix-control/src/
+
+# decky plugin frontend build deps (dist/ IS committed — built on the dev Mac, needed by PKGBUILD)
+/packages/pocknix-decky/pocknix-control/node_modules/
+
+# local Claude Code settings
+/.claude/
+
+# personal working-conventions doc — not part of the project
+/conventions.md
+
+# macOS / editor cruft
+.DS_Store
+*.swp
+__pycache__/
+
+# dev-image secrets (wifi preseed)
+/config/local/*
+!/config/local/README.md
+
+# device-recovery assets (large binaries, never commit)
+odin3-abl-backup/
+odin3-firmware-20251206/
+
+# commissioned-art delivery archives (filenames may contain personal info)
+/*.zip
+edl_config.json

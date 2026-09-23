@@ -1,0 +1,14 @@
+#!/bin/sh
+# Resume side of wifi-sleep-pre: re-enable the radio only if we disabled it.
+FLAG=/run/pocknix-wifi-resume
+if [ -e "${FLAG}" ]; then
+  rm -f "${FLAG}"
+  nmcli radio wifi on 2>/dev/null || true
+  # Verify + self-heal in the background so the resume path never blocks.
+  # MUST be a transient unit: anything merely backgrounded (setsid &) from a
+  # systemd-sleep hook dies with the hook's cgroup — the heal never ran once in
+  # its first two weeks (09-03). See pocknix-wifi-heal.
+  systemd-run -q --collect --unit="pocknix-wifi-heal-$(date +%s)" \
+    /usr/lib/pocknix/pocknix-wifi-heal 2>/dev/null || true
+fi
+exit 0

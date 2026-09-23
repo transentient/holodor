@@ -1,0 +1,59 @@
+#!/bin/sh
+# pocknix-fan-mode - get/set the pocknix-fancontrol curve (companion to pocknix-lavd-mode).
+#
+# The chosen curve persists across reboots in /var/lib/pocknix/fan-mode. pocknix-fancontrol
+# re-reads the file every tick (~3s), so setting a curve is JUST the file write - no service
+# restart. Built-in curves: quiet (default), moderate, performance (= ROCKNIX "aggressive"),
+# max (always 100%). User curves = /etc/pocknix/fan-curves/<name>.curve (Pocknix Control).
+#
+#   pocknix-fan-mode                # print the current curve name
+#   pocknix-fan-mode list           # list every curve, "* " marks the active one
+#   pocknix-fan-mode moderate       # set a curve (built-in or user)
+MODE_FILE=/var/lib/pocknix/fan-mode
+CURVE_DIR=/etc/pocknix/fan-curves
+DEFAULT=quiet
+
+valid() {
+  case "$1" in
+    quiet|moderate|performance|max) return 0 ;;
+    ""|*[!a-z0-9_]*) return 1 ;;
+    *) [ -r "${CURVE_DIR}/$1.curve" ] ;;
+  esac
+}
+current() {
+  m="$(cat "${MODE_FILE}" 2>/dev/null | head -1 | tr -d '[:space:]')"
+  valid "${m}" && printf '%s\n' "${m}" || printf '%s\n' "${DEFAULT}"
+}
+
+case "${1:-}" in
+  "")
+    current
+    ;;
+  list)
+    cur="$(current)"
+    for m in quiet moderate performance max; do
+      [ "${m}" = "${cur}" ] && printf '* %s\n' "${m}" || printf '  %s\n' "${m}"
+    done
+    for f in "${CURVE_DIR}"/*.curve; do
+      [ -r "${f}" ] || continue
+      m="$(basename "${f}" .curve)"
+      [ "${m}" = "${cur}" ] && printf '* %s (%s)\n' "${m}" "$(sed -n 1p "${f}")" || printf '  %s (%s)\n' "${m}" "$(sed -n 1p "${f}")"
+    done
+    ;;
+  -h|--help)
+    echo "usage: pocknix-fan-mode [list|quiet|moderate|performance|max|<user curve>]" >&2
+    exit 2
+    ;;
+  *)
+    if ! valid "${1}"; then
+      echo "pocknix-fan-mode: unknown curve '${1}' (see: pocknix-fan-mode list)" >&2
+      exit 2
+    fi
+    mkdir -p "$(dirname "${MODE_FILE}")" 2>/dev/null
+    if ! printf '%s\n' "${1}" > "${MODE_FILE}" 2>/dev/null; then
+      echo "pocknix-fan-mode: cannot write ${MODE_FILE} (run as root)" >&2
+      exit 1
+    fi
+    echo "fan curve: ${1}"
+    ;;
+esac

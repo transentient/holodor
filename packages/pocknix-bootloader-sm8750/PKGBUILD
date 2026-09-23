@@ -1,0 +1,60 @@
+# pocknix-bootloader-sm8750 — the ROCKNIX ABL folder for the AYN Odin 3, shipped on the SD.
+#
+# SM8750 boot contract (qcom-abl): the stock AYN ABL boots only Android. ROCKNIX
+# publishes a replacement ABL with a boot menu (Android / Linux from SD or
+# internal). The user flashes it ONCE, from Android, with AYN's "Run script as
+# Root" runner, using the scripts in this folder. ROCKNIX ships the same folder
+# on its own SD boot partition (their bootloader/update.sh copies
+# /usr/share/bootloader/rocknix_abl to /flash); we do the same so a Holodor user
+# needs exactly one download: the image. The GitHub release tarball alone is not
+# enough (it holds only the signed ELFs, no scripts).
+#
+# Contents (flat in this dir; installed under /usr/share/bootloader/rocknix_abl/):
+#   abl_signed-SM8750.elf   VENDORED ROCKNIX BINARY, v1.1.7, unchanged
+#                                       (release tarball sha256 9af8b0b5…, see
+#                                       README.provenance; the .sha256 sidecar is
+#                                       the release's own).
+#   backup_abl.sh           dd abl_a/abl_b -> /sdcard/rocknix_abl AND the
+#                                       SD card (the /sdcard copy dies with the first
+#                                       internal install, the SD copy survives).
+#   flash_abl.sh            ROCKNIX ELF -> abl_a + abl_b.
+#   restore_backup_abl.sh   the saved images -> abl_a + abl_b (Android side;
+#                                       pocknix-restore-stock-abl is the Linux side).
+#   disable_android_updates.sh / enable_android_updates.sh
+#                                       pm disable/enable AYN's OTA app (an OTA on a
+#                                       dual-boot device rewrites one slot's ABL and
+#                                       broke slot b on the test device, 2026-09-11).
+#
+# build-sd-image.sh copies /usr/share/bootloader/rocknix_abl onto the SD FAT for
+# qcom-abl SoCs; kernel/sm8750/bootloader/update.sh refreshes /flash from the same
+# tree on updates. pocknix-restore-stock-abl compares a user's backup against the
+# ELF here to refuse a backup that was taken AFTER the flash.
+pkgname=pocknix-bootloader-sm8750
+pkgver=1.1.7            # the ROCKNIX ABL release vendored here
+pkgrel=1
+pkgdesc="SM8750 (AYN Odin 3) ROCKNIX ABL v1.1.7 payload + the Android-side backup/flash/restore scripts"
+arch=('any')
+url="https://github.com/ROCKNIX/abl"
+license=('GPL-2.0-only')   # scripts: ROCKNIX distribution (GPL-2.0); ABL: ROCKNIX abl repo
+options=('!strip')          # the ELF is a signed bootloader payload: never strip or debug-split it
+source=('abl_signed-SM8750.elf'
+        'abl_signed-SM8750.elf.sha256'
+        'backup_abl.sh'
+        'flash_abl.sh'
+        'restore_backup_abl.sh'
+        'disable_android_updates.sh'
+        'enable_android_updates.sh'
+        'README.txt')
+sha256sums=('79e822791bcf088f72ef90601da02bfb8e8b268bf0489965f0213e95de45c311'
+            'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+  local dst="${pkgdir}/usr/share/bootloader/rocknix_abl"
+  install -dm755 "${dst}"
+  # Plain 644 for everything: the Android runner does not need +x, and the SD FAT has no modes.
+  local f
+  for f in abl_signed-SM8750.elf abl_signed-SM8750.elf.sha256 backup_abl.sh flash_abl.sh \
+           restore_backup_abl.sh disable_android_updates.sh enable_android_updates.sh README.txt; do
+    install -Dm644 "${srcdir}/${f}" "${dst}/${f}"
+  done
+}

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Holodor Installer
+Comment=Install Holodor to internal storage alongside Android, remove it, fix the Android setup lock, or restore the stock bootloader
+Exec=/usr/local/bin/pocknix-installer-gui
+TryExec=/usr/local/bin/pocknix-installer-gui
+Icon=drive-harddisk
+Terminal=false
+Categories=System;Settings;
+Keywords=install;internal;pocknix;holodor;uninstall;bootloader;frp;

@@ -1,0 +1,277 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ShadowBlip/InputPlumber/main/rootfs/usr/share/inputplumber/schema/capability_map_v2.json
+# Capability map for the Flip 2's retroid-pocket-gamepad MCU. Same MCU and
+# paddle-free layout as the RP5 (its DTS #includes the RP5's), but the Flip 2
+# has NO physical back button, so Steam's QAM has nowhere to live. This map is
+# the rp5-gamepad.yaml with a Guide+A chord grafted in as the QAM button
+# (Xbox-controller convention), resolved HERE in the translator so the deck
+# target still looks like a stock Steam Deck pad to Steam:
+#   * Guide+A       -> QuickAccess (chord; press Steam first, then A — the
+#                      chord table only matches buttons still held unclaimed)
+#   * Guide alone   -> Guide, emitted as a ~100ms tap ON RELEASE
+#                      (delayed_chord). Hold-Steam chords (shortcut overlay,
+#                      Steam+B force quit) do not exist on this MCU anyway:
+#                      the firmware only ever emits a fixed ~150ms BTN_MODE
+#                      pulse, never the real hold (RP5 capture 2026-07-22).
+#                      Kernel patch 0018 stretches that pulse to 400ms
+#                      (home_pulse_stretch_ms), which IS the chord window —
+#                      validated at 400ms on the RP5 via a uinput shim.
+#   * A alone       -> South, via a single-source chord entry: once BTN_SOUTH
+#                      participates in any chord, its plain mapping is
+#                      unreachable (translator dispatch returns after the
+#                      chord table), so South must be re-declared as a chord
+#                      and MUST be listed after the Guide+A entry — chord
+#                      candidates match in YAML order.
+# Semantics verified against the InputPlumber 0.75.2 source
+# (src/input/event/evdev/translator.rs); no upstream config exercises
+# delayed_chord yet, so treat as unproven until the Flip 2 device smoke.
+# BTN_BACK -> QuickAccess is kept from the RP5 map as an inert extra (the MCU
+# capability may still exist; no physical button emits it).
+# Schema version number
+version: 2
+
+# The type of configuration schema
+kind: CapabilityMap
+
+# Name for the device event map
+name: Retroid Pocket Flip 2 MCU Mapping
+
+# Unique identifier of the capability mapping
+id: retroid_rpflip2
+
+# List of mapped events
+mapping:
+  - name: Guide Button
+    mapping_type:
+      evdev: delayed_chord
+    source_events:
+      - evdev:
+          event_type: KEY
+          event_code: BTN_MODE
+          value_type: button
+    target_event:
+      gamepad:
+        button: Guide
+
+  # Must precede the South entry: chord candidates are matched in YAML order.
+  - name: Quick Access Chord (Guide+A)
+    mapping_type:
+      evdev: chord
+    source_events:
+      - evdev:
+          event_type: KEY
+          event_code: BTN_MODE
+          value_type: button
+      - evdev:
+          event_type: KEY
+          event_code: BTN_SOUTH
+          value_type: button
+    target_event:
+      gamepad:
+        button: QuickAccess
+
+  - name: South Button
+    mapping_type:
+      evdev: chord
+    source_events:
+      - evdev:
+          event_type: KEY
+          event_code: BTN_SOUTH
+          value_type: button
+    target_event:
+      gamepad:
+        button: South
+
+  - name: West Button
+    source_events:
+      - evdev:
+          event_type: KEY
+          event_code: BTN_NORTH
+          value_type: button
+    target_event:
+      gamepad:
+        button: West
+
+  - name: North Button
+    source_events:
+      - evdev:
+          event_type: KEY
+          event_code: BTN_WEST
+          value_type: button
+    target_event:
+      gamepad:
+        button: North
+
+  - name: East Button
+    source_events:
+      - evdev:
+          event_type: KEY
+          event_code: BTN_EAST
+          value_type: button
+    target_event:
+      gamepad:
+        button: East
+
+  - name: Start Button
+    source_events:
+      - evdev:
+          event_type: KEY
+          event_code: BTN_START
+          value_type: button
+    target_event:
+      gamepad:
+        button: Start
+
+  - name: Select Button
+    source_events:
+      - evdev:
+          event_type: KEY
+          event_code: BTN_SELECT
+          value_type: button
+    target_event:
+      gamepad:
+        button: Select
+
+  - name: Quick Access Button
+    source_events:
+      - evdev:
+          event_type: KEY
+          event_code: BTN_BACK
+          value_type: button
+    target_event:
+      gamepad:
+        button: QuickAccess
+
+  - name: Right Trigger
+    source_events:
+      - evdev:
+          event_type: ABS
+          event_code: ABS_HAT2Y
+          value_type: trigger
+    target_event:
+      gamepad:
+        trigger:
+          name: RightTrigger
+
+  - name: Left Trigger
+    source_events:
+      - evdev:
+          event_type: ABS
+          event_code: ABS_HAT2X
+          value_type: trigger
+    target_event:
+      gamepad:
+        trigger:
+          name: LeftTrigger
+
+  - name: Right Bumper
+    source_events:
+      - evdev:
+          event_type: KEY
+          event_code: BTN_TR
+          value_type: button
+    target_event:
+      gamepad:
+        button: RightBumper
+
+  - name: Left Bumper
+    source_events:
+      - evdev:
+          event_type: KEY
+          event_code: BTN_TL
+          value_type: button
+    target_event:
+      gamepad:
+        button: LeftBumper
+
+  - name: Right Stick
+    source_events:
+      - evdev:
+          event_type: ABS
+          event_code: ABS_RX
+          value_type: joystick_x
+      - evdev:
+          event_type: ABS
+          event_code: ABS_RY
+          value_type: joystick_y
+    target_event:
+      gamepad:
+        axis:
+          name: RightStick
+
+  - name: Left Stick
+    source_events:
+      - evdev:
+          event_type: ABS
+          event_code: ABS_X
+          value_type: joystick_x
+      - evdev:
+          event_type: ABS
+          event_code: ABS_Y
+          value_type: joystick_y
+    target_event:
+      gamepad:
+        axis:
+          name: LeftStick
+
+  - name: Right Stick Click
+    source_events:
+      - evdev:
+          event_type: KEY
+          event_code: BTN_THUMBR
+          value_type: button
+    target_event:
+      gamepad:
+        button: RightStick
+
+  - name: Left Stick Click
+    source_events:
+      - evdev:
+          event_type: KEY
+          event_code: BTN_THUMBL
+          value_type: button
+    target_event:
+      gamepad:
+        button: LeftStick
+
+  - name: Dpad Left
+    source_events:
+      - evdev:
+          event_type: KEY
+          event_code: BTN_DPAD_LEFT
+          value_type: button
+    target_event:
+      gamepad:
+        button: DPadLeft
+
+  - name: Dpad Right
+    source_events:
+      - evdev:
+          event_type: KEY
+          event_code: BTN_DPAD_RIGHT
+          value_type: button
+    target_event:
+      gamepad:
+        button: DPadRight
+
+  - name: Dpad Down
+    source_events:
+      - evdev:
+          event_type: KEY
+          event_code: BTN_DPAD_DOWN
+          value_type: button
+    target_event:
+      gamepad:
+        button: DPadDown
+
+  - name: Dpad Up
+    source_events:
+      - evdev:
+          event_type: KEY
+          event_code: BTN_DPAD_UP
+          value_type: button
+    target_event:
+      gamepad:
+        button: DPadUp
+
+# List of events to filter from the source devices
+filtered_events: []

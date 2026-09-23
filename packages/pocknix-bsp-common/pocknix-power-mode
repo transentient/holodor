@@ -1,0 +1,66 @@
+#!/bin/sh
+# pocknix-power-mode — eco|balanced|performance|max CPU+GPU caps (+ status).
+#
+# Discovers cpufreq policies and the GPU devfreq node, caps each at a profile
+# fraction of hardware max (kernel clamps CPU writes to valid steps; the GPU cap
+# picks the nearest available step <= target). Mode persists in
+# /var/lib/pocknix/power-mode; pocknix-power-mode.service re-applies at boot (except
+# `max`, which reverts to balanced at boot, see below).
+# Born from telemetry: an uncapped A830 + shader storm = 20W draw, 95C, and a
+# net-discharging "charging" device. Eco exists so the fan and battery can win.
+#   eco:         CPU 60% / GPU ~55%   (fan curve stays user-selected; pair with quiet)
+#   balanced:    CPU 80% / GPU ~82%
+#   performance: uncapped, governors decide
+#   max:         uncapped + GPU min pinned to max + CPU governor performance
+#                (bench/AAA mode: devfreq can never downclock mid-frame; hot+loud)
+MODE_FILE=/var/lib/pocknix/power-mode
+MODE="${1:-$(cat "$MODE_FILE" 2>/dev/null || echo performance)}"
+# `max` is session-only: it pins the GPU and the CPU governor (95C, -20..-34%/h) and once
+# survived a reboot from a bench into a full day of play (2026-08-17). With no argument
+# (= the boot re-apply from pocknix-power-mode.service) a persisted `max` becomes balanced.
+if [ -z "${1:-}" ] && [ "$MODE" = max ]; then
+  echo "power mode: max is not kept across boots, applying balanced"
+  MODE=balanced
+fi
+PIN=0
+case "$MODE" in
+  eco)         CPU_PCT=60; GPU_PCT=55 ;;
+  balanced)    CPU_PCT=80; GPU_PCT=82 ;;
+  performance) CPU_PCT=100; GPU_PCT=100 ;;
+  max)         CPU_PCT=100; GPU_PCT=100; PIN=1 ;;
+  status)
+    for p in /sys/devices/system/cpu/cpufreq/policy*; do
+      echo "cpu$(cat $p/affected_cpus | tr -d ' '): $(cat $p/scaling_max_freq)/$(cat $p/cpuinfo_max_freq) kHz"
+    done
+    G=$(ls -d /sys/class/devfreq/*.gpu 2>/dev/null | head -1)
+    [ -n "$G" ] && echo "gpu: $(cat $G/max_freq)/$(cat $G/available_frequencies | tr ' ' '\n' | sort -n | tail -1) Hz"
+    echo "mode: $(cat "$MODE_FILE" 2>/dev/null || echo performance)"
+    exit 0 ;;
+  *) echo "usage: $0 {eco|balanced|performance|max|status}"; exit 2 ;;
+esac
+for p in /sys/devices/system/cpu/cpufreq/policy*; do
+  max=$(cat "$p/cpuinfo_max_freq")
+  echo $((max * CPU_PCT / 100)) > "$p/scaling_max_freq" 2>/dev/null
+  if [ "$PIN" = 1 ]; then
+    echo performance > "$p/scaling_governor" 2>/dev/null
+  else
+    echo schedutil > "$p/scaling_governor" 2>/dev/null
+  fi
+done
+G=$(ls -d /sys/class/devfreq/*.gpu 2>/dev/null | head -1)
+if [ -n "$G" ]; then
+  gmax=$(tr ' ' '\n' < "$G/available_frequencies" | sort -n | tail -1)
+  gmin=$(tr ' ' '\n' < "$G/available_frequencies" | sort -n | head -1)
+  target=$((gmax * GPU_PCT / 100))
+  best=$(tr ' ' '\n' < "$G/available_frequencies" | sort -n | awk -v t="$target" '$1<=t{b=$1} END{print b}')
+  if [ "$PIN" = 1 ]; then
+    # order matters: raise max before min so min<=max holds at every step
+    echo "$gmax" > "$G/max_freq" 2>/dev/null
+    echo "$gmax" > "$G/min_freq" 2>/dev/null
+  else
+    echo "$gmin" > "$G/min_freq" 2>/dev/null
+    [ -n "$best" ] && echo "$best" > "$G/max_freq" 2>/dev/null
+  fi
+fi
+mkdir -p "$(dirname "$MODE_FILE")"; echo "$MODE" > "$MODE_FILE"
+echo "power mode: $MODE (cpu ${CPU_PCT}%, gpu ${GPU_PCT}%)"

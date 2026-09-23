@@ -1,0 +1,58 @@
+#!/bin/sh
+# pocknix-telemetryd — 60s battery/thermal/clock sampler -> /var/lib/pocknix/telemetry.csv
+#
+# Why: battery complaints ("65%->18% while installing a game", community "sudden 30-40%
+# drops") and fan/thermal tuning need DATA, not anecdotes. One row per minute; a gap in
+# timestamps brackets a suspend, and the capacity delta across the gap IS the sleep
+# drain. CSV is trivially plottable and cheap (<2MB/month; size-capped below).
+OUT=/var/lib/pocknix/telemetry.csv
+B=/sys/class/power_supply/battery
+mkdir -p "$(dirname "$OUT")"
+[ -s "$OUT" ] || echo "epoch,capacity,status,voltage_uv,current_ua,watts,temp_max_c,cpu0_khz,cpu_big_khz,gpu_hz,fan_pwm,brightness" > "$OUT"
+max_temp() {
+  m=0
+  for h in /sys/class/hwmon/hwmon*/; do
+    case "$(cat "$h/name" 2>/dev/null)" in
+      cpu*|gpuss*|ddr_thermal)
+        t=$(cat "$h/temp1_input" 2>/dev/null || echo 0)
+        [ "$t" -gt "$m" ] && m=$t ;;
+    esac
+  done
+  echo $((m/1000))
+}
+while :; do
+  cap=$(cat $B/capacity 2>/dev/null); st=$(cat $B/status 2>/dev/null)
+  # Charge-resume kick: Qualcomm battmgr's start-threshold is STICKY — after charging
+  # stops at the end threshold, it often never resumes when the pack drifts below start,
+  # so a "limited + plugged in" device slowly drains instead of holding (hardware-
+  # observed 2026-08-11: sat plugged at 48% with a 27W charger, not charging). If a
+  # charger is online, we're below the resume point, and we're not charging, re-assert
+  # the end threshold to force the PMIC to re-evaluate. Makes the charge-limit safe.
+  end=$(cat $B/charge_control_end_threshold 2>/dev/null || echo 100)
+  start=$(cat $B/charge_control_start_threshold 2>/dev/null || echo 95)
+  usb_on=0
+  for u in /sys/class/power_supply/*/; do
+    [ "$(cat $u/type 2>/dev/null)" = "USB" ] && [ "$(cat $u/online 2>/dev/null)" = "1" ] && usb_on=1
+  done
+  if [ "${end:-100}" -lt 100 ] && [ "$usb_on" = 1 ] && [ "${cap:-100}" -le "${start:-95}" ] && [ "$st" != "Charging" ] && [ "$st" != "Full" ]; then
+    # Re-writing the SAME end value is a no-op; the PMIC only re-evaluates on a CHANGE.
+    # Toggle low-then-back so charging actually resumes. (100 -> down -> 100.)
+    echo "$((cap > 5 ? cap - 5 : 1))" > "$B/charge_control_end_threshold" 2>/dev/null || true
+    sleep 1
+    echo "$end" > "$B/charge_control_end_threshold" 2>/dev/null || true
+    st=$(cat $B/status 2>/dev/null)
+  fi
+  v=$(cat $B/voltage_now 2>/dev/null || echo 0); c=$(cat $B/current_now 2>/dev/null || echo 0)
+  w=$(awk "BEGIN{printf \"%.2f\", ($v/1e6)*($c/1e6)}")
+  f0=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq 2>/dev/null || echo 0)
+  fb=$(cat /sys/devices/system/cpu/cpu7/cpufreq/scaling_cur_freq 2>/dev/null || echo 0)
+  g=$(cat /sys/class/devfreq/*.gpu/cur_freq 2>/dev/null | head -1 || echo 0)
+  fan=$(cat /sys/class/hwmon/hwmon*/pwm1 2>/dev/null | head -1 || echo 0)
+  bl=$(cat /sys/class/backlight/*/brightness 2>/dev/null | head -1 || echo 0)
+  echo "$(date +%s),$cap,$st,$v,$c,$w,$(max_temp),$f0,$fb,$g,$fan,$bl" >> "$OUT"
+  # size cap ~4MB: keep the newest half
+  if [ "$(wc -c < "$OUT")" -gt 4194304 ]; then
+    tail -n 20000 "$OUT" > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
+  fi
+  sleep 60
+done

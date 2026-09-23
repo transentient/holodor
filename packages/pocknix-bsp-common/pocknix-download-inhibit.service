@@ -1,0 +1,10 @@
+[Unit]
+Description=pocknix: inhibit sleep while Steam downloads are active
+
+[Service]
+ExecStart=/usr/lib/pocknix/pocknix-download-inhibit
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

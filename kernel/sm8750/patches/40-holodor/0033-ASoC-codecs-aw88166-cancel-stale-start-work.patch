@@ -1,0 +1,86 @@
+From 9d619cd303b2dbfe2596e7dd80ed613efb42f0d6 Mon Sep 17 00:00:00 2001
+From: suckbluefrog <suckbluefrog@proton.me>
+Date: Mon, 20 Jul 2026 11:00:00 +0000
+Subject: [PATCH] ASoC: codecs: aw88166: cancel stale deferred starts
+
+PipeWire briefly powers AIF_RX while probing a newly registered card.  With
+zero-delay start work, the worker can acquire the codec mutex before the
+matching POST_PMD event.  Once the probe has already removed the I2S clock,
+the worker performs five slow firmware reload and PLL retry cycles while
+POST_PMD waits for the same mutex.  On the AYN Odin 3 this stalls audio
+profile setup, and therefore the boot sequence, for about 40 seconds.
+
+Give a real playback stream 100 ms to establish its I2S clock and cancel a
+pending start when the DAPM path is powered down.  Run cancellation without
+the codec mutex so an already-running worker can finish without deadlocking.
+
+Signed-off-by: suckbluefrog <suckbluefrog@proton.me>
+---
+ sound/soc/codecs/aw88166.c | 21 ++++++++++++++++-----
+ sound/soc/codecs/aw88166.h |  2 +-
+ 2 files changed, 13 insertions(+), 4 deletions(-)
+
+diff --git a/sound/soc/codecs/aw88166.c b/sound/soc/codecs/aw88166.c
+index 8c23c6db2547..9bf70224a184 100644
+--- a/sound/soc/codecs/aw88166.c
++++ b/sound/soc/codecs/aw88166.c
+@@ -12,5 +12,6 @@
+ #include <linux/gpio/consumer.h>
+ #include <linux/i2c.h>
++#include <linux/jiffies.h>
+ #include <linux/minmax.h>
+ #include <linux/of.h>
+ #include <linux/of_device.h>
+@@ -1211,7 +1212,7 @@ static void aw88166_start(struct aw88166 *aw88166, bool sync_start)
+ 	else
+ 		queue_delayed_work(system_dfl_wq,
+ 			&aw88166->start_work,
+-			AW88166_START_WORK_DELAY_MS);
++			msecs_to_jiffies(AW88166_START_WORK_DELAY_MS));
+ }
+ 
+ static int aw_dev_check_sysint(struct aw_device *aw_dev)
+@@ -1702,18 +1703,26 @@ static int aw88166_playback_event(struct snd_soc_dapm_widget *w,
+ 	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
+ 	struct aw88166 *aw88166 = snd_soc_component_get_drvdata(component);
+ 
+-	mutex_lock(&aw88166->lock);
+ 	switch (event) {
+ 	case SND_SOC_DAPM_PRE_PMU:
++		mutex_lock(&aw88166->lock);
+ 		aw88166_start(aw88166, AW88166_ASYNC_START);
++		mutex_unlock(&aw88166->lock);
+ 		break;
+ 	case SND_SOC_DAPM_POST_PMD:
++		/*
++		 * A short userspace probe can close the DAPM path before the
++		 * amplifier worker runs.  Do not let that stale worker retry
++		 * without an I2S clock or block power-down on the codec mutex.
++		 */
++		cancel_delayed_work_sync(&aw88166->start_work);
++		mutex_lock(&aw88166->lock);
+ 		aw88166_stop(aw88166->aw_pa);
++		mutex_unlock(&aw88166->lock);
+ 		break;
+ 	default:
+ 		break;
+ 	}
+-	mutex_unlock(&aw88166->lock);
+ 
+ 	return 0;
+ }
+diff --git a/sound/soc/codecs/aw88166.h b/sound/soc/codecs/aw88166.h
+index 7c3ed585900a..bc7046349d8c 100644
+--- a/sound/soc/codecs/aw88166.h
++++ b/sound/soc/codecs/aw88166.h
+@@ -452,7 +452,7 @@
+ #define AW88166_CRC_FW_BASE_ADDR		(0x4C0)
+ #define AW88166_DEV_SYSST_CHECK_MAX		(10)
+ #define AW88166_START_RETRIES			(5)
+-#define AW88166_START_WORK_DELAY_MS		(0)
++#define AW88166_START_WORK_DELAY_MS		(100)
+ #define FADE_TIME_MAX				100000
+ #define FADE_TIME_MIN				0
+ #define AW88166_CHIP_ID			(0x2066)
+-- 
+2.43.0

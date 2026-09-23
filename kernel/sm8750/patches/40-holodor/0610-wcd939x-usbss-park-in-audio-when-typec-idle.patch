@@ -1,0 +1,236 @@
+From: Holodor <holodor@transentient.github.io>
+Date: Wed, 13 Aug 2026 00:40:00 +0900
+Subject: [PATCH] usb: typec: mux: wcd939x-usbss: vendor HSJ routing for the integrated jack (v4)
+
+v4: replace the batocera-derived HSJ sequence with the full vendor
+program, source-confirmed against Qualcomm's downstream wcd939x-i2c.c
+(msm-6.6, found in NothingOSS sm8735 / OnePlusOSS sm8750 trees) and
+hardware-validated by manual register pokes on the AYN Odin 3
+(2026-08-13): in exactly this state the codec HPH path carries audio
+through the switch to the 3.5mm jack (tone heard in headphones).
+
+Adds over v3: the pd_pu_enable DC bias/pulldown network (DP/DN/MG1/MG2
+2K PLDN, BIAS_TOP/PMP_OUT1 bit5 clears), mandatory standby exit with
+10ms settle, CHIP_ID1-gated HSJ_PWR_EN (Harmonium 2.0 only), vendor
+probe one-offs (FSM_OVERRIDE, DP/DN OVP config, MG1/MG2_EN OVP-4V,
+CT_SNS_EN clear on v2.0, MG_MISC dynamic boost incl. the MG2_MISC
+address fix: vendor says 0x2b, mainline's define points at 0x30), and
+drops v3's blind TEST-register writes in favor of the named vendor
+registers.  Park logic (TYPEC_STATE_SAFE / ORIENTATION_NONE -> HSJ)
+unchanged from v3.
+---
+--- a/drivers/usb/typec/mux/wcd939x-usbss.c
++++ b/drivers/usb/typec/mux/wcd939x-usbss.c
+@@ -115,6 +115,29 @@
+ #define WCD_USBSS_USB_SS_CNTL_USB_SS_MODE_AATC		2
+ #define WCD_USBSS_USB_SS_CNTL_USB_SS_MODE_USB		5
+ 
++/*
++ * Vendor HSJ (integrated 3.5mm headset jack) support — AYN Odin 3.
++ * Names/addresses from Qualcomm downstream wcd939x-i2c.c (msm-6.6);
++ * hardware-validated on the Odin 3 (Harmonium v2.0) 2026-08-13.
++ */
++#define WCD_USBSS_USB_SS_CNTL_USB_SS_MODE_HSJ		1
++
++#define WCD_USBSS_PMP_EN			0x1
++#define WCD_USBSS_PMP_OUT1_HSJ_PWR_EN				BIT(6)
++#define WCD_USBSS_DP_EN				0x1e
++#define WCD_USBSS_DP_BIAS			0x1f
++#define WCD_USBSS_DN_EN				0x21
++#define WCD_USBSS_DN_BIAS			0x22
++#define WCD_USBSS_MG2_MISC_VENDOR		0x2b	/* vendor MG2_MISC; the 0x30 above is not it */
++#define WCD_USBSS_BIAS_TOP			0x2c
++#define WCD_USBSS_EXT_LIN_EN			0x3d
++#define WCD_USBSS_EXT_SW_CTRL_1			0x43
++#define WCD_USBSS_SW_LIN_CTRL_1			0x50
++#define WCD_USBSS_FSM_OVERRIDE			0x63
++#define WCD_USBSS_DC_TRIMCODE_2			0x91
++#define WCD_USBSS_DC_TRIMCODE_3			0x92
++#define WCD_USBSS_CHIP_ID1			0x439
++
+ #define WCD_USBSS_AUDIO_FSM_START		0x433
+ 
+ #define WCD_USBSS_AUDIO_FSM_START_AUDIO_FSM_AUDIO_TRIG			BIT(0)
+@@ -197,6 +220,7 @@
+ 	enum typec_orientation orientation;
+ 	unsigned long mode;
+ 	unsigned int svid;
++	unsigned int chip_id;
+ };
+ 
+ static const struct regmap_range_cfg wcd939x_usbss_ranges[] = {
+@@ -237,6 +261,138 @@
+ 	{ WCD_USBSS_RATIO_SPKR_REXT_R_MSB, GENMASK(6, 0), 0x04 },
+ };
+ 
++
++/*
++ * Route the integrated 3.5mm jack (vendor HSJ_CONNECT sequence).  On the AYN
++ * Odin 3 the jack's lines run through this switch; mainline's AATC routing
++ * does not connect them.  Mode 1 is the vendor's "MBHC mode".  Sequence =
++ * vendor wcd_usbss_pd_pu_enable() + standby exit + the HSJ_CONNECT branch of
++ * wcd_usbss_switch_update().  Audio through the jack verified on hardware in
++ * exactly this state.  (Vendor also writes FUNCTION_ENABLE=0x05 and clears
++ * 0x415 bit7 at init; deliberately not adopted — untested on our hardware.)
++ */
++static int wcd939x_usbss_set_hsj_route(struct wcd939x_usbss *usbss)
++{
++	unsigned int val;
++	int ret;
++
++	/* pd_pu_enable: DC bias / pulldown network (MBHC sense path) */
++	ret = regmap_clear_bits(usbss->regmap, WCD_USBSS_PMP_OUT1, BIT(5));
++	if (ret)
++		return ret;
++	ret = regmap_clear_bits(usbss->regmap, WCD_USBSS_BIAS_TOP, BIT(5));
++	if (ret)
++		return ret;
++	ret = regmap_set_bits(usbss->regmap, WCD_USBSS_DP_BIAS, BIT(0));
++	if (ret)
++		return ret;
++	ret = regmap_set_bits(usbss->regmap, WCD_USBSS_DN_BIAS, BIT(0));
++	if (ret)
++		return ret;
++	ret = regmap_set_bits(usbss->regmap, WCD_USBSS_MG1_BIAS, BIT(0));
++	if (ret)
++		return ret;
++	ret = regmap_set_bits(usbss->regmap, WCD_USBSS_MG2_BIAS, BIT(0));
++	if (ret)
++		return ret;
++
++	/* mandatory standby exit, 10ms settle */
++	ret = regmap_read(usbss->regmap, WCD_USBSS_USB_SS_CNTL, &val);
++	if (ret)
++		return ret;
++	if (val & WCD_USBSS_USB_SS_CNTL_STANDBY_STATE) {
++		ret = regmap_clear_bits(usbss->regmap, WCD_USBSS_USB_SS_CNTL,
++					WCD_USBSS_USB_SS_CNTL_STANDBY_STATE);
++		if (ret)
++			return ret;
++		msleep(10);
++	}
++
++	ret = regmap_update_bits(usbss->regmap, WCD_USBSS_USB_SS_CNTL,
++				 WCD_USBSS_USB_SS_CNTL_USB_SS_MODE,
++				 FIELD_PREP(WCD_USBSS_USB_SS_CNTL_USB_SS_MODE,
++					    WCD_USBSS_USB_SS_CNTL_USB_SS_MODE_HSJ));
++	if (ret)
++		return ret;
++
++	ret = regmap_write(usbss->regmap, WCD_USBSS_PMP_EN, 0x0f);
++	if (ret)
++		return ret;
++	ret = regmap_write(usbss->regmap, WCD_USBSS_EXT_SW_CTRL_1, 0x00);
++	if (ret)
++		return ret;
++	ret = regmap_write(usbss->regmap, WCD_USBSS_EXT_LIN_EN, 0xc4);
++	if (ret)
++		return ret;
++	ret = regmap_write(usbss->regmap, WCD_USBSS_SW_LIN_CTRL_1, 0x01);
++	if (ret)
++		return ret;
++	ret = regmap_write(usbss->regmap, WCD_USBSS_DC_TRIMCODE_2, 0x3c);
++	if (ret)
++		return ret;
++	ret = regmap_write(usbss->regmap, WCD_USBSS_DC_TRIMCODE_3, 0x0f);
++	if (ret)
++		return ret;
++
++	/* Harmonium 2.0 only */
++	if (usbss->chip_id == 1) {
++		ret = regmap_set_bits(usbss->regmap, WCD_USBSS_PMP_OUT1,
++				      WCD_USBSS_PMP_OUT1_HSJ_PWR_EN);
++		if (ret)
++			return ret;
++	}
++
++	/* MIC->MG2, SENSE->GSBU1; AGND->MG1 */
++	ret = regmap_update_bits(usbss->regmap, WCD_USBSS_SWITCH_SELECT0,
++				 WCD_USBSS_SWITCH_SELECT0_SENSE_SWITCHES |
++				 WCD_USBSS_SWITCH_SELECT0_MIC_SWITCHES,
++				 WCD_USBSS_SWITCH_SELECT0_MIC_SWITCHES);
++	if (ret)
++		return ret;
++	ret = regmap_update_bits(usbss->regmap, WCD_USBSS_SWITCH_SELECT1,
++				 WCD_USBSS_SWITCH_SELECT1_AGND_SWITCHES, 0);
++	if (ret)
++		return ret;
++	ret = regmap_clear_bits(usbss->regmap, WCD_USBSS_MG1_BIAS,
++				WCD_USBSS_MG1_BIAS_PCOMP_DYN_BST_EN);
++	if (ret)
++		return ret;
++
++	/* enable SENSE|MIC|AGND; vendor leaves DNL/DPR enables untouched */
++	return regmap_update_bits(usbss->regmap,
++				  WCD_USBSS_SWITCH_SETTINGS_ENABLE,
++				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_SENSE_SWITCHES |
++				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_MIC_SWITCHES |
++				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_AGND_SWITCHES,
++				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_SENSE_SWITCHES |
++				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_MIC_SWITCHES |
++				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_AGND_SWITCHES);
++}
++
++/*
++ * Vendor probe one-offs (OVP fuse / MG-rail config) the mainline init does
++ * not perform.  Without these the MG (SBU) OVP FETs are not configured the
++ * way vendor Android runs them.  Also fixes MG2_MISC boost: mainline wrote
++ * it to 0x30, the vendor address is 0x2b.
++ */
++static void wcd939x_usbss_vendor_hw_init(struct wcd939x_usbss *usbss)
++{
++	regmap_set_bits(usbss->regmap, WCD_USBSS_FSM_OVERRIDE, 0x77);
++	regmap_update_bits(usbss->regmap, WCD_USBSS_DP_EN, 0x0e, 0x08);
++	regmap_update_bits(usbss->regmap, WCD_USBSS_DN_EN, 0x0e, 0x08);
++	regmap_set_bits(usbss->regmap, WCD_USBSS_MG1_EN, 0x0c);
++	regmap_set_bits(usbss->regmap, WCD_USBSS_MG2_EN, 0x0c);
++	if (usbss->chip_id == 1) {	/* Harmonium 2.0 */
++		regmap_clear_bits(usbss->regmap, WCD_USBSS_MG1_EN,
++				  WCD_USBSS_MG1_EN_CT_SNS_EN);
++		regmap_clear_bits(usbss->regmap, WCD_USBSS_MG2_EN,
++				  WCD_USBSS_MG2_EN_CT_SNS_EN);
++	}
++	regmap_set_bits(usbss->regmap, WCD_USBSS_DP_DN_MISC1, 0x09);
++	regmap_set_bits(usbss->regmap, WCD_USBSS_MG1_MISC, 0x24);
++	regmap_set_bits(usbss->regmap, WCD_USBSS_MG2_MISC_VENDOR, 0x24);
++}
++
+ static int wcd939x_usbss_set(struct wcd939x_usbss *usbss)
+ {
+ 	bool reverse = (usbss->orientation == TYPEC_ORIENTATION_REVERSE);
+@@ -245,6 +401,22 @@
+ 	bool enable_dp = false;
+ 	int ret;
+ 
++	/*
++	 * Idle/safe: park the switch in vendor HSJ routing so the integrated
++	 * 3.5mm jack reaches the codec.  Any real Type-C mode below overrides
++	 * while a cable is attached.
++	 */
++	if (usbss->mode == TYPEC_STATE_SAFE)
++		return wcd939x_usbss_set_hsj_route(usbss);
++
++	/*
++	 * No cable at all: the boot-time pmic-glink altmode notification
++	 * reports mode=USB even with nothing attached.  An unattached port
++	 * has no orientation, so trust that instead of the claimed mode.
++	 */
++	if (usbss->orientation == TYPEC_ORIENTATION_NONE)
++		return wcd939x_usbss_set_hsj_route(usbss);
++
+ 	/* USB Mode */
+ 	if (usbss->mode < TYPEC_STATE_MODAL ||
+ 	    (!usbss->svid && (usbss->mode == TYPEC_MODE_USB2 ||
+@@ -695,6 +867,12 @@
+ 	if (ret)
+ 		goto err_regulator_disable;
+ 
++	ret = regmap_read(usbss->regmap, WCD_USBSS_CHIP_ID1, &usbss->chip_id);
++	if (ret)
++		usbss->chip_id = 0;
++
++	wcd939x_usbss_vendor_hw_init(usbss);
++
+ 	/* Setup in SAFE mode */
+ 	ret = wcd939x_usbss_set(usbss);
+ 	if (ret)

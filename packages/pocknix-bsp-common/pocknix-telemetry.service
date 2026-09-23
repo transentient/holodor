@@ -1,0 +1,11 @@
+[Unit]
+Description=pocknix battery/thermal telemetry sampler (60s -> /var/lib/pocknix/telemetry.csv)
+
+[Service]
+ExecStart=/usr/lib/pocknix/pocknix-telemetryd
+Restart=always
+RestartSec=30
+Nice=19
+
+[Install]
+WantedBy=multi-user.target

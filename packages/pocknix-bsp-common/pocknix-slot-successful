@@ -1,0 +1,45 @@
+#!/bin/sh
+# pocknix-slot-successful — mark the active A/B slot's boot partition "successful"
+# so the Qualcomm bootloader stops decrementing its retry counter every boot.
+#
+# WHY (learned the hard way 2026-08-15): the ROCKNIX ABL boots Holodor through
+# Android's A/B slot machinery (FindBootableSlot/LoadImageAndAuth). The retry
+# ("tries-remaining") counter lives in the GPT attribute flags of the boot_<slot>
+# partition. Qualcomm/msm layout, byte 6 of the 64-bit attribute word:
+#   bits 0-1 priority | bit 2 active | bits 3-5 retry | bit 6 successful | bit 7 unbootable
+# (that byte is hex chars 3-4 of sgdisk's MSB-first "Attribute flags" print; attr
+# bit 54 == the successful bit). A slot that is never marked successful is
+# decremented on every boot attempt; at zero the ABL flips it UNBOOTABLE and then
+# refuses to boot EITHER OS (Android's failed boots AND our own Linux boots both
+# tick it down). Android's init marks the slot successful; Holodor never did, so
+# after enough boots boot_b hit retry 0 -> unbootable -> total boot failure.
+# This service does what Android's init does. Idempotent: it writes only when the
+# successful bit is missing, so steady state is zero GPT writes.
+set -eu
+log() { echo "pocknix-slot-successful: $*"; }
+
+disk=; part=; slot=; flags=
+for s in a b; do
+  d=$(readlink -f "/dev/disk/by-partlabel/boot_$s" 2>/dev/null) || continue
+  [ -n "${d:-}" ] && [ -b "$d" ] || continue
+  base=$(basename "$d")
+  pk=$(lsblk -no pkname "$d" 2>/dev/null | head -1)
+  [ -n "$pk" ] || continue
+  pd="/dev/$pk"
+  pn=$(cat "/sys/class/block/$base/partition" 2>/dev/null) || continue
+  f=$(sgdisk -i "$pn" "$pd" 2>/dev/null | sed -n 's/.*Attribute flags: *//p')
+  [ -n "$f" ] || continue
+  b6=$(printf '%s' "$f" | cut -c3-4)              # byte 6 = attr bits 48-55
+  v=$((0x$b6))
+  if [ $(( v & 0x04 )) -ne 0 ]; then              # active slot
+    disk=$pd; part=$pn; slot=$s; flags=$f
+    [ $(( v & 0x40 )) -ne 0 ] && { log "active slot $s (boot on $d) already successful (flags=$f)"; exit 0; }
+    break
+  fi
+done
+
+[ -n "$part" ] || { log "no active A/B boot slot found (non-A/B device?) — nothing to do"; exit 0; }
+
+log "active slot $slot boot partition = $disk#$part (flags=$flags); setting successful (attr bit 54)"
+sgdisk --attributes="${part}:set:54" "$disk" >/dev/null
+log "done: flags now $(sgdisk -i "$part" "$disk" 2>/dev/null | sed -n 's/.*Attribute flags: *//p')"

@@ -1,0 +1,227 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: suckbluefrog <suckbluefrog@proton.me>
+Date: Fri, 10 Jul 2026 00:00:00 +000
+Subject: [PATCH] input: rsinput: add Odin3 rear paddle GPIOs
+
+The Odin3 rear paddles are wired as GPIO inputs, not as part of the MCU
+status packet. Expose them through the same rsinput input device so ES and
+evmapy can treat hotkey+paddle as a same-controller combo.
+
+AYN's Android keydetect driver requests legacy GPIOs 515 and 519. These
+are TLMM base 512 plus offsets 3 and 7, not PM8550 GPIOs 3 and 7. Using
+the PMIC GPIO controller causes the SPMI arbiter to reject configuration
+writes. Configure the SoC TLMM lines as active-low inputs instead.
+
+Use the same BTN_TRIGGER_HAPPY assignments SDL uses for the first right
+and left Xbox Elite paddles. These key codes sort after the existing
+rsinput buttons, so adding the paddles does not renumber every face,
+shoulder, menu, stick, and D-pad button exposed through SDL.
+---
+ arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi |   4 +-
+ arch/arm64/boot/dts/qcom/cq8725s-ayn-odin3.dts   |   7 ++
+ drivers/input/joystick/rsinput.c                 | 118 +++++++++++++++++++++++
+ 3 files changed, 128 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi b/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
+index 03f2c21..596925e 100644
+--- a/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
+@@ -1205,8 +1205,10 @@
+ 
+ 		vdd-supply = <&vdd_mcu_3v3>;
+ 		enable-gpios = <&tlmm 85 GPIO_ACTIVE_HIGH>;
+-		pinctrl-0 = <&mcu_en_default>;
++		paddle-left-gpios = <&tlmm 3 GPIO_ACTIVE_LOW>;
++		paddle-right-gpios = <&tlmm 7 GPIO_ACTIVE_LOW>;
+ 		pinctrl-names = "default";
++		pinctrl-0 = <&mcu_en_default>, <&paddle_keys_default>;
+ 	};
+ };
+ 
+diff --git a/arch/arm64/boot/dts/qcom/cq8725s-ayn-odin3.dts b/arch/arm64/boot/dts/qcom/cq8725s-ayn-odin3.dts
+index 8d92b2c..b9db339 100644
+--- a/arch/arm64/boot/dts/qcom/cq8725s-ayn-odin3.dts
++++ b/arch/arm64/boot/dts/qcom/cq8725s-ayn-odin3.dts
+@@ -369,1 +369,8 @@
++
++	paddle_keys_default: paddle-keys-default-state {
++		pins = "gpio3", "gpio7";
++		function = "gpio";
++		bias-pull-up;
++		drive-strength = <2>;
++	};
+ };
+
+diff --git a/drivers/input/joystick/rsinput.c b/drivers/input/joystick/rsinput.c
+index ca43a19..da75bc0 100644
+--- a/drivers/input/joystick/rsinput.c
++++ b/drivers/input/joystick/rsinput.c
+@@ -10,6 +10,7 @@
+ #include <linux/gpio/consumer.h>
+ #include <linux/init.h>
+ #include <linux/input.h>
++#include <linux/interrupt.h>
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+ #include <linux/minmax.h>
+@@ -88,6 +89,17 @@ module_param(axis_righty_deadzone,int,0660);
+ module_param(axis_righty_antideadzone,int,0660);
+ 
+ #define INT_SIGN(X) ((X > 0) - (X < 0))
++#define RSINPUT_PADDLE_LEFT_CODE BTN_TRIGGER_HAPPY7
++#define RSINPUT_PADDLE_RIGHT_CODE BTN_TRIGGER_HAPPY5
++
++struct rsinput_driver;
++
++struct rsinput_paddle {
++    struct rsinput_driver *drv;
++    struct gpio_desc *gpio;
++    unsigned int code;
++    const char *name;
++};
+ 
+ #define FRAME_HEAD_1              0xA5
+ #define FRAME_HEAD_2              0xD3
+@@ -134,6 +146,8 @@ struct rsinput_driver {
+     bool invert_y;
+     bool invert_rx;
+     bool invert_ry;
++    struct rsinput_paddle paddle_left;
++    struct rsinput_paddle paddle_right;
+     uint8_t rx_buf[1024];
+     uint8_t sequence_number;
+ };
+@@ -145,6 +159,87 @@ static const unsigned int keymap[] = {
+     BTN_THUMBL,  BTN_THUMBR,    BTN_MODE,	   BTN_BACK
+ };
+ 
++static int rsinput_get_paddle_gpio(struct serdev_device *serdev,
++                                   struct rsinput_driver *drv,
++                                   struct rsinput_paddle *paddle,
++                                   const char *name,
++                                   unsigned int code) {
++    paddle->drv = drv;
++    paddle->code = code;
++    paddle->name = name;
++    paddle->gpio = devm_gpiod_get_optional(&serdev->dev, name, GPIOD_IN);
++    if (IS_ERR(paddle->gpio)) {
++        dev_warn(&serdev->dev,
++                 "Disabling optional %s gpio: %ld\n",
++                 name, PTR_ERR(paddle->gpio));
++        paddle->gpio = NULL;
++        return 0;
++    }
++
++    if (paddle->gpio)
++        gpiod_set_debounce(paddle->gpio, 15000);
++
++    return 0;
++}
++
++static void rsinput_report_paddle(struct rsinput_paddle *paddle) {
++    int pressed;
++
++    if (!paddle->gpio)
++        return;
++
++    pressed = gpiod_get_value_cansleep(paddle->gpio);
++    if (pressed < 0) {
++        dev_warn_ratelimited(&paddle->drv->serdev->dev,
++                             "Unable to read %s gpio: %d\n",
++                             paddle->name, pressed);
++        return;
++    }
++
++    input_report_key(paddle->drv->input, paddle->code, pressed);
++    input_sync(paddle->drv->input);
++}
++
++static irqreturn_t rsinput_paddle_irq(int irq, void *data) {
++    rsinput_report_paddle(data);
++    return IRQ_HANDLED;
++}
++
++static int rsinput_request_paddle_irq(struct serdev_device *serdev,
++                                      struct rsinput_paddle *paddle) {
++    int irq;
++    int error;
++
++    if (!paddle->gpio)
++        return 0;
++
++    irq = gpiod_to_irq(paddle->gpio);
++    if (irq < 0) {
++        dev_warn(&serdev->dev,
++                 "Disabling optional %s gpio irq: %d\n",
++                 paddle->name, irq);
++        paddle->gpio = NULL;
++        return 0;
++    }
++
++    error = devm_request_threaded_irq(&serdev->dev, irq, NULL,
++                                      rsinput_paddle_irq,
++                                      IRQF_TRIGGER_RISING |
++                                      IRQF_TRIGGER_FALLING |
++                                      IRQF_ONESHOT,
++                                      paddle->name, paddle);
++    if (error) {
++        dev_warn(&serdev->dev,
++                 "Disabling optional %s gpio irq request: %d\n",
++                 paddle->name, error);
++        paddle->gpio = NULL;
++        return 0;
++    }
++
++    rsinput_report_paddle(paddle);
++    return 0;
++}
++
+ static uint8_t compute_checksum(const uint8_t *data, size_t len) {
+     uint8_t checksum = 0;
+ 
+@@ -467,6 +562,16 @@ static int rsinput_probe(struct serdev_device *serdev) {
+         dev_warn(&serdev->dev, "Unable to get reset gpio: %d\n", error);
+     }
+ 
++    error = rsinput_get_paddle_gpio(serdev, drv, &drv->paddle_left,
++                                    "paddle-left", RSINPUT_PADDLE_LEFT_CODE);
++    if (error)
++        return error;
++
++    error = rsinput_get_paddle_gpio(serdev, drv, &drv->paddle_right,
++                                    "paddle-right", RSINPUT_PADDLE_RIGHT_CODE);
++    if (error)
++        return error;
++
+     error = serdev_device_open(serdev);
+     if (error)
+         return dev_err_probe(&serdev->dev, error, "Unable to open UART device\n");
+@@ -507,6 +612,11 @@ static int rsinput_probe(struct serdev_device *serdev) {
+     for (int i = 0; i < ARRAY_SIZE(keymap); i++)
+         input_set_capability(drv->input, EV_KEY, keymap[i]);
+ 
++    if (drv->paddle_left.gpio)
++        input_set_capability(drv->input, EV_KEY, drv->paddle_left.code);
++    if (drv->paddle_right.gpio)
++        input_set_capability(drv->input, EV_KEY, drv->paddle_right.code);
++
+     __set_bit(EV_ABS, drv->input->evbit);
+     input_set_abs_params(drv->input, ABS_X,
+         INT_SIGN(axis_leftx_min) * ( abs(axis_leftx_min) - axis_leftx_antideadzone ),
+@@ -532,6 +642,14 @@ static int rsinput_probe(struct serdev_device *serdev) {
+     if (error)
+         return error;
+ 
++    error = rsinput_request_paddle_irq(serdev, &drv->paddle_left);
++    if (error)
++        return error;
++
++    error = rsinput_request_paddle_irq(serdev, &drv->paddle_right);
++    if (error)
++        return error;
++
+     serdev_device_set_client_ops(serdev, &rsinput_rx_ops);
+ 
+     error = rsinput_init_commands(drv);
+-- 
+2.52.0

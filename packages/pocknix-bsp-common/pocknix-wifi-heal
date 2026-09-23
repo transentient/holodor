@@ -1,0 +1,46 @@
+#!/bin/sh
+# pocknix-wifi-heal — post-resume Wi-Fi verification with escalating recovery.
+# Ported idea from batocera.pocket's resume toggle+resilience (credit lukemotion);
+# our escalation adds a PCIe remove/rescan = full ath12k firmware reload, no reboot.
+# Launched as a transient unit by the 000-wifi resume hook; logs to
+# /var/lib/pocknix/wifi-heal.log. The usual failure (09-03) is a post-resume roam that
+# asserts the WCN7860 firmware: the kernel recovers the chip ("pdev 0 successfully
+# recovered") but NM is left with a dead activation, so the gentle fix is simply to
+# re-activate the profile. Escalate only if that doesn't take.
+LOG=/var/lib/pocknix/wifi-heal.log
+say() { echo "$(date -Iseconds) $*" >> "$LOG"; }
+healthy() {
+  ip route show default 2>/dev/null | grep -q . || return 1
+  c=$(nmcli networking connectivity check 2>/dev/null)
+  [ "$c" = "full" ] || [ "$c" = "limited" ]
+}
+wait_healthy() {
+  i=0
+  while [ $i -lt "$1" ]; do healthy && return 0; sleep 2; i=$((i+1)); done
+  return 1
+}
+profile() {  # most recently used wifi profile
+  nmcli -t -f NAME,TYPE connection show --order -timestamp 2>/dev/null \
+    | awk -F: '$2=="802-11-wireless"{print $1; exit}'
+}
+wait_healthy 12 && { say "ok (no action)"; exit 0; }
+PROF=$(profile)
+if [ -n "$PROF" ]; then
+  say "unhealthy after resume -> nmcli connection up '$PROF'"
+  nmcli connection up "$PROF" >/dev/null 2>&1 || true
+  wait_healthy 10 && { say "recovered via connection up"; exit 0; }
+fi
+say "still unhealthy -> radio cycle"
+nmcli radio wifi off 2>/dev/null; sleep 2; nmcli radio wifi on 2>/dev/null
+wait_healthy 10 && { say "recovered via radio cycle"; exit 0; }
+say "still unhealthy -> PCIe reset (full fw reload)"
+PCI=$(basename "$(readlink -f /sys/class/net/wlan0/device 2>/dev/null)" 2>/dev/null)
+if [ -n "$PCI" ] && [ -e "/sys/bus/pci/devices/$PCI/remove" ]; then
+  nmcli radio wifi off 2>/dev/null; sleep 1
+  echo 1 > "/sys/bus/pci/devices/$PCI/remove"; sleep 2
+  echo 1 > /sys/bus/pci/rescan; sleep 4
+  nmcli radio wifi on 2>/dev/null
+  wait_healthy 15 && { say "recovered via PCIe reset"; exit 0; }
+fi
+say "UNRECOVERED — manual toggle or reboot needed"
+exit 0

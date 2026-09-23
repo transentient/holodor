@@ -1,0 +1,8 @@
+Opt-in package: scripts/build-packages.sh skips any package dir carrying a file
+named OPTIONAL unless the package is named explicitly:
+
+  sudo make packages PKG=gamescope-next
+
+A plain `make packages` / `make build` never builds it, so this experimental
+artifact cannot reach localrepo (and an RC) by accident.
+See PKGBUILD header and docs/rotation-experiment-2026-09-20.md.

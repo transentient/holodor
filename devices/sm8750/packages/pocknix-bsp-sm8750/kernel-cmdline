@@ -1,0 +1,1 @@
+root=PARTUUID=706f636b-6e69-7830-726f-6f7400000002 rw quiet loglevel=3 systemd.show_status=false splash plymouth.ignore-serial-consoles rootwait console=tty0 fbcon=logo-pos:center video=efifb:off allow_mismatched_32bit_el0 irqaffinity=0-1 cgroup.memory=nokmem,nosocket nosoftlockup mem_sleep_default=s2idle fw_devlink.sync_state=timeout

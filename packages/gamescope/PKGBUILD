@@ -1,0 +1,118 @@
+# gamescope (pocknix) — ROCKNIX-patched build for the RP6's rotated msm/DPU panel.
+#
+# Vanilla gamescope (incl. ALARM's 3.16.24) CANNOT drive the RP6 panel: the panel is
+# mounted rotated (DTS rotation=<270>), so gamescope tries a DRM *plane* rotation that
+# the msm DPU rejects -> "Failed to prepare 1-layer flip (Invalid argument)" forever
+# (upstream issue #1883/#819). We rotate in a compute SHADER instead — ROCKNIX's 0005
+# rotates the final composite in a separate pass (--use-rotation-shader), which the msm
+# DPU accepts. This is now the ROCKNIX patch set verbatim (same numbering).
+#
+# BASE BUMP fe78bc6 -> 4286887 (Valve master, 2026-06-12, "Bump wlroots to v0.19"): picks up
+# upstream's present/FIFO frame-callback rework to address games pacing at 60fps on the 120Hz
+# panel (FEX + rotated composite pushed marginal frames past the 8.3ms vblank boundary -> hard
+# 60). See memory dpu-ctl-start-instability. NB the fix is not guaranteed to be in these commits
+# — the on-device strace(msgrcv) instrument decides.
+#
+# Dropped vs our fe78bc6 set:
+#  - 0007 composite-rotation (PR #2228): the fps investigation A/B'd it as fps-neutral vs 0005
+#    (only a GPU-load nicety with the overlay up). Back to ROCKNIX's 0005 rotation-shader.
+#
+# 0008 (revert of upstream e572411d) is NOT carried on this base. DO NOT re-add it without
+# re-measuring first — I added it on a false premise (2026-07-13) and it made things worse:
+#  - It was NOT the perf regression. The ROCKNIX gap was already back BEFORE 0008 was ever
+#    installed (pacman.log: gamescope -1 was live the whole time), so a missing 0008 cannot have
+#    caused it.
+#  - It does not rebase cleanly in BEHAVIOUR onto 4286887. Its hunk-2 early-returns out of
+#    mangoapp_output_update(), which on THIS base also skips `wlserver_app_presented()` — a call
+#    that did not exist on fe78bc6. That silently drops the game's presentation feedback and is a
+#    plausible cause of the frame-pacing spikiness seen with it installed.
+#  - Its guard is `if (!g_bCurrentBasePlaneIsFifo) return;` and IsPerfOverlayFIFO() is
+#    `fifo || is_steam`, so it only suppresses the nudge for NON-FIFO content anyway.
+#  - The overlay tax it targeted is NOT occurring here: measured on-device, gamescope runs exactly
+#    ONE composite per present (ring-0 submits == present rate) on both the Steam UI and in-game.
+# NB upstream's `cv_mangoapp_use_output_timing` convar is NOT a substitute either — it only gates
+# `wlserver_app_presented()`, while the `mangoapp_update()` nudge fires unconditionally.
+# If the overlay tax ever genuinely returns (tell: ring-0 composites >> present rate), rebase 0008
+# properly for this base rather than restoring the old patch verbatim.
+#
+# epoch=1 so this is preferred over ALARM's [extra] gamescope when both are visible.
+pkgname=gamescope
+epoch=1
+pkgver=3.16.0.rocknix.4286887
+pkgrel=3
+_commit=428688779e481681ddf6e2ea346987889527a0b7
+# Grant CAP_SYS_NICE to the installed binary (realtime scheduling) — see gamescope.install.
+install=gamescope.install
+pkgdesc="SteamOS session compositing WM — patched (rotation-shader, for msm/rotated panels)"
+arch=('aarch64')
+url="https://github.com/ValveSoftware/gamescope"
+license=('BSD-2-Clause')
+provides=('gamescope')
+conflicts=('gamescope')
+# Runtime libs (makepkg also auto-adds .so deps; these are the non-obvious ones).
+depends=('wayland' 'libdrm' 'libinput' 'libxkbcommon' 'pixman' 'systemd-libs' 'libcap'
+         'luajit' 'libdecor' 'libx11' 'libxext' 'libxfixes' 'libxdamage' 'libxcomposite'
+         'libxrender' 'libxxf86vm' 'libxtst' 'libxi' 'libxcursor' 'libxmu' 'libxres'
+         'libxcb' 'xcb-util-wm' 'seatd' 'hwdata' 'sdl2' 'pipewire' 'vulkan-icd-loader'
+         'glslang' 'xorg-xwayland' 'libdisplay-info')
+makedepends=('git' 'meson' 'ninja' 'cmake' 'pkgconf' 'glslang' 'vulkan-headers'
+             'wayland-protocols' 'python' 'libxkbcommon' 'wayland'
+             # wlroots subproject build-deps (else meson tries to build them itself):
+             'xorg-xwayland' 'libdisplay-info' 'xcb-util-errors' 'xcb-util-renderutil'
+             'xcb-util-image' 'xcb-util-keysyms')
+source=("gamescope::git+https://github.com/ValveSoftware/gamescope.git#commit=${_commit}"
+        '0001-WaylandBackend-wire-up-wl_touch-implementation.patch'
+        '0004-DRMBackend-Add-GAMESCOPE_FAKE_OUTPUT_MM-env-to-set-c.patch'
+        '0005-feature-add-rotation-shader-for-rotating-output.patch'
+        '0006-steamcompmgr-fix-gamepad-cursor-sprite-frozen-via-XTest.patch')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+prepare() {
+  cd gamescope
+  # subprojects (wlroots, libliftoff, etc.) are git submodules at this commit.
+  git submodule update --init --recursive
+  # ROCKNIX patch stack, verbatim (same order/numbering as their package.mk).
+  patch -p1 < "${srcdir}/0001-WaylandBackend-wire-up-wl_touch-implementation.patch"
+  patch -p1 < "${srcdir}/0004-DRMBackend-Add-GAMESCOPE_FAKE_OUTPUT_MM-env-to-set-c.patch"
+  # 0005 rotation-shader: rotate the final composite in a compute pass (--use-rotation-shader),
+  # the RP6's only working rotation path (msm rejects DRM plane rotation). Launched with
+  # -W 1080 -H 1920 --force-orientation left (native portrait; the shader swaps to landscape) —
+  # see packages/pocknix-steam/pocknix-steam and device.conf.
+  patch -p1 < "${srcdir}/0005-feature-add-rotation-shader-for-rotating-output.patch"
+  patch -p1 < "${srcdir}/0006-steamcompmgr-fix-gamepad-cursor-sprite-frozen-via-XTest.patch"
+}
+
+build() {
+  cd gamescope
+  # The pinned gamescope/wlroots build with -Werror, but ALARM's libs are newer than
+  # upstream CI built against (e.g. newer libinput adds enum values -> -Werror=switch).
+  # Disable -Werror wholesale rather than chase each version-skew warning. CFLAGS
+  # propagate into the subprojects (wlroots etc.), and being last they override -Werror.
+  export CFLAGS+=" -Wno-error" CXXFLAGS+=" -Wno-error"
+  # CPU tuning = ROCKNIX's exact SM8550 userspace flags (distribution config/arch.aarch64 +
+  # devices/SM8550/options): armv9-a + their feature set (SVE off), tuned for the X3 prime,
+  # -mno-outline-atomics per their arch config. Appended last so -march/-mtune override
+  # ALARM's generic armv8-a defaults; propagates into wlroots/libliftoff subprojects too.
+  # Per-SoC: build-packages.sh injects POCKNIX_TUNE_CFLAGS from config/tuning/${SOC}.conf
+  # (sm8250 = armv8.2/a76.a55); the fallback is the sm8550 string so a standalone makepkg
+  # reproduces the original build.
+  local _rocknix_tune="${POCKNIX_TUNE_CFLAGS:--march=armv9-a+fp16+crypto+i8mm+bf16+memtag+sm4+sha3+nosve+nosve2 -mtune=cortex-x3 -mno-outline-atomics}"
+  export CFLAGS+=" ${_rocknix_tune}" CXXFLAGS+=" ${_rocknix_tune}"
+  meson setup build \
+    --prefix=/usr --buildtype=release -Db_lto=false \
+    -Ddrm_backend=enabled \
+    -Dpipewire=enabled \
+    -Denable_openvr_support=false \
+    -Davif_screenshots=disabled \
+    -Dbenchmark=disabled \
+    -Dinput_emulation=disabled \
+    -Drt_cap=enabled \
+    -Denable_tests=false \
+    -Dsdl2_backend=enabled
+  meson compile -C build
+}
+
+package() {
+  cd gamescope
+  meson install -C build --destdir "${pkgdir}"
+}

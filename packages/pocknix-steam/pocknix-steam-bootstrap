@@ -1,0 +1,296 @@
+#!/bin/bash
+# pocknix-steam-bootstrap — first-boot download of Valve's native ARM64 Steam client (seedless images).
+#
+# The public Holodor image ships WITHOUT the Steam client (no redistribution of Valve's
+# binaries); this runs on the device, as the `deck` user, the first time the session finds
+# no client tree. Design + rationale: docs/steam-bootstrap-design.md. Invariants:
+#   * everything it writes lives under $HOME — a failure at ANY point can never brick the
+#     OS; the session supervisor just relaunches us and we resume.
+#   * versioned URLs are resolved at run time (latest-public-beta.txt / the channel
+#     manifest) — the alias paths 403 plain GETs, and pinned versions go stale.
+#   * every artifact is hash-verified: the runtime tar against the release's SHA256SUMS,
+#     the client zip against the sha1 embedded in its own filename (verified 2026-08-17).
+#   * downloads resume (curl -C -) across reboots; the assembled tree is staged and
+#     mv'd into place atomically, so the launcher's `-x .../steamrtarm64/steam` check
+#     only ever sees absent-or-complete.
+# Shares the layout contract with pocknix-steam-install (the build-time bake): keep the
+# two in sync when Valve moves things.
+set -u -o pipefail
+
+STEAM_HOME="${HOME:?}"
+STEAM="${STEAM_HOME}/.local/share/Steam"
+STEAM_DOT="${STEAM_HOME}/.steam"
+STAGING="${STEAM}.staging"
+STATE="${STEAM_HOME}/.local/state/pocknix-steam-bootstrap"
+LOG="${STATE}/bootstrap.log"
+
+STEAM_ARM_CHANNEL="${POCKNIX_STEAM_CHANNEL:-steamdeck_stable}"
+STEAM_ARM_MANIFEST_NAME="steam_client_${STEAM_ARM_CHANNEL}_linuxarm64"
+STEAM_CDN="https://client-update.steamstatic.com"
+RUNTIME_BASE="https://repo.steampowered.com/steamrt3c/images"
+RUNTIME_TAR_NAME="steam-runtime-steamrt-arm64.tar.xz"
+
+# Already installed? (Same check as the launcher.) Nothing to do.
+[ -x "${STEAM}/steamrtarm64/steam" ] && exit 0
+
+mkdir -p "${STATE}"
+
+# Singleton: game-mode (pocknix-steam) and desktop-mode (steam) can both call us.
+exec 9>"${STATE}/lock"
+if ! flock -n 9; then
+  echo "pocknix-steam-bootstrap: another bootstrap is already running" >&2
+  exit 1
+fi
+
+# --- output plumbing ---------------------------------------------------------
+# The user-facing screen goes to tty1 (the deck session owns it; the supervisor keeps it
+# blank between compositors, so we own the whole screen). Everything else — curl chatter,
+# tar/unzip output, the Xvfb updater — goes to the log. When tty1 isn't ours (SSH
+# debugging), the screen falls back to stdout BEFORE stdout is redirected to the log.
+TTY="/dev/tty1"
+[ -w "${TTY}" ] || TTY="/proc/self/fd/1"
+exec 3>"${TTY}"
+# Double the console font: the 16px default is unreadable on a 6" 1080p panel.
+# Best-effort — a missing font or the stdout fallback just keeps the default.
+[ "${TTY}" = "/dev/tty1" ] && setfont -C "${TTY}" latarcyrheb-sun32 2>/dev/null || true
+exec >>"${LOG}" 2>&1
+echo "=== pocknix-steam-bootstrap $(date -u +%FT%TZ) channel=${STEAM_ARM_CHANNEL} ==="
+
+ui() {  # ui <headline> [detail...] — repaint the whole status screen
+  printf '\033[2J\033[H' >&3
+  printf '\n  HOLODOR — first boot setup\n  ==========================\n\n' >&3
+  printf '  %s\n' "$@" >&3
+  printf '\n' >&3
+  echo "[ui] $1"
+}
+
+fail() { # fail <message...> — honest error screen, then let the supervisor retry us
+  ui "Steam download FAILED" "" "$@" "" \
+     "The session will retry automatically." \
+     "Log: ${LOG}"
+  echo "[fail] $*"
+  sleep 15   # leave the message readable before the supervisor loops
+  exit 1
+}
+
+# --- network -----------------------------------------------------------------
+# Poll DNS forever: there is nothing useful to do without the network, and the wifi.txt
+# importer (pocknix-wifi-import, next boot) or Ethernet/USB can bring it up at any time.
+# After ~60s of silence, switch to the honest offline screen with the wifi.txt recipe.
+wait_for_network() {
+  local host="repo.steampowered.com" i=0
+  getent hosts "${host}" >/dev/null 2>&1 && return 0
+  ui "Waiting for network..." "" "(Wi-Fi can take ~30 seconds to connect after boot)"
+  while ! getent hosts "${host}" >/dev/null 2>&1; do
+    i=$((i + 1))
+    if [ "${i}" -eq 30 ]; then
+      ui "No network connection." "" \
+         "Holodor needs the internet once," \
+         "to download Steam (~350 MB)." "" \
+         "To set up Wi-Fi without a keyboard:" \
+         "  1. power off, put the SD card in a computer" \
+         "  2. on the small ROCKNIX partition, create" \
+         "     a file named  wifi.txt  containing:" \
+         "         ssid=YourNetworkName" \
+         "         password=YourWifiPassword" \
+         "         country=US   (optional, for 5 GHz)" \
+         "  3. put the card back and power on" "" \
+         "A USB keyboard + 'nmtui' also works." \
+         "Still waiting..."
+    fi
+    sleep 2
+  done
+  ui "Network is up."
+}
+
+# --- downloads ---------------------------------------------------------------
+# One curl policy everywhere: fail on HTTP errors, follow redirects, resume (-C -),
+# spaced retries (no tight loops — see the SourceForge lesson in HANDOFF.md), and the
+# progress bar drawn on the status screen so the user watches the real download.
+fetch() { # fetch <url> <dest> [description]
+  local url="$1" dest="$2" desc="${3:-$(basename "$2")}"
+  printf '  %s\n' "downloading ${desc}..." >&3
+  curl -f -L -C - --connect-timeout 20 --speed-time 60 --speed-limit 1024 \
+       --retry 8 --retry-delay 10 --retry-all-errors \
+       --progress-bar -o "${dest}" "${url}" 2>&3
+}
+
+sha256_of() { sha256sum "$1" | cut -d' ' -f1; }
+sha1_of()   { sha1sum   "$1" | cut -d' ' -f1; }
+
+# verified_fetch <url> <dest> <algo> <expected> <desc>
+# Keeps a verified artifact across reboots (re-verify is cheap and catches corruption);
+# on mismatch deletes and re-downloads ONCE (a resumed download over a corrupt partial
+# stays corrupt — the retry must start clean), then gives up loudly.
+verified_fetch() {
+  local url="$1" dest="$2" algo="$3" want="$4" desc="$5" attempt got
+  for attempt in 1 2; do
+    if [ ! -f "${dest}" ] || [ "${attempt}" -gt 1 ]; then
+      fetch "${url}" "${dest}" "${desc}" || { rm -f "${dest}"; fail "download failed: ${desc}" "URL: ${url}"; }
+    fi
+    got="$("${algo}_of" "${dest}")"
+    if [ "${got}" = "${want}" ]; then
+      echo "[ok] ${desc}: ${algo} verified (${got})"
+      return 0
+    fi
+    echo "[warn] ${desc}: ${algo} MISMATCH want=${want} got=${got} (attempt ${attempt})"
+    rm -f "${dest}"
+  done
+  fail "checksum mismatch on ${desc} after re-download" "(corrupted download or upstream change)"
+}
+
+wait_for_network
+
+# 1. Resolve the runtime release + its published checksums.
+ui "Downloading Steam (1/4): resolving current version..."
+RUNTIME_VER="$(curl -fsSL --retry 5 --retry-delay 5 "${RUNTIME_BASE}/latest-public-beta.txt" | tr -d '[:space:]')" \
+  || fail "could not resolve the Steam runtime version" "(${RUNTIME_BASE}/latest-public-beta.txt)"
+[ -n "${RUNTIME_VER}" ] || fail "empty Steam runtime version pointer"
+echo "[info] runtime version: ${RUNTIME_VER}"
+RUNTIME_SHA256="$(curl -fsSL --retry 5 --retry-delay 5 "${RUNTIME_BASE}/${RUNTIME_VER}/SHA256SUMS" \
+                   | grep " \*${RUNTIME_TAR_NAME}\$" | cut -d' ' -f1)" \
+  || fail "could not get the runtime checksum" "(SHA256SUMS fetch failed, or ${RUNTIME_TAR_NAME} not listed in it)"
+[ -n "${RUNTIME_SHA256}" ] || fail "runtime tarball missing from SHA256SUMS" "(${RUNTIME_TAR_NAME})"
+
+# 2. Resolve the client zip from the channel manifest. Binary VDF: split into printable
+#    runs and grab the PLAIN zip (its filename suffix IS its sha1), not the .vz. variant.
+CLIENT_ZIP_NAME="$(curl -fsSL --retry 5 --retry-delay 5 "${STEAM_CDN}/${STEAM_ARM_MANIFEST_NAME}" \
+                    | tr -c '[:print:]' '\n' \
+                    | grep -oP 'bins_linuxarm64_linuxarm64\.zip\.(?!vz\.)[^"]+' | head -n1)" \
+  || fail "could not fetch the Steam client manifest" "(channel ${STEAM_ARM_CHANNEL})"
+[ -n "${CLIENT_ZIP_NAME}" ] || fail "could not parse the client zip name from Valve's manifest"
+CLIENT_SHA1="${CLIENT_ZIP_NAME##*.}"
+echo "[info] client zip: ${CLIENT_ZIP_NAME}"
+
+# A version change upstream invalidates any partial download of the OLD version; keep the
+# state dir single-version so resume never mixes releases.
+RUNTIME_TAR="${STATE}/${RUNTIME_TAR_NAME}.${RUNTIME_VER}"
+CLIENT_ZIP="${STATE}/${CLIENT_ZIP_NAME}"
+find "${STATE}" -maxdepth 1 -type f \( -name "${RUNTIME_TAR_NAME}.*" ! -name "$(basename "${RUNTIME_TAR}")" \
+     -o -name 'bins_linuxarm64_linuxarm64.zip.*' ! -name "${CLIENT_ZIP_NAME}" \) -delete
+
+# 3. Download + verify both artifacts (resumable across reboots).
+ui "Downloading Steam (2/4): fetching ~160 MB..." "" "(interrupting is safe — the download resumes)"
+verified_fetch "${RUNTIME_BASE}/${RUNTIME_VER}/${RUNTIME_TAR_NAME}" "${RUNTIME_TAR}" \
+               sha256 "${RUNTIME_SHA256}" "Steam runtime (52 MB)"
+verified_fetch "${STEAM_CDN}/${CLIENT_ZIP_NAME}" "${CLIENT_ZIP}" \
+               sha1 "${CLIENT_SHA1}" "Steam client (110 MB)"
+
+# 4. Assemble the tree in staging. Wipe any half-assembled leftover first — the expensive
+#    part (downloads) is already banked above; re-unpacking is cheap and deterministic.
+ui "Downloading Steam (3/4): unpacking..."
+rm -rf "${STAGING}"
+mkdir -p "${STAGING}"
+tar -xf "${RUNTIME_TAR}" -C "${STAGING}"          || fail "runtime extract failed"
+unzip -q -o "${CLIENT_ZIP}" -d "${STAGING}"       || fail "client extract failed"
+CLIENT_DIR="${STAGING}/steamrtarm64"
+chmod +x "${CLIENT_DIR}/steam"                    || fail "client binary missing after extract"
+
+# libibus shim: steamwebhelper needs libibus-1.0.so.5 from the runtime; RELATIVE symlink
+# so the tree survives the staging->final rename (same trick as the bake — an absolute
+# target would dangle). See pocknix-steam-install for the war story.
+target="$(echo "${STAGING}"/steam-runtime-steamrt-arm64/steamrt3c_platform_*/files/lib/aarch64-linux-gnu/libibus-1.0.so.5.* | head -n1)"
+[ -f "${target}" ] || fail "libibus not found in the runtime tarball"
+mkdir -p "${STAGING}/lib/aarch64-linux-gnu"
+ln -sfn "../../${target#"${STAGING}/"}" "${STAGING}/lib/aarch64-linux-gnu/libibus-1.0.so.5"
+
+# Pin the channel before the updater runs, exactly like the bake.
+mkdir -p "${STAGING}/package"
+echo "${STEAM_ARM_CHANNEL}" > "${STAGING}/package/beta"
+
+# ~/.steam symlinks (Steam execs $HOME/.steam/root/steam_msg.sh etc.). The updater needs
+# them DURING finalize, so point them at staging now and rewrite to the final relative
+# targets after the mv below. Relative targets keep the tree HOME-agnostic.
+steam_symlinks() { # steam_symlinks <relative-steam-dir>
+  local rel="$1"
+  mkdir -p "${STEAM_DOT}"
+  ln -sfn "${rel}"             "${STEAM_DOT}/steam"
+  ln -sfn "${rel}"             "${STEAM_DOT}/root"
+  ln -sfn "${rel}/linux32"     "${STEAM_DOT}/sdk32"
+  ln -sfn "${rel}/linux64"     "${STEAM_DOT}/sdk64"
+  ln -sfn "${rel}/linuxarm64"  "${STEAM_DOT}/sdkarm64"
+  ln -sfn "${rel}/ubuntu12_32" "${STEAM_DOT}/bin32"
+  ln -sfn "${rel}/ubuntu12_64" "${STEAM_DOT}/bin64"
+}
+steam_symlinks "../.local/share/Steam.staging"
+
+# 5. Finalize: run the client updater headless (Xvfb) so it self-updates and writes the
+#    channel .installed manifest — the proven build-bake flow (pocknix-steam-install
+#    step 3). Without the manifest, first launch re-installs; the v0 "update loop" was
+#    root-owned files, impossible here (everything is ours). This downloads the update
+#    packages, so it needs the network we already have. Minutes on internal UFS.
+ui "Downloading Steam (4/4): installing (this can take several minutes)..." "" \
+   "(this screen updates every 30 seconds)"
+# Heartbeat: repaint status every 30s (elapsed + staging size) so a slow finalize
+# (SD cards) never looks frozen — plus a big guy being chased by zombies patrolling
+# the bottom of the screen, because a watched install needs entertainment.
+# Killed by PID the moment the updater returns.
+(
+  trap 'printf "\033[?25h" >&3 2>/dev/null' EXIT
+  printf '\033[?25l' >&3
+  hb_start=$(date +%s); x=0; dx=1; tick=0
+  while :; do
+    if [ $(( tick % 60 )) -eq 0 ]; then
+      hb_min=$(( ($(date +%s) - hb_start) / 60 ))
+      hb_mb=$(du -sm "${STAGING}" 2>/dev/null | cut -f1)
+      ui "Downloading Steam (4/4): installing (this can take several minutes)..." "" \
+         "  still working: ${hb_min} min elapsed, ${hb_mb:-?} MB on disk" "" \
+         "(this screen updates every 30 seconds)"
+    fi
+    if [ "${dx}" -gt 0 ]; then   # runner leads right, zombies chase from the left
+      if [ $(( tick % 2 )) -eq 0 ]; then
+        s1='                      O  '; s2='  x_x    x_x         /|\ '
+        s3=' ~/|    ~/|           |  '; s4='  / \    / \         / > '
+      else
+        s1='                      O  '; s2='  x_x    x_x         \|/ '
+        s3='  /|~    /|~          |  '; s4='  | |    | |         < \ '
+      fi
+    else                          # runner leads left, zombies chase from the right
+      if [ $(( tick % 2 )) -eq 0 ]; then
+        s1='  O                      '; s2=' /|\         x_x    x_x  '
+        s3='  |           |\~    |\~ '; s4=' < \         / \    / \  '
+      else
+        s1='  O                      '; s2=' \|/         x_x    x_x  '
+        s3='  |          ~|\    ~|\  '; s4=' / >         | |    | |  '
+      fi
+    fi
+    hb_row=12
+    for s in "$s1" "$s2" "$s3" "$s4"; do
+      printf '\033[%d;1H%-58.58s' "${hb_row}" "$(printf '%*s%s' "${x}" '' "${s}")" >&3
+      hb_row=$(( hb_row + 1 ))
+    done
+    x=$(( x + dx ))
+    [ "${x}" -ge 33 ] && dx=-1
+    [ "${x}" -le 0 ] && dx=1
+    tick=$(( tick + 1 ))
+    sleep 0.5
+  done
+) &
+HEARTBEAT_PID=$!
+env LD_LIBRARY_PATH="${CLIENT_DIR}:${STAGING}/lib/aarch64-linux-gnu" \
+  timeout "${POCKNIX_STEAM_BOOTSTRAP_TIMEOUT:-3600}" xvfb-run -a "${CLIENT_DIR}/steam" -steamdeck -exitsteam || true
+kill "${HEARTBEAT_PID}" 2>/dev/null || true
+wait "${HEARTBEAT_PID}" 2>/dev/null || true
+
+[ -f "${STAGING}/package/${STEAM_ARM_MANIFEST_NAME}.installed" ] && [ -f "${CLIENT_DIR}/steamui.so" ] \
+  || fail "Steam's installer did not complete" "(no .installed manifest — network drop mid-update?)"
+
+# 6. Strip per-session cruft + registry.vdf (same list as the bake) so the real Steam
+#    OOBE still runs on first launch, then move into place ATOMICALLY.
+rm -rf "${STAGING}/logs" "${STAGING}/appcache/httpcache" "${STAGING}/appcache/cefdata" \
+       "${STAGING}/config/htmlcache"
+rm -f  "${STAGING}"/ssfn* "${STAGING}/registry.vdf" \
+       "${STEAM_DOT}/registry.vdf" "${STEAM_DOT}/steam.pid" "${STEAM_DOT}/steam.token"
+
+# Never destroy user data: a Steam dir that exists here has no client binary (the done
+# check up top) but could still hold a library/config from a broken past install.
+if [ -e "${STEAM}" ]; then
+  mv "${STEAM}" "${STEAM}.broken-$(date +%Y%m%d-%H%M%S)"
+  echo "[warn] existing incomplete ${STEAM} moved aside"
+fi
+mv "${STAGING}" "${STEAM}"
+steam_symlinks "../.local/share/Steam"
+
+ui "Steam is installed — starting..."
+echo "=== bootstrap complete $(date -u +%FT%TZ) ==="
+exit 0

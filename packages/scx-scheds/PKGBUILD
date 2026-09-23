@@ -1,0 +1,23 @@
+# scx-scheds — sched_ext schedulers (scx_lavd et al) for the Holo Core userland.
+#
+# HOLODOR: the Holo Core preview carries NO scx-scheds, and building the Rust/libbpf
+# tools from source under a qemu-user chroot takes hours. Arch Linux ARM ships a
+# binary-compatible aarch64 build — repackage it with ONE fix: ALARM's dependency
+# is spelled 'libgcc' (their toolchain split), which does not exist in Holo; the
+# same library lives in Holo/Arch's 'gcc-libs'. Everything else installs as-is.
+# pocknix-lavd.service runs `scx_lavd --autopilot` (kernel ships SCHED_CLASS_EXT+BTF).
+_alarmrel=1
+pkgname=scx-scheds
+pkgver=1.1.2
+pkgrel=2   # > ALARM's pkgrel so our repackage wins
+pkgdesc="sched_ext schedulers incl. scx_lavd (ALARM binary, deps fixed for Holo Core)"
+arch=('aarch64')
+url="https://github.com/sched-ext/scx"
+license=('GPL-2.0-only')
+depends=('bash' 'gcc-libs' 'glibc' 'jq' 'libseccomp' 'libbpf' 'libelf' 'protobuf' 'zlib')
+source=("http://mirror.archlinuxarm.org/aarch64/extra/scx-scheds-${pkgver}-${_alarmrel}-aarch64.pkg.tar.xz")
+sha256sums=('767f74c4d1252f610503215b14359d77fbe36477070889fe306b091e2c08f554')
+
+package() {
+  cp -a "${srcdir}/usr" "${pkgdir}/"
+}

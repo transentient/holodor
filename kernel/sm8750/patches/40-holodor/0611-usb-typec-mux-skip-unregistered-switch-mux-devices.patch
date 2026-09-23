@@ -1,0 +1,64 @@
+From: Holodor <holodor@transentient.github.io>
+Date: Wed, 13 Aug 2026 00:05:00 +0900
+Subject: [PATCH] usb: typec: mux: skip unregistered switch/mux devices in set paths
+
+A typec_switch/typec_mux handle obtained with typec_switch_get() /
+fwnode_typec_mux_get() holds a reference on the underlying sw_dev/mux_dev
+struct device, but nothing invalidates the handle when the supplier driver
+unbinds: typec_switch_set() happily calls sw_dev->set() into the unbound
+driver's freed (devm) drvdata.
+
+Hardware-proven on the AYN Odin 3 (2026-08-12): the pmic-glink UCSI
+connector holds the wcd939x-usbss orientation switch; the device link that
+would normally tie their lifetimes failed to create at boot ("Failed to
+create device link (0x180) with supplier 2-000e" — connector <-> usbss
+fw_devlink dependency cycle).  After the usbss re-probed, the first
+connector-change event dispatched through the stale handle:
+
+  Unable to handle kernel NULL pointer dereference at 0000000000000020
+  pc : regmap_update_bits_base+0x30/0x90
+  lr : wcd939x_usbss_set_hsj_route+0x3c/0x190
+  ...
+  typec_switch_set+0x68/0xb0
+  typec_set_orientation+0x28/0x80
+  pmic_glink_ucsi_connector_status+0x64/0xa0
+  ucsi_handle_connector_change+0xa8/0x570
+
+The dead UCSI worker then wedged the pmic-glink pipeline for the rest of
+the boot (battery gauge -110 timeouts, audio DSP graph failures).
+
+Guard the dispatch loops: an unregistered sw_dev/mux_dev is skipped.  This
+does not fix the consumer's handle going permanently quiet after a supplier
+re-probe (a separate lifetime problem), but it turns a kernel oops plus
+platform-wide glink wedge into a silent no-op.
+---
+--- a/drivers/usb/typec/mux.c
++++ b/drivers/usb/typec/mux.c
+@@ -225,6 +225,13 @@ int typec_switch_set(struct typec_switch *sw,
+ 	for (i = 0; i < sw->num_sw_devs; i++) {
+ 		sw_dev = sw->sw_devs[i];
+
++		/*
++		 * The supplier may have unbound (and re-registered a new
++		 * sw_dev) while we hold this handle; its drvdata is gone.
++		 */
++		if (!device_is_registered(&sw_dev->dev))
++			continue;
++
+ 		ret = sw_dev->set(sw_dev, orientation);
+ 		if (ret && ret != -EOPNOTSUPP)
+ 			return ret;
+@@ -401,6 +408,13 @@ int typec_mux_set(struct typec_mux *mux, struct typec_mux_state *state)
+ 	for (i = 0; i < mux->num_mux_devs; i++) {
+ 		mux_dev = mux->mux_devs[i];
+
++		/*
++		 * The supplier may have unbound (and re-registered a new
++		 * mux_dev) while we hold this handle; its drvdata is gone.
++		 */
++		if (!device_is_registered(&mux_dev->dev))
++			continue;
++
+ 		ret = mux_dev->set(mux_dev, state);
+ 		if (ret && ret != -EOPNOTSUPP)
+ 			return ret;

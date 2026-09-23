@@ -1,0 +1,132 @@
+#!/bin/bash
+# pocknix-steam-install — download Valve's NATIVE ARM64 Steam runtime + client.
+# Modeled on armada's build_files/generate-steam-bootstrap.sh (native ARM64, NO FEX). x86 game
+# content via Proton/FEX is deferred. The stock steam-launcher .deb pulls the x86 client (Exec
+# format error on aarch64); the native client comes from the steamrt3c ARM64 runtime + the
+# steamdeck_stable linuxarm64 client below.
+#
+# KEY armada deltas (vs. our earlier publicbeta attempt):
+#   * channel = steamdeck_stable (NOT plain publicbeta) — ships the Steam Deck Big-Picture UI
+#     payload (gamepadui fonts + vgui assets) the plain channel lacks (was: CreateGlFont failed).
+#   * .steam/root symlink — Steam execs $HOME/.steam/root/steam_msg.sh (was: execl errno 2).
+set -e
+set -o pipefail
+
+STEAM="${STEAM:-${HOME}/.local/share/Steam}"
+STEAM_DOT="${STEAM_DOT:-${HOME}/.steam}"
+RUNTIME_DIR="${STEAM}/steam-runtime-steamrt-arm64"
+CLIENT_DIR="${STEAM}/steamrtarm64"
+# HOLODOR: Valve's edge cache 403s plain GETs on the latest-public-beta ALIAS
+# path (HEAD 307s fine — verified 2026-07-29, any UA, any region). The .txt
+# pointer + versioned path works, so resolve the version first and fall back
+# to the alias only if the pointer is unreachable.
+RUNTIME_BASE="https://repo.steampowered.com/steamrt3c/images"
+RUNTIME_VER="$(wget -qO- --timeout=20 "${RUNTIME_BASE}/latest-public-beta.txt" | tr -d '[:space:]')"
+if [ -n "${RUNTIME_VER}" ]; then
+  RUNTIME_TAR_URL="${RUNTIME_BASE}/${RUNTIME_VER}/steam-runtime-steamrt-arm64.tar.xz"
+else
+  RUNTIME_TAR_URL="${RUNTIME_BASE}/latest-public-beta/steam-runtime-steamrt-arm64.tar.xz"
+fi
+STEAM_CDN="https://client-update.steamstatic.com"
+STEAM_ARM_CHANNEL="steamdeck_stable"
+STEAM_ARM_MANIFEST_NAME="steam_client_${STEAM_ARM_CHANNEL}_linuxarm64"
+STEAM_MANIFEST_URL="${STEAM_CDN}/${STEAM_ARM_MANIFEST_NAME}"
+
+# Resilient wget flags: the Steam CDN (client-update.steamstatic.com) intermittently drops the
+# connection mid-stream and returns 502/503, especially on the big client zip. Default wget gives up
+# on the first HTTP error, so retry those codes too, keep resuming (-c), and wait between tries.
+WGET_RETRY=(-c --tries=20 --waitretry=15 --retry-connrefused --read-timeout=30 --timeout=30
+            --retry-on-http-error=408,429,500,502,503,504)
+
+log()  { echo -e "[\033[1;34mpocknix-steam\033[0m] $1"; }
+warn() { echo -e "[\033[1;33mWARN\033[0m] $1" >&2; }
+die()  { echo -e "[\033[1;31mERROR\033[0m] $1" >&2; exit 1; }
+
+# Wait for the network/DNS before downloading. On FIRST BOOT the deck session autologins and runs
+# this immediately, but Wi-Fi (iwd association + DHCP) takes ~15-30s to come up — so wget would hit
+# "Temporary failure in name resolution" and the whole session would fast-fail to a shell. Poll
+# until the Steam host resolves (generous timeout) rather than racing the network. wget's own -t 5
+# only covers transient errors once DNS exists; it can't wait for the interface to come up at all.
+wait_for_network() {
+  local host="repo.steampowered.com" i
+  getent hosts "${host}" >/dev/null 2>&1 && return 0
+  log "Waiting for network/DNS to come up (first boot: Wi-Fi takes ~15-30s to associate)..."
+  for i in $(seq 1 90); do
+    sleep 2
+    getent hosts "${host}" >/dev/null 2>&1 && { log "Network is up."; return 0; }
+  done
+  warn "network/DNS still down after ~180s — attempting the download anyway"
+}
+
+mkdir -p "${STEAM}"
+wait_for_network
+
+# 1. native ARM64 Steam runtime (steamrt3c)
+if [ ! -d "${RUNTIME_DIR}" ]; then
+  log "Downloading Steam ARM64 runtime..."
+  tar_path="${STEAM}/steam-runtime-steamrt-arm64.tar.xz"
+  wget "${WGET_RETRY[@]}" -O "${tar_path}" "${RUNTIME_TAR_URL}" || die "runtime download failed"
+  tar xf "${tar_path}" -C "${STEAM}" || die "runtime extract failed"
+  rm -f "${tar_path}"
+  target=$(echo "${STEAM}"/steam-runtime-steamrt-arm64/steamrt3c_platform_*/files/lib/aarch64-linux-gnu/libibus-1.0.so.5.* | head -n1)
+  [ -f "${target}" ] || die "libibus not found in runtime"
+  mkdir -p "${STEAM}/lib/aarch64-linux-gnu"
+  # RELATIVE symlink (../../ back to ${STEAM}), like armada — HOME-agnostic so it survives the
+  # build-time bake (staging HOME) being tarred + extracted into ~deck. An ABSOLUTE target points at
+  # the bake's staging path and dangles after extraction, leaving steamwebhelper unable to load
+  # libibus-1.0.so.5 → it crash-loops and the Big-Picture UI never comes up.
+  ln -sfn "../../${target#"${STEAM}/"}" "${STEAM}/lib/aarch64-linux-gnu/libibus-1.0.so.5"
+fi
+
+# 2. native ARM64 Steam client (steamdeck_stable linuxarm64). The manifest is binary VDF;
+#    split it into printable runs (strings-equivalent via tr, no binutils dep) then grab the zip.
+if [ ! -d "${CLIENT_DIR}" ]; then
+  log "Resolving + downloading Steam ARM64 client (${STEAM_ARM_CHANNEL})..."
+  target_file=$(curl -fsSL "${STEAM_MANIFEST_URL}" | tr -c '[:print:]' '\n' \
+    | grep -oP 'bins_linuxarm64_linuxarm64\.zip\.(?!vz\.)[^"]+' | head -n1)
+  [ -n "${target_file}" ] || die "could not parse client zip from manifest"
+  zip_path="${STEAM}/linuxarm64.zip"
+  wget "${WGET_RETRY[@]}" -O "${zip_path}" "${STEAM_CDN}/${target_file}" || die "client download failed"
+  unzip -o "${zip_path}" -d "${STEAM}" || die "client extract failed"
+  rm -f "${zip_path}"
+  chmod +x "${CLIENT_DIR}/steam"
+  mkdir -p "${STEAM}/package"; echo "${STEAM_ARM_CHANNEL}" > "${STEAM}/package/beta"
+  # Full .steam symlink layout (matches a real Steam install + armada's generate-steam-bootstrap).
+  # 'root' is the one we were missing: Steam execs $HOME/.steam/root/steam_msg.sh on errors.
+  # RELATIVE targets (../.local/share/Steam), like armada: makes the whole tree HOME-agnostic so a
+  # build-time bake into a staging HOME can be tarred and re-extracted into ~deck (the steam seed).
+  mkdir -p "${STEAM_DOT}"
+  ln -sfn "../.local/share/Steam"             "${STEAM_DOT}/steam"
+  ln -sfn "../.local/share/Steam"             "${STEAM_DOT}/root"
+  ln -sfn "../.local/share/Steam/linux32"     "${STEAM_DOT}/sdk32"
+  ln -sfn "../.local/share/Steam/linux64"     "${STEAM_DOT}/sdk64"
+  ln -sfn "../.local/share/Steam/linuxarm64"  "${STEAM_DOT}/sdkarm64"
+  ln -sfn "../.local/share/Steam/ubuntu12_32" "${STEAM_DOT}/bin32"
+  ln -sfn "../.local/share/Steam/ubuntu12_64" "${STEAM_DOT}/bin64"
+fi
+
+# 2b. OOBE: we deliberately do NOT seed an OOBE-complete registry.vdf — the gamepadui OOBE RUNS so
+#     the user configures Wi-Fi (and language) on first boot, like SteamOS/armada. The OOBE's
+#     "required update" step (YieldingCheckForUpdateOS) no longer dead-ends because pocknix-steamos-shim
+#     ships a steamos-update that reports "no update available" (exit 7) instead of erroring. (To skip
+#     the OOBE instead, copy /usr/share/pocknix-steam/registry.vdf to ${STEAM_DOT}/registry.vdf.)
+
+# 3. Bootstrap the NATIVE client (NO FEX), exactly as armada: run the arm64 updater under a
+#    virtual X display (Xvfb) with steamrtarm64 FIRST on LD_LIBRARY_PATH (client-bundled libs:
+#    libvpx.so.6, libav*), so it self-updates and lays out the complete install, writing the
+#    channel .installed manifest. Without that manifest the seed would re-install on first boot.
+log "Bootstrapping native client under Xvfb (self-update + install layout; can take minutes)..."
+# HOLODOR: 900s starved out on SD-card builds — the self-update's package
+# extraction alone can exceed 15min under fsync-heavy small-file I/O, and the
+# kill landed mid-extract, so the .installed manifest (written last) never
+# appeared. Overridable for slower/faster media.
+env LD_LIBRARY_PATH="${CLIENT_DIR}:${STEAM}/lib/aarch64-linux-gnu" \
+  timeout "${POCKNIX_STEAM_BOOTSTRAP_TIMEOUT:-3600}" xvfb-run -a "${CLIENT_DIR}/steam" -steamdeck -exitsteam || true
+
+installed_manifest="${STEAM}/package/${STEAM_ARM_MANIFEST_NAME}.installed"
+if [ -f "${installed_manifest}" ] && [ -f "${CLIENT_DIR}/steamui.so" ]; then
+  log "Bootstrap complete (${STEAM_ARM_MANIFEST_NAME}.installed present)."
+else
+  warn "Bootstrap may be incomplete (no .installed manifest / steamui.so) — check network / rerun."
+fi
+log "Native ARM64 Steam installed at ${CLIENT_DIR}."

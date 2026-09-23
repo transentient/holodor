@@ -1,0 +1,22 @@
+#!/bin/sh
+# Post-resume grace: Steam's idle policy counts the time the device slept, so on many
+# wakes it fires a fresh suspend request ~1-2s after resume and the user needs a second
+# press (08-28, root-caused 09-04). Hold a short block inhibitor at every resume; real
+# user input lands within it and resets the idle policy. 15s: long enough to beat the
+# request, short enough not to annoy an immediate deliberate re-suspend (powerd stops
+# this unit before a deliberate press suspends).
+#
+# RACE (09-04, 2/12 wakes): this hook runs INSIDE logind's still-open suspend operation
+# and logind refuses block-mode sleep inhibitors while one is in flight ("The operation
+# inhibition has been requested for is already running"). When that happened the grace
+# silently failed and Steam re-suspended the device 1s after wake. So: retry until logind
+# accepts (it does within a few hundred ms of the operation closing).
+systemd-run -q --collect --unit=pocknix-wake-grace /bin/sh -c '
+  i=0
+  while [ $i -lt 40 ]; do
+    systemd-inhibit --what=sleep --mode=block --why="post-resume grace" sleep 15 && exit 0
+    i=$((i+1)); sleep 0.1
+  done
+  echo "pocknix-wake-grace: inhibit never accepted ($i tries)" >&2; exit 1
+' 2>/dev/null || true
+exit 0

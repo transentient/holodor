@@ -1,0 +1,151 @@
+# pocknix-bsp-common — the device-NEUTRAL board-support mechanics shared by every
+# pocknix device: the sleep.d dispatcher + suspend hooks, the handheld power-key
+# policy, and the session udev rules. Device-specific quirks (input maps, audio
+# UCM, SoC suspend/cpuidle tweaks, device.conf) live in each device's BSP under
+# devices/<name>/packages/pocknix-bsp-<name>, which depends on this package.
+pkgname=pocknix-bsp-common
+pkgver=0.1.0
+pkgrel=21   # 21: 60-pocknix-usb-autosuspend.rules — runtime-suspend ONLY the dwc3-qcom glue (drops its
+            #     1 GB/s USB-to-DDR interconnect vote while the port is idle), leaf USB devices/hubs
+            #     stay powered (ArmadaOS 98d8f53, 2026-09-15; upstream sweep 2026-09-20 item U1).
+            # 20: download-inhibit policy file (always|plugged|never, Pocknix Control switch) + no hold at <=5% on battery. 19: power-mode: `max` no longer survives a reboot (boot re-apply turns it into balanced). 18: wake-grace-post: `$i` not `${i}` in the error line (systemd expanded `${i}` inside the sh -c string, cosmetic warning every wake). 17: wake-grace retries the inhibit (logind race = 2-presses-to-wake); wifi-heal launched as a
+            #     transient unit (setsid& died with the hook cgroup, never ran) + nmcli connection-up first;
+            #     charge-full re-applied on USB power_supply udev events; 16: download-inhibit + wake-grace
+pkgdesc="pocknix shared board support: sleep.d dispatcher, suspend hooks, power-key policy, session udev rules"
+arch=('any')
+url="https://github.com/shuuri-labs/pocknix-os"
+license=('GPL2')
+depends=('gptfdisk')
+source=('pocknix-sleep' 'sdam-debug-pre' 'sdam-debug-post'
+        'wifi-sleep-pre' 'wifi-sleep-post'
+        'pocknix-telemetryd' 'pocknix-telemetry.service'
+        'pocknix-power-mode' 'pocknix-power-mode.service'
+        'pocknix-wifi-heal'
+        'pocknix-slot-successful' 'pocknix-slot-successful.service'
+        'pocknix-charge-full' 'pocknix-charge-full.service' '70-pocknix-charge-full.rules'
+        'leds-sleep-pre' 'leds-sleep-post'
+        'cpuidle-state1-sleep-pre' 'cpuidle-state1-sleep-post'
+        'pocknix-download-inhibit' 'pocknix-download-inhibit.service' 'wake-grace-post'
+        'iwd-wait-wlan0.conf'
+        '20-pocknix-powerkey.conf' 'no-freeze-user-sessions.conf'
+        '90-pocknix-backlight.rules' '60-pocknix-controllers.rules'
+        '60-pocknix-usb-autosuspend.rules')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+  # systemd system-sleep hook that dispatches our sleep.d/{pre,post} scripts
+  install -Dm755 "${srcdir}/pocknix-sleep" \
+    "${pkgdir}/usr/lib/systemd/system-sleep/pocknix-sleep"
+
+  # suspend/resume hooks (run by the hook above, in name order)
+  # 000-wifi: radio off before sleep — a wedged WCN7860 tx queue makes ath12k's
+  # suspend time out and ABORTS the whole system suspend (looks like instant wake),
+  # and the hung fw kills scanning until reboot. Drain + quiesce first; restore on
+  # resume. Runs FIRST so the fw parks while the other hooks do their work.
+  install -Dm755 "${srcdir}/wifi-sleep-pre" \
+    "${pkgdir}/usr/lib/pocknix/sleep.d/pre/000-wifi"
+  install -Dm755 "${srcdir}/wifi-sleep-post" \
+    "${pkgdir}/usr/lib/pocknix/sleep.d/post/000-wifi"
+  # (RETIRED 2026-08-12: the 001-inputplumber stop/start hooks. They existed only
+  # because the usbip `deck` target's vhci_hcd vetoed suspend; the deck-uhid target
+  # has no veto, InputPlumber rides through suspend alive, and THAT unbroken
+  # Steam<->pad connection is what makes suspend-mid-game seamless. Do not revive.)
+  # 004-leds: extinguish the stick RGB rings across suspend (save/restore), so 24
+  # LEDs don't sip the sleep budget. Runs late (004) — after the input teardown.
+  install -Dm755 "${srcdir}/leds-sleep-pre" \
+    "${pkgdir}/usr/lib/pocknix/sleep.d/pre/004-leds"
+  install -Dm755 "${srcdir}/leds-sleep-post" \
+    "${pkgdir}/usr/lib/pocknix/sleep.d/post/004-leds"
+
+  # 005-cpuidle-state1: open cpu0 deep idle for the suspend window (s2idle depth).
+  install -Dm755 "${srcdir}/cpuidle-state1-sleep-pre" \
+    "${pkgdir}/usr/lib/pocknix/sleep.d/pre/005-cpuidle-state1"
+  install -Dm755 "${srcdir}/cpuidle-state1-sleep-post" \
+    "${pkgdir}/usr/lib/pocknix/sleep.d/post/005-cpuidle-state1"
+
+  # 006-wake-grace: 15s block inhibitor at every resume — beats the phantom +2s
+  # re-suspend request (post-resume instant re-suspend bug, hardware 08-28).
+  install -Dm755 "${srcdir}/wake-grace-post" \
+    "${pkgdir}/usr/lib/pocknix/sleep.d/post/006-wake-grace"
+
+  # Download guard: hold sleep while Steam is mid-download (a suspended download
+  # never auto-resumes on wake). Enabled in build-sd-image.
+  install -Dm755 "${srcdir}/pocknix-download-inhibit" \
+    "${pkgdir}/usr/lib/pocknix/pocknix-download-inhibit"
+  install -Dm644 "${srcdir}/pocknix-download-inhibit.service" \
+    "${pkgdir}/usr/lib/systemd/system/pocknix-download-inhibit.service"
+
+  # iwd vs default-wlan0 boot race (pocknix-os 696119c): iwd started before the
+  # driver's wlan0 registers loses its NEW_INTERFACE (ENFILE) and wifi is dead
+  # all boot. Order iwd after the netdev.
+  install -Dm644 "${srcdir}/iwd-wait-wlan0.conf" \
+    "${pkgdir}/usr/lib/systemd/system/iwd.service.d/wait-wlan0.conf"
+
+  # 003-sdam-debug: Qualcomm PMIC SDAM suspend breadcrumb (fail-soft on non-SPMI
+  # hardware — the dd just logs to kmsg and moves on).
+  install -Dm755 "${srcdir}/sdam-debug-pre" \
+    "${pkgdir}/usr/lib/pocknix/sleep.d/pre/003-sdam-debug"
+  install -Dm755 "${srcdir}/sdam-debug-post" \
+    "${pkgdir}/usr/lib/pocknix/sleep.d/post/003-sdam-debug"
+
+  # Telemetry: 60s battery/thermal/clock sampler -> /var/lib/pocknix/telemetry.csv.
+  # Data-first power work: sleep-drain %/hr, per-scenario watts, fan/thermal curves.
+  install -Dm755 "${srcdir}/pocknix-telemetryd" \
+    "${pkgdir}/usr/lib/pocknix/pocknix-telemetryd"
+  install -Dm644 "${srcdir}/pocknix-telemetry.service" \
+    "${pkgdir}/usr/lib/systemd/system/pocknix-telemetry.service"
+
+  # Power profiles: eco/balanced/performance/max cpu+gpu caps, persisted + boot-applied.
+  install -Dm755 "${srcdir}/pocknix-power-mode" \
+    "${pkgdir}/usr/local/bin/pocknix-power-mode"
+  install -Dm644 "${srcdir}/pocknix-power-mode.service" \
+    "${pkgdir}/usr/lib/systemd/system/pocknix-power-mode.service"
+
+  # A/B slot keeper: mark the active slot "successful" each boot so the Qualcomm
+  # bootloader stops decrementing its retry counter. Without this, every boot (Linux
+  # or a failed Android attempt) ticks boot_<slot> down; at zero the ABL marks the
+  # slot UNBOOTABLE and refuses BOTH OSes. Android's init does this; Holodor must too.
+  install -Dm755 "${srcdir}/pocknix-slot-successful" \
+    "${pkgdir}/usr/local/bin/pocknix-slot-successful"
+  install -Dm644 "${srcdir}/pocknix-slot-successful.service" \
+    "${pkgdir}/usr/lib/systemd/system/pocknix-slot-successful.service"
+
+  # Full-charge restorer: battmgr firmware defaults to an 80%/70% battery-care
+  # window and the restart never fires in deep suspend — users wake to a drained
+  # "fully charged" device. Force 100/95 each boot until a real opt-in panel exists.
+  install -Dm755 "${srcdir}/pocknix-charge-full" \
+    "${pkgdir}/usr/local/bin/pocknix-charge-full"
+  install -Dm644 "${srcdir}/pocknix-charge-full.service" \
+    "${pkgdir}/usr/lib/systemd/system/pocknix-charge-full.service"
+  install -Dm644 "${srcdir}/70-pocknix-charge-full.rules" \
+    "${pkgdir}/usr/lib/udev/rules.d/70-pocknix-charge-full.rules"
+
+  # Post-resume Wi-Fi self-heal (called async by the 000-wifi post hook).
+  install -Dm755 "${srcdir}/pocknix-wifi-heal" \
+    "${pkgdir}/usr/lib/pocknix/pocknix-wifi-heal"
+
+  # Power button: wake-and-stay (HandlePowerKey=ignore) instead of systemd's default
+  # poweroff (which made a wake-press shut the device down). Sleep via the Steam menu.
+  # Handheld policy, not a device quirk — pairs with pocknix-powerd (overlay).
+  install -Dm644 "${srcdir}/20-pocknix-powerkey.conf" \
+    "${pkgdir}/usr/lib/systemd/logind.conf.d/20-pocknix-powerkey.conf"
+
+  # Suspend: keep user sessions unfrozen (see the .conf for why).
+  install -Dm644 "${srcdir}/no-freeze-user-sessions.conf" \
+    "${pkgdir}/usr/lib/systemd/system/systemd-suspend.service.d/no-freeze-user-sessions.conf"
+
+  # udev rule: let the 'video' group (non-root session user) write panel brightness
+  # so Steam's brightness slider works as the deck user. Matches any backlight.
+  install -Dm644 "${srcdir}/90-pocknix-backlight.rules" \
+    "${pkgdir}/usr/lib/udev/rules.d/90-pocknix-backlight.rules"
+  # Controller uaccess for the non-root deck session (ALARM has no game-devices-udev).
+  # Critical for the InputPlumber 'deck' target (Valve 28de) hidraw that Steam Input reads.
+  install -Dm644 "${srcdir}/60-pocknix-controllers.rules" \
+    "${pkgdir}/usr/lib/udev/rules.d/60-pocknix-controllers.rules"
+  # USB controller runtime PM: autosuspend ONLY the dwc3-qcom glue (its idle
+  # interconnect vote blocks DDR low-power tiers); never the devices/hubs below
+  # it (a dock's hub would power its ports off — ArmadaOS issue #302). See the
+  # rule file header. ArmadaOS 98d8f53, sweep 2026-09-20 U1.
+  install -Dm644 "${srcdir}/60-pocknix-usb-autosuspend.rules" \
+    "${pkgdir}/usr/lib/udev/rules.d/60-pocknix-usb-autosuspend.rules"
+}

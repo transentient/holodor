@@ -1,0 +1,19 @@
+From: Holodor <holodor@localhost>
+Subject: [PATCH] arm64: dts: qcom: cq8725s: volume-up must not wake the system
+
+Only the power button should wake the Odin 3 from suspend. Volume-up sits
+proud on the top edge and gets pressed in a bag or case, silently waking
+the device and draining it. Ported from ArmadaOS "Restrict suspend wake
+sources to power and lid open" (armada-packages 6acedce, 2026-08-22).
+
+Credit: ArmadaOS.
+---
+--- a/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
+@@ -117,6 +117,5 @@
+ 			gpios = <&pm8550_gpios 6 GPIO_ACTIVE_LOW>;
+ 			debounce-interval = <15>;
+ 			linux,can-disable;
+-			wakeup-source;
+ 		};
+ 	};

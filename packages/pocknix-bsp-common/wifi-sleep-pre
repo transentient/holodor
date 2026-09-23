@@ -1,0 +1,17 @@
+#!/bin/sh
+# Cleanly down the Wi-Fi radio before suspend (hardware-observed, Odin 3 2026-08-05):
+# the WCN7860's firmware can wedge with packets stuck in its tx queue — ath12k's
+# suspend then times out ("failed to wait tx complete: -110") and the kernel ABORTS
+# the whole system suspend, which presents as "device wakes right back up", while
+# the hung firmware also kills scanning ("fail to start mac operations": no networks
+# until reboot). Radio off = queues drained + firmware quiesced BEFORE ath12k's
+# suspend hook runs. Deep sleep drops Wi-Fi anyway, so nothing is lost.
+# A flag records that WE turned it off, so resume only re-enables in that case.
+FLAG=/run/pocknix-wifi-resume
+if command -v nmcli >/dev/null 2>&1 && [ "$(nmcli -t radio wifi 2>/dev/null)" = "enabled" ]; then
+  : > "${FLAG}"
+  nmcli radio wifi off 2>/dev/null || true
+  # give the fw a moment to drain/park before the PM callbacks fire
+  sleep 0.5
+fi
+exit 0

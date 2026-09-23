@@ -1,0 +1,15 @@
+#!/bin/bash
+# pocknix-desktop-firstrun — one-time Desktop Mode defaults that need the running shell.
+# Launched from /etc/xdg/autostart (after plasmashell is up); idempotent via a stamp file.
+#   * wallpaper: the Holodor boot-art still (pocknix-boot-art ships it for plymouth), applied with
+#     Plasma's own tool so the user can change it afterwards like any wallpaper.
+set -u
+STATE="${XDG_STATE_HOME:-${HOME}/.local/state}"; mkdir -p "${STATE}"
+WALL="${POCKNIX_DESKTOP_WALLPAPER:-/usr/share/plymouth/themes/holodor/frame-01.png}"
+if [ ! -e "${STATE}/pocknix-wallpaper-applied" ] && [ -r "${WALL}" ] && command -v plasma-apply-wallpaperimage >/dev/null 2>&1; then
+  for _ in $(seq 1 30); do   # plasmashell registers on D-Bus a moment after autostart fires
+    if plasma-apply-wallpaperimage "${WALL}" >/dev/null 2>&1; then touch "${STATE}/pocknix-wallpaper-applied"; break; fi
+    sleep 1
+  done
+fi
+exit 0

@@ -1,0 +1,17 @@
+--- a/src/freedreno/common/freedreno_devices.py
++++ b/src/freedreno/common/freedreno_devices.py
+@@ -1411,7 +1411,13 @@
+         GPUId(chip_id=0x44050001, name="Adreno (TM) 830"), # KGSL
+     ], A6xxGPUInfo(
+         CHIP.A8XX,
+-        [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen1],
++        [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen1, GPUProps(
++            # pocknix: upstream's own TODO at the a810 entry says this is
++            # "possibly also needed for a830 (and all of a8xx)"; a810 and
++            # a8xx_gen2 already disable it. Disable for a830 the same way,
++            # scoped to a830 only (experiment; drop when upstream decides).
++            has_fs_tex_prefetch = False,
++        )],
+         num_ccu = 6,
+         num_slices = 3,
+         tile_align_w = 96,

@@ -1,0 +1,12 @@
+[Unit]
+Description=pocknix thumbstick RGB LED animator (static/rainbow/breathe)
+After=multi-user.target
+
+[Service]
+ExecStart=/usr/local/bin/pocknix-stick-ledsd
+Restart=always
+RestartSec=5
+Nice=15
+
+[Install]
+WantedBy=multi-user.target

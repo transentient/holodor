@@ -1,0 +1,70 @@
+# linux-pocknix-sm8550 — the SM8550 kernel as a pacman package. Per-SoC, not
+# per-device: the boot image and /boot/dtbs carry EVERY board's dtb from
+# kernel/sm8550/dts (the qcom ABL selects by board id), so this one package
+# serves the RP6, AYN Odin 2, Thor, ... A new SoC gets a sibling copy of this
+# thin dir (linux-pocknix-<soc>). Successor to the old 'linux-pocknix'.
+#
+# THIN package by design: it does NOT compile the kernel. The Fedora build host has no makepkg
+# (packages build in a separate ALARM chroot), and `make kernel` (scripts/build-kernel.sh) already
+# compiles the kernel natively + assembles the qcom-abl boot image. build-packages.sh stages that
+# script's output (build/kernel/out) into this package's build dir as ./staged, and package() lays
+# it out as /boot/Image + /boot/dtbs + /usr/lib/modules/<ver>.
+#
+# Why package it at all: it makes the kernel a normal `pacman -U`-able artifact — Image + modules
+# versioned together atomically (no more "updated Image but not /lib/modules" boot-or-die footgun),
+# `.pkg` rollback for the scariest failure (bad kernel), and uniform deploy. The alpm hook
+# (90-linux-pocknix.hook) rebuilds /flash/KERNEL on the device after a kernel transaction.
+#
+# NB: /usr/lib/pocknix/kernel-cmdline is NOT shipped here — the cmdline is DEVICE data
+# (quirk params), owned by each device's BSP (e.g. pocknix-bsp-rp6).
+pkgname=linux-pocknix-sm8550
+pkgver=7.1.2
+pkgrel=5
+pkgdesc="SM8550 kernel (stock ${pkgver} + ROCKNIX patch stack, all-boards dtbs) — packaged from 'make kernel' output"
+arch=('aarch64')
+url="https://github.com/shuuri-labs/pocknix-os"
+license=('GPL-2.0-only')
+# We own the kernel on this device; drop ALARM's generic one (pre-installed in the base
+# tarball). 'replaces linux-pocknix' migrates installs of the old per-device name.
+provides=("linux=${pkgver}" 'linux-pocknix')
+conflicts=('linux-aarch64' 'linux-pocknix')
+replaces=('linux-aarch64' 'linux-pocknix')
+# python3 + cpio run the on-device /flash/KERNEL rebuild hook; depmod runs in the install scriptlet.
+depends=('python' 'cpio')
+install=linux-pocknix.install
+options=('!strip')          # don't strip the kernel Image / DTBs (modules are already stripped by modules_install)
+# The kernel artifacts are staged by build-packages.sh (./staged); these two ship the on-device
+# boot-image rebuild path (Phase 3b): pacman -U linux-pocknix -> alpm hook -> rebuild /flash/KERNEL.
+source=('pocknix-build-bootimg' '90-linux-pocknix.hook')
+sha256sums=('SKIP' 'SKIP')
+
+package() {
+  local out="${startdir}/staged"     # = build/kernel/out, copied in by scripts/build-packages.sh
+  if [ ! -f "${out}/Image" ] || [ ! -f "${out}/kernelrelease" ]; then
+    echo "${pkgname}: no staged kernel at ${out}." >&2
+    echo "  Run 'make kernel' first (it produces build/kernel/out), then rebuild this package." >&2
+    return 1
+  fi
+  local kver; kver="$(cat "${out}/kernelrelease")"
+
+  # kernel image + device trees
+  install -Dm644 "${out}/Image" "${pkgdir}/boot/Image"
+  install -d "${pkgdir}/boot/dtbs"
+  cp "${out}/dtbs/"*.dtb "${pkgdir}/boot/dtbs/"
+
+  # modules (already depmod'd by modules_install during `make kernel`; the .install re-runs depmod
+  # post-transaction so modules.dep is correct against the live /usr/lib/modules path).
+  install -d "${pkgdir}/usr/lib/modules"
+  cp -a "${out}/modroot/lib/modules/${kver}" "${pkgdir}/usr/lib/modules/${kver}"
+
+  # record the kver so the install scriptlet (and the /flash/KERNEL hook) know the modules dir.
+  install -Dm644 /dev/stdin "${pkgdir}/usr/lib/pocknix/kernelrelease" <<<"${kver}"
+
+  # On-device /flash/KERNEL rebuild: the mkbootimg tool (staged from build-kernel.sh), the
+  # rebuild script, and the alpm hook that runs it after a kernel pacman txn. The cmdline it
+  # reads (/usr/lib/pocknix/kernel-cmdline) comes from the device's BSP package.
+  [ -d "${out}/mkbootimg" ] || { echo "${pkgname}: ${out}/mkbootimg missing — re-run 'make kernel'"; return 1; }
+  cp -r "${out}/mkbootimg" "${pkgdir}/usr/lib/pocknix/mkbootimg"
+  install -Dm755 "${srcdir}/pocknix-build-bootimg"  "${pkgdir}/usr/bin/pocknix-build-bootimg"
+  install -Dm644 "${srcdir}/90-linux-pocknix.hook"  "${pkgdir}/usr/share/libalpm/hooks/90-linux-pocknix.hook"
+}

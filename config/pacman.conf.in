@@ -1,0 +1,30 @@
+# HOLODOR pacman.conf — Valve Holo Core aarch64 base (preview snapshot).
+#
+# Copied into the rootfs by build-image.sh. The local pocknix repo is appended
+# later (Phase 3+) AHEAD of these, so our tuned rebuilds (mesa 26.1.5 for the
+# Adreno 830, ROCKNIX gamescope, fex, kernel) always win over Holo's snapshot
+# versions. core/extra resolve via the mirrorlist the Holo rootfs ships in
+# /etc/pacman.d/mirrorlist (points at holo-packages.steamos.cloud).
+#
+# SigLevel: the Holo Core preview publishes UNSIGNED packages (Valve's own
+# shipped pacman.conf uses SigLevel Optional). Tighten when Valve starts
+# signing. Upstream pocknix's ALARM variant of this file is in git history.
+
+[options]
+Architecture = aarch64
+HoldPkg     = pacman glibc
+# NOTE: CheckSpace is intentionally OMITTED. Inside a chroot it can't resolve the
+# cachedir mount point (mountinfo shows host-absolute paths), failing with
+# "could not determine cachedir mount point / not enough free disk space" even
+# with ample space. Standard for chroot/bootstrap builds.
+SigLevel    = Required DatabaseOptional
+LocalFileSigLevel = Optional
+ParallelDownloads = 5
+
+[core]
+SigLevel = Optional
+Include = /etc/pacman.d/mirrorlist
+
+[extra]
+SigLevel = Optional
+Include = /etc/pacman.d/mirrorlist

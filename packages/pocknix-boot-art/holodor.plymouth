@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Holodor
+Description=The Holodor boot cutscene — the old man and the door
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/holodor
+ScriptFile=/usr/share/plymouth/themes/holodor/holodor.script

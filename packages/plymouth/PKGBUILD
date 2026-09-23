@@ -1,0 +1,37 @@
+# plymouth — graphical boot splash daemon, for the Holo Core userland.
+#
+# HOLODOR: the Holo Core preview carries NO plymouth (base.list's splash block
+# has been commented out since v0). Arch Linux ARM's aarch64 build drops in
+# cleanly: every NEEDED soname resolves in the Holo Core rootfs (verified
+# against the sync dbs + rootfs libs 2026-08-21), the dependency names are
+# spelled the same in Holo, and the package ships NO libalpm hooks — nothing
+# tries to regenerate an initramfs we don't have (the initcpio install/hook
+# files it carries are inert without a mkinitcpio preset). Repackaged
+# unmodified, scx-scheds-style, so [pocknix] owns and can update it.
+#
+# We run plymouth in LATE mode (no initramfs): plymouth-start.service pulls in
+# at sysinit from the rootfs via the package's own .wants symlinks; DRM_MSM=y
+# means the display is up by then (~2.5s). getty@tty1 orders after
+# plymouth-quit-wait (upstream systemd), so the splash hands off to the
+# session. Theme + config: pocknix-boot-art + overlay /etc/plymouth/.
+_alarmrel=2
+pkgname=plymouth
+pkgver=26.134.222
+pkgrel=3   # > ALARM's pkgrel so our repackage wins
+pkgdesc="Graphical boot splash screen (ALARM binary, repackaged for Holo Core)"
+arch=('aarch64')
+url="https://www.freedesktop.org/wiki/Software/Plymouth/"
+license=('GPL-2.0-or-later')
+depends=('adwaita-fonts' 'bash' 'cairo' 'filesystem' 'fontconfig' 'freetype2'
+         'glib2' 'glibc' 'libdrm' 'libevdev' 'libpng' 'libx11' 'libxkbcommon'
+         'pango' 'systemd-libs' 'xkeyboard-config')
+optdepends=('gtk3: x11 renderer')
+source=("http://mirror.archlinuxarm.org/aarch64/extra/plymouth-${pkgver}-${_alarmrel}-aarch64.pkg.tar.xz")
+sha256sums=('f1ff469b87b1421487c77f3247b725dbc8c41ce06a604f738109755e96b72368')
+
+package() {
+  # usr only: /etc/plymouth/plymouthd.conf comes from the overlay (unowned,
+  # like the rest of our /etc), so we don't ship ALARM's copy for pacman to
+  # fight over.
+  cp -a "${srcdir}/usr" "${pkgdir}/"
+}

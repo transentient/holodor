@@ -1,0 +1,4 @@
+#!/bin/sh
+# Re-disable cpu0 deep idle after resume (awake-time GMU quirk back in force).
+echo 1 > /sys/devices/system/cpu/cpu0/cpuidle/state1/disable 2>/dev/null || true
+exit 0

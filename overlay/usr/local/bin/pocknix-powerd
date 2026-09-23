@@ -1,0 +1,248 @@
+#!/usr/bin/env python3
+# pocknix-powerd — power button short-press => suspend (session-agnostic).
+#
+# WHY a daemon and not logind HandlePowerKey=suspend: on the RP6 the press that WAKES the
+# device is delivered to userspace as a normal KEY_POWER after resume — that's how the old
+# logind default (poweroff) shut the device down on every wake (see pocknix-bsp
+# 20-pocknix-powerkey.conf). logind has no resume holdoff for the power key
+# (HoldoffTimeoutSec covers lid events only), so HandlePowerKey=suspend would re-suspend
+# the device on every wake press. This daemon drops any KEY_POWER within
+# RESUME_IGNORE_SECS of a resume, detected clocklessly: CLOCK_BOOTTIME advances during
+# suspend while CLOCK_MONOTONIC does not, so a jump in their delta == "we just resumed".
+#
+# Behavior split (keep in sync with pocknix-bsp/20-pocknix-powerkey.conf):
+#   short press (release <= SHORT_PRESS_SECS) -> systemctl suspend   (this daemon)
+#   long press  (>= 5 s)                      -> poweroff            (logind HandlePowerKeyLongPress)
+#   press while asleep                        -> wake                (PMIC wakeup; kernel)
+# Presses between SHORT_PRESS_SECS and 5 s do nothing — that dead zone is what keeps an
+# accidental lingering press from sleeping AND from shutting down.
+#
+# Plasma Mobile note: the shell also reacts to KEY_POWER (display toggle/lock). That's fine
+# alongside this daemon — suspend wins, and the wake press (debounced here) is what the
+# shell uses to light the panel back up. powerdevil is NOT configured to suspend, so there
+# is exactly one suspend requester in every session.
+#
+# Robustness rules inherited from pocknix-volumed: match devices by CAPABILITY (never by
+# name), never exit, drop erroring fds immediately and rescan, bound every subprocess.
+import os, sys, time, select, subprocess
+try:
+    from evdev import InputDevice, list_devices, ecodes
+except ImportError:
+    sys.exit("pocknix-powerd: python-evdev not installed")
+
+SHORT_PRESS_SECS   = 0.8   # release within this = "a press" -> suspend
+RESUME_IGNORE_SECS = 3.0   # swallow KEY_POWER this long after any resume
+RESCAN_SECS        = 5     # re-enumerate devices that (dis)appeared
+SUSPEND_TIMEOUT    = 5     # never let a stuck systemctl block the loop
+BACKLIGHT_GLOB     = "/sys/class/backlight/*/bl_power"
+BRIGHTNESS_GLOB    = "/sys/class/backlight/*/brightness"
+
+# Idle-dim vs dead-looking screen (soak finding #1, 2026-08-31): Steam idle-dims to ~3%
+# of max and never DPMS-blanks on this stack; 3% reads as OFF to a human, so users press
+# power "to wake the screen" and actually SUSPEND a healthy device — then the wake brings
+# the panel back still at 3% ("wake did nothing") and the death spiral is on. Treat
+# sub-floor brightness as screen-off: a press RESTORES brightness instead of suspending,
+# and every resume raises a sub-floor panel to RESTORE_FRAC so wake is always visible.
+# Steam's own dim logic re-dims on idle later; a deliberate user brightness this low is
+# assumed not to exist (Steam's slider floor sits above it).
+DIM_FLOOR_FRAC     = 0.06  # below this fraction of max_brightness = "looks off"
+RESTORE_FRAC       = 0.35  # what a display-wake press / resume restores to
+GRACE_UNIT         = "pocknix-wake-grace.service"  # bsp-common wake-grace inhibitor
+
+# Per-event journal chatter (suspend/resume/screen-off lines) is off by default; set
+# Environment=POCKNIX_POWERD_DEBUG=1 on the unit to get it back. Device-discovery and
+# error lines stay unconditional.
+DEBUG = os.environ.get("POCKNIX_POWERD_DEBUG", "0") == "1"
+
+def dbg(msg):
+    if DEBUG:
+        print(f"pocknix-powerd: {msg}", flush=True)
+
+def boot_mono_delta():
+    return time.clock_gettime(time.CLOCK_BOOTTIME) - time.clock_gettime(time.CLOCK_MONOTONIC)
+
+def screen_is_on():
+    # bl_power uses FB_BLANK_* (0 = FB_BLANK_UNBLANK = on; 4 = FB_BLANK_POWERDOWN). The panel is
+    # "on" iff SOME backlight reports 0 — the RP6 has a real ae94000.dsi.0 node (tracks DPMS) plus
+    # a legacy 'backlight' node stuck at 4, so we OR across all and only treat all-non-zero as off.
+    # If we can't read any node, assume ON (fail toward the normal press=suspend behavior).
+    import glob
+    found = False
+    for p in glob.glob(BACKLIGHT_GLOB):
+        found = True
+        try:
+            if int(open(p).read().strip()) == 0:
+                return True
+        except (OSError, ValueError):
+            continue
+    return not found   # nodes exist and none were 0 -> off; no nodes at all -> assume on
+
+def brightness_state():
+    # Returns (cur, max, path) for the first readable backlight with a sane max, else None.
+    import glob
+    for p in glob.glob(BRIGHTNESS_GLOB):
+        try:
+            cur = int(open(p).read().strip())
+            mx = int(open(os.path.join(os.path.dirname(p), "max_brightness")).read().strip())
+            if mx > 0:
+                return cur, mx, p
+        except (OSError, ValueError):
+            continue
+    return None
+
+def looks_off():
+    st = brightness_state()
+    return st is not None and st[0] < st[1] * DIM_FLOOR_FRAC
+
+def restore_brightness(reason):
+    st = brightness_state()
+    if st is None:
+        return
+    cur, mx, path = st
+    if cur >= mx * DIM_FLOOR_FRAC:
+        return
+    target = int(mx * RESTORE_FRAC)
+    try:
+        open(path, "w").write(str(target))
+        print(f"pocknix-powerd: {reason}: brightness {cur} -> {target} (of {mx})", flush=True)
+    except OSError as e:
+        print(f"pocknix-powerd: brightness restore failed: {e}", flush=True)
+
+def battery_state():
+    # (capacity%, on_ac) from sysfs; (None, True) if unreadable so we never block a suspend on a guess.
+    import glob
+    cap, ac = None, False
+    for d in glob.glob("/sys/class/power_supply/*"):
+        try:
+            t = open(os.path.join(d, "type")).read().strip()
+            if t == "Battery":
+                cap = int(open(os.path.join(d, "capacity")).read().strip())
+            elif open(os.path.join(d, "online")).read().strip() == "1":
+                ac = True
+        except (OSError, ValueError):
+            continue
+    return cap, (ac if cap is not None else True)
+
+MIN_SUSPEND_PCT = 5   # below this on battery, suspend = brownout death (09-02 00:51); power off instead
+
+def do_suspend():
+    dbg("short press -> suspending")
+    cap, ac = battery_state()
+    if cap is not None and cap < MIN_SUSPEND_PCT and not ac:
+        print(f"pocknix-powerd: battery {cap}% < {MIN_SUSPEND_PCT}% and unplugged -> poweroff instead of suspend", flush=True)
+        try:
+            subprocess.run(["systemctl", "poweroff"], timeout=SUSPEND_TIMEOUT,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+        return
+    # A deliberate press inside the wake-grace window must WIN, not be silently
+    # refused by the grace's block inhibitor ("pulses but does nothing", 08-31).
+    try:
+        subprocess.run(["systemctl", "stop", GRACE_UNIT], timeout=SUSPEND_TIMEOUT,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    try:
+        r = subprocess.run(["systemctl", "suspend"], timeout=SUSPEND_TIMEOUT,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        if r.returncode != 0:
+            # A block inhibitor (install, clone, download-inhibit) makes this refusal SILENT
+            # to the user ("pulses but nothing happens") — at least make it loud in the journal.
+            print(f"pocknix-powerd: systemctl suspend refused (rc={r.returncode}): {r.stderr.strip()}", flush=True)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        print(f"pocknix-powerd: systemctl suspend failed: {e}", flush=True)
+
+def has_power_key(dev):
+    return ecodes.KEY_POWER in dev.capabilities().get(ecodes.EV_KEY, [])
+
+def scan(known_paths):
+    found = {}
+    for path in list_devices():
+        if path in known_paths:
+            continue
+        try:
+            dev = InputDevice(path)
+        except OSError:
+            continue
+        if has_power_key(dev):
+            print(f"pocknix-powerd: watching {path} ({dev.name})", flush=True)
+            found[path] = dev
+        else:
+            dev.close()
+    return found
+
+devs = {}                 # path -> InputDevice
+down_at = {}              # path -> monotonic time of KEY_POWER down
+last_scan = 0.0
+last_delta = boot_mono_delta()
+ignore_until = 0.0        # monotonic deadline; drop KEY_POWER until then
+
+while True:
+    now = time.monotonic()
+    if now - last_scan >= RESCAN_SECS:
+        devs.update(scan(set(devs)))
+        last_scan = now
+    if not devs:
+        time.sleep(1)              # nothing to watch yet — wait, never exit
+        continue
+
+    by_fd = {dev.fd: (path, dev) for path, dev in devs.items()}
+    try:
+        ready, _, _ = select.select(list(by_fd), [], [], RESCAN_SECS)
+    except OSError:
+        for dev in devs.values():
+            try: dev.close()
+            except OSError: pass
+        devs.clear(); down_at.clear()
+        last_scan = 0.0
+        continue
+
+    # Resume detection BEFORE processing events: the wake press arrives in the same loop
+    # pass that follows the resume, so the debounce must be armed first.
+    now = time.monotonic()
+    delta = boot_mono_delta()
+    if delta - last_delta > 0.5:
+        ignore_until = now + RESUME_IGNORE_SECS
+        down_at.clear()            # a pre-suspend down must not pair with a post-resume up
+        dbg(f"resume detected — ignoring power key for {RESUME_IGNORE_SECS}s")
+        # Waking to a sub-floor (idle-dimmed) panel looks identical to a failed wake and
+        # feeds the press spiral — make every wake visibly a wake.
+        restore_brightness("resume with dim panel")
+    last_delta = delta
+
+    for fd in ready:
+        path, dev = by_fd[fd]
+        try:
+            for ev in dev.read():
+                if ev.type != ecodes.EV_KEY or ev.code != ecodes.KEY_POWER:
+                    continue
+                if now < ignore_until:
+                    continue                       # wake press — swallow it
+                if ev.value == 1:                  # down: start timing
+                    down_at[path] = now
+                elif ev.value == 0:                # up: short press => suspend
+                    t0 = down_at.pop(path, None)
+                    if t0 is not None and now - t0 <= SHORT_PRESS_SECS:
+                        # If the screen is already blanked (Plasma/gamescope idle timeout turned
+                        # DPMS off but the system is still awake), this press is "wake the display",
+                        # NOT "sleep". We don't grab the key, so the compositor gets it too and
+                        # un-blanks on the input event; we just decline to suspend. First press
+                        # wakes the screen, a later press (screen on) then suspends as normal.
+                        if not screen_is_on():
+                            dbg("screen off (idle-blank) -> wake only, not suspending")
+                            continue
+                        # Same intent when the panel is idle-dimmed below the visibility floor
+                        # (this stack dims, never blanks — bl_power stays 0): the user is trying
+                        # to get the screen back, so give them that, actively.
+                        if looks_off():
+                            restore_brightness("press on dim panel -> display wake")
+                            continue
+                        # guard the freeze window too: events queued across our own
+                        # suspend get dropped even before the delta jump is seen
+                        ignore_until = now + RESUME_IGNORE_SECS
+                        do_suspend()
+        except OSError:
+            try: dev.close()
+            except OSError: pass
+            devs.pop(path, None); down_at.pop(path, None)

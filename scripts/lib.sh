@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# Shared helpers for pocknix-os build scripts. Source this first:
+#   source "$(dirname "$0")/lib.sh"
+# It resolves POCKNIX_ROOT, loads config/pocknix.conf, and defines utilities.
+
+set -euo pipefail
+
+# --- locate project root (parent of scripts/) ------------------------------
+_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export POCKNIX_ROOT="$(cd "${_lib_dir}/.." && pwd)"
+
+# shellcheck source=../config/pocknix.conf
+source "${POCKNIX_ROOT}/config/pocknix.conf"
+
+# --- device profile + per-SoC kernel pins -----------------------------------
+# The device profile (devices/<name>/profile.conf) declares everything device-
+# specific: SoC, partition labels/names, kernel cmdline, firmware source,
+# device packages. It sets SOC, which selects the per-SoC kernel tree and its
+# source pins (kernel/<soc>/kernel.conf).
+if [ ! -f "${POCKNIX_ROOT}/devices/${DEVICE}/profile.conf" ]; then
+  printf 'error: unknown DEVICE=%s — available: %s\n' \
+    "${DEVICE}" "$(ls "${POCKNIX_ROOT}/devices" 2>/dev/null | tr '\n' ' ')" >&2
+  exit 1
+fi
+source "${POCKNIX_ROOT}/devices/${DEVICE}/profile.conf"
+source "${POCKNIX_ROOT}/kernel/${SOC}/kernel.conf"
+# Per-SoC userspace compiler tuning (mesa/gamescope/mangohud/fex-emu are built
+# with these; build-packages.sh injects them into makepkg's environment).
+source "${POCKNIX_ROOT}/config/tuning/${SOC}.conf"
+
+# Paths derived from the profile (must come after it):
+: "${DEVICE_DIR:=${POCKNIX_ROOT}/devices/${DEVICE}}"
+: "${KERNEL_DIR:=${POCKNIX_ROOT}/kernel/${SOC}}"
+: "${ROCKNIX_DEVICE_DIR:=${ROCKNIX_PROJECT_DIR}/devices/${ROCKNIX_SOC}}"
+# Boot-image style for the SoC's bootloader: qcom-abl (ABL boots an Android
+# boot image, sm8550) or arm-efi (ABL chainloads GRUB, raw Image, sm8250).
+# Set per-profile; default keeps the original qcom-abl devices untouched.
+: "${BOOTLOADER:=qcom-abl}"
+# Per-SoC pacman repo: tuned packages (mesa etc.) share pkgnames across SoCs
+# with different binaries, so each SoC gets its own localrepo/published tree.
+: "${LOCALREPO_DIR:=${BUILD_DIR}/localrepo/${SOC}}"
+# Per-SoC kernel + image outputs: with one family per SoC, a shared build/kernel
+# and build/image/KERNEL meant "whatever family built last" — switching families
+# forced a full kernel rebuild just to regenerate an unchanged image, and the
+# out/soc guards had to police mixups. Per-SoC dirs keep each family's outputs
+# resident side by side. (build/cache and build/rootfs stay shared: the cache is
+# SoC-neutral downloads, the rootfs is wiped by bootstrap.sh on every build.)
+: "${KERNEL_BUILD_DIR:=${BUILD_DIR}/kernel/${SOC}}"
+: "${IMAGE_DIR:=${BUILD_DIR}/image/${SOC}}"
+
+# --- logging ---------------------------------------------------------------
+_c_blue=$'\033[1;34m'; _c_grn=$'\033[1;32m'; _c_yel=$'\033[1;33m'
+_c_red=$'\033[1;31m';  _c_rst=$'\033[0m'
+log()  { printf '%s==>%s %s\n'  "$_c_blue" "$_c_rst" "$*"; }
+ok()   { printf '%s ok%s %s\n'  "$_c_grn"  "$_c_rst" "$*"; }
+warn() { printf '%swarn%s %s\n' "$_c_yel"  "$_c_rst" "$*" >&2; }
+die()  { printf '%serror%s %s\n' "$_c_red" "$_c_rst" "$*" >&2; exit 1; }
+
+# --- guards ----------------------------------------------------------------
+need_root() { [ "$(id -u)" -eq 0 ] || die "must run as root (chroot/mount needed): try 'sudo make $1'"; }
+need_linux() { [ "$(uname -s)" = "Linux" ] || die "the image build must run on a Linux host (current: $(uname -s)). Use a Linux box or container."; }
+have()     { command -v "$1" >/dev/null 2>&1; }
+need_tool(){ have "$1" || die "missing required tool: $1"; }
+
+# --- chroot mount/teardown (idempotent) ------------------------------------
+chroot_mount() {
+  local root="$1"
+  # HOLODOR: the Holo Core rootfs tarball is container-style — it ships without
+  # /dev, /proc and /sys. Create the mount points before binding (no-op on ALARM).
+  mkdir -p "${root}/dev" "${root}/proc" "${root}/sys" "${root}/run" "${root}/tmp"
+  mount --bind /dev      "${root}/dev"
+  # HOLODOR: the host's /dev and /dev/pts are SHARED mounts (systemd makes / and
+  # everything under it rshared), so a plain --bind puts the chroot's copies in
+  # the HOST's peer group. chroot_umount's `umount -lf` then propagates back OUT
+  # of the chroot and tears down the host's /dev/pts — leaving the build machine
+  # with no devpts at all, so every later `ssh` dies with "PTY allocation request
+  # failed on channel 0" until someone remounts it by hand. --make-rslave keeps
+  # host->chroot propagation (so the chroot still sees host /dev changes) while
+  # blocking chroot->host, which is what arch-chroot does for the same reason.
+  mount --make-rslave    "${root}/dev"
+  mount --bind /dev/pts  "${root}/dev/pts"
+  mount --make-rslave    "${root}/dev/pts"
+  mount -t proc  proc    "${root}/proc"
+  mount -t sysfs sys     "${root}/sys"
+  mount -t tmpfs tmpfs   "${root}/run"
+  chroot_resolv "${root}"
+}
+
+# Give the chroot a working /etc/resolv.conf. On systemd-resolved hosts (Fedora,
+# Arch, etc.) the host /etc/resolv.conf is a stub pointing at 127.0.0.53, which
+# resolves nothing inside the chroot — so prefer the real upstream resolvers, and
+# fall back to public DNS if only a localhost stub is available.
+chroot_resolv() {
+  local root="$1" src
+  for src in /run/systemd/resolve/resolv.conf /etc/resolv.conf; do
+    if [ -e "$src" ]; then
+      rm -f "${root}/etc/resolv.conf"
+      cp -L "$src" "${root}/etc/resolv.conf"
+      break
+    fi
+  done
+  if ! grep -E '^[[:space:]]*nameserver' "${root}/etc/resolv.conf" 2>/dev/null | grep -qv '127\.'; then
+    warn "no usable upstream resolver found in chroot — falling back to public DNS (1.1.1.1)"
+    printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > "${root}/etc/resolv.conf"
+  fi
+}
+chroot_umount() {
+  local root="$1"
+  for m in run sys proc dev/pts dev; do
+    mountpoint -q "${root}/${m}" && umount -lf "${root}/${m}" || true
+  done
+}
+
+# install qemu-user-static into the rootfs when cross-building from x86_64
+maybe_install_qemu() {
+  local root="$1"
+  [ "$(uname -m)" = "aarch64" ] && return 0   # native, nothing to do
+  [ -f "${QEMU_AARCH64_STATIC}" ] || die "cross-building on $(uname -m) needs ${QEMU_AARCH64_STATIC} (install qemu-user-static + binfmt)"
+  install -Dm755 "${QEMU_AARCH64_STATIC}" "${root}${QEMU_AARCH64_STATIC}"
+}

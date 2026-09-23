@@ -1,0 +1,4 @@
+#!/bin/sh
+# Resume: restart the LED animator (re-applies the saved mode/color).
+systemctl start pocknix-stick-leds 2>/dev/null || true
+exit 0

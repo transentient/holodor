@@ -1,0 +1,32 @@
+holodor: always show the fbcon boot logo, and show exactly one
+
+Holodor boots `quiet loglevel=3`, and fbcon suppresses the boot logo whenever
+console_loglevel <= CONSOLE_LOGLEVEL_QUIET — so the logo slot was cosmetically
+dead on every silent boot. Drop that gate: showing the logo is exactly what we
+want on a silent boot (it covers the gap until plymouth starts at sysinit).
+Also default fb_logo_count to 1 (mainline draws one logo per online CPU; a row
+of eight is not a look, and this kernel exposes no parameter for it).
+
+--- a/drivers/video/fbdev/core/fbcon.c	2026-08-21 13:29:27.987186679 +0900
++++ b/drivers/video/fbdev/core/fbcon.c	2026-08-21 13:29:37.481858766 +0900
+@@ -1104,9 +1104,6 @@
+ 
+ 	info = fbcon_info_from_console(vc->vc_num);
+ 
+-	if (logo_shown < 0 && console_loglevel <= CONSOLE_LOGLEVEL_QUIET)
+-		logo_shown = FBCON_LOGO_DONTSHOW;
+-
+ 	if (vc != svc || logo_shown == FBCON_LOGO_DONTSHOW ||
+ 	    (info->fix.type == FB_TYPE_TEXT))
+ 		logo = 0;
+--- a/drivers/video/fbdev/core/fb_logo.c	2026-08-21 13:29:27.989752216 +0900
++++ b/drivers/video/fbdev/core/fb_logo.c	2026-08-21 13:29:37.481915210 +0900
+@@ -6,7 +6,7 @@
+ #include "fb_internal.h"
+ 
+ bool fb_center_logo __read_mostly;
+-int fb_logo_count __read_mostly = -1;
++int fb_logo_count __read_mostly = 1;
+ 
+ static inline unsigned int safe_shift(unsigned int d, int n)
+ {

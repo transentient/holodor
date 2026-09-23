@@ -1,0 +1,7 @@
+#!/bin/sh
+# Stop the LED animator and extinguish the rings before suspend (save the sleep budget).
+systemctl stop pocknix-stick-leds 2>/dev/null || true
+for f in /sys/class/leds/r:*/brightness /sys/class/leds/l:*/brightness; do
+  [ -w "$f" ] && echo 0 > "$f" 2>/dev/null || true
+done
+exit 0

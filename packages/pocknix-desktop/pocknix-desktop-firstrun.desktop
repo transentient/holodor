@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Holodor desktop first-run defaults
+Exec=/usr/bin/pocknix-desktop-firstrun
+OnlyShowIn=KDE;
+X-KDE-autostart-phase=2
+NoDisplay=true

@@ -1,0 +1,140 @@
+# gamescope-next (pocknix) — EXPERIMENT 2026-09-20: Valve gamescope 3.16.29 WITHOUT the ROCKNIX
+# rotation-shader patch, for DPU hardware (inline) rotation on the Odin 3. Prepared, NOT built,
+# NOT shipped. docs/rotation-experiment-2026-09-20.md is the write-up; this header is the why.
+#
+# Same "-next" pattern as packages/mesa-next: a differently NAMED package that provides/conflicts
+# the shipped one, so it is installed deliberately with `pacman -U` (replacing gamescope) and rolled
+# back with `pacman -U` of the shipped gamescope-1:3.16.0.rocknix.4286887-3 .pkg — never pulled in by
+# `pacman -Syu` (no `replaces`). The dir carries an OPTIONAL marker: build-packages.sh skips it
+# unless named (`make packages PKG=gamescope-next`), so a plain `make build` cannot leak it into
+# localrepo / an RC.
+#
+# BASE: Valve 3.16.29 = 8f21264 (2026-09-14, "rendervulkan: allow eight composite layers"; ROCKNIX
+# pins the previous tag 3.16.28 = fa0b4d3). Chosen over fa0b4d3 per docs/upstream-sweep-2026-09-20-
+# valve.md: the Adreno-specific work (a88f8ff RCAS one pixel/thread on Qualcomm, 8543837 Valve's own
+# Snapdragon GSR1 upscaler as filter value 5, 2f27e92 composite gating on the base layer's filter),
+# 2d217a1 (09-13) which fixes the plane-format validation regression f8be7ee (07-07) introduced —
+# f8be7ee IS in fa0b4d3 ("Primary plane doesn't support any formats >= 8888" at init is its tell) —
+# and the 09-14 nested-menu/focus fixes (cead6ff, 5b7bb4a, d964b0d, a258253, 5a33808, 8f21264) in our
+# QAM/menu-freeze family. Only two commits sit after 3.16.29 on master (4004d0b pipewire build fix,
+# c50ddfa nested-Wayland attach fix).
+#
+# What the bump changes for rotation (this is the point of the package):
+#  - 38fb50f (2026-06-21, merged 08-13) "Add composited output rotation for displays that can't
+#    rotate at scanout": upstream now rotates in the composite pass BY ITSELF whenever the primary
+#    plane's `rotation` property lacks the needed 90/270 bit (DRMBackend.cpp drm_set_mode(), :3429-
+#    3435), and scans out ROTATED (rotation=ROTATE_90/270 on the liftoff layer, :2710, with the CRTC
+#    rects transposed, :1945-1955) whenever the plane advertises it. `--force-composition-rotation`
+#    forces the composite path on hardware that advertises but fails.
+#  - So ROCKNIX 0005 (our rotation shader, --use-rotation-shader) is DROPPED: it is the same idea in a
+#    different form and 11 of its 21 hunks fail on this base anyway. The launcher must not pass
+#    --use-rotation-shader to this binary (unknown option = abort) — packages/pocknix-steam's
+#    POCKNIX_ROTATION=hw does that.
+#  - On the SHIPPED kernel (DPU planes advertise rotate-0/180 + reflect only, see
+#    docs/present-path-attack-plan.md) this package behaves like the shader build: composited
+#    rotation, no direct scanout, same ~fps. The fps lever is the kernel half —
+#    kernel/sm8750/patches/50-rotation-exp (ROCKNIX 0068 + 0013, DPU inline rotation) — which makes
+#    the VIG planes advertise rotate-90/270 so gamescope stops compositing and scans the game buffer
+#    out directly, rotated by the DPU. Both halves are needed for the experiment; either alone is
+#    harmless.
+#
+# Patch set (vs packages/gamescope: 0001/0004/0006 kept, 0005 dropped, nothing new):
+#  - 0001 wl_touch (nested Wayland backend only; irrelevant to the DRM session but kept for parity
+#    with ROCKNIX) — byte-identical to ROCKNIX's file at their fa0b4d3 pin; applies to 3.16.29 with
+#    offsets, fuzz 0.
+#  - 0004 GAMESCOPE_FAKE_OUTPUT_MM — byte-identical to ROCKNIX's; offsets, fuzz 0.
+#  - 0006 XTest cursor — REBASED here: d12ec39 (08-17) rewrote MouseCursor::UpdatePosition, ROCKNIX's
+#    original fails at steamcompmgr.cpp:1566 on this base. Rebased hunk keeps d12ec39's
+#    m_bConstrained semantics (see the patch header). Fuzz 0, no offset.
+#  Not taken from ROCKNIX's fa0b4d3 set (all apply F0 to 3.16.29 if ever wanted):
+#  - 0005-steamcontrolled-steam-focus-fallback (Steam-update black screen; sweep item U4) — not a
+#    rotation matter, keep the experiment to one variable.
+#  - 0007 Snapdragon GSR1 (tiopex's own implementation) — collides with Valve's 8543837 GSR1 in
+#    3.16.29 (filter value 5); do NOT stack.
+#  - 0008 --rotated-output-max-height (Philippe Simons, 09-12) — the DPU inline rotator caps the
+#    PRE-rotation source height at 1088 lines while the plane advertises ROTATE_90 unconditionally;
+#    on 1440x2560 panels every commit is rejected and the panel stays black, so ROCKNIX clamps the
+#    logical output. The Odin 3's landscape composite is 1920x1080 -> 1080 lines pre-rotation, under
+#    the cap: not needed. If the log ever shows the black-panel signature, add this patch and launch
+#    with --rotated-output-max-height 1080 (see the experiment doc, "failure signatures").
+#
+# Everything else (deps, meson options, CPU tuning, CAP_SYS_NICE scriptlet) is a copy of
+# packages/gamescope so the only variables in the A/B are the base commit and the rotation path.
+# Not yet done, needs the build chroot: confirm -Wno-error still covers the newer wlroots 0.20 /
+# libdisplay-info 0.4.0 submodules (fc6a965, 1c71cb5) and that meson >= 0.60 (a63f16b) is met.
+pkgname=gamescope-next
+epoch=1
+pkgver=3.16.29.valve.8f21264
+pkgrel=1
+_commit=8f212644c46460549035971ab914421180f61a7c
+# Grant CAP_SYS_NICE to the installed binary (realtime scheduling) — see gamescope.install.
+install=gamescope.install
+pkgdesc="SteamOS session compositing WM — Valve 3.16.29, native (DPU) rotation experiment, no rotation shader"
+arch=('aarch64')
+url="https://github.com/ValveSoftware/gamescope"
+license=('BSD-2-Clause')
+# single assignments — a second provides=()/conflicts=() OVERWRITES the first (mesa-next lesson)
+provides=("gamescope=${epoch}:${pkgver}")
+conflicts=('gamescope')
+# Runtime libs (makepkg also auto-adds .so deps; these are the non-obvious ones).
+depends=('wayland' 'libdrm' 'libinput' 'libxkbcommon' 'pixman' 'systemd-libs' 'libcap'
+         'luajit' 'libdecor' 'libx11' 'libxext' 'libxfixes' 'libxdamage' 'libxcomposite'
+         'libxrender' 'libxxf86vm' 'libxtst' 'libxi' 'libxcursor' 'libxmu' 'libxres'
+         'libxcb' 'xcb-util-wm' 'seatd' 'hwdata' 'sdl2' 'pipewire' 'vulkan-icd-loader'
+         'glslang' 'xorg-xwayland' 'libdisplay-info')
+makedepends=('git' 'meson' 'ninja' 'cmake' 'pkgconf' 'glslang' 'vulkan-headers'
+             'wayland-protocols>=1.47' 'python' 'libxkbcommon' 'wayland'   # >=1.47: wlroots 0.20; Holo Core has 1.45, so build packages/wayland-protocols-next first
+             # wlroots subproject build-deps (else meson tries to build them itself):
+             'xorg-xwayland' 'libdisplay-info' 'xcb-util-errors' 'xcb-util-renderutil'
+             'xcb-util-image' 'xcb-util-keysyms')
+source=("gamescope::git+https://github.com/ValveSoftware/gamescope.git#commit=${_commit}"
+        '0001-WaylandBackend-wire-up-wl_touch-implementation.patch'
+        '0004-DRMBackend-Add-GAMESCOPE_FAKE_OUTPUT_MM-env-to-set-c.patch'
+        '0006-steamcompmgr-fix-gamepad-cursor-sprite-frozen-via-XTest.patch')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+prepare() {
+  cd gamescope
+  # subprojects (wlroots 0.20, libliftoff, libdisplay-info, etc.) are git submodules at this commit.
+  git submodule update --init --recursive
+  # ROCKNIX patch order/numbering; 0005 (rotation shader) intentionally absent — upstream 38fb50f
+  # rotates in the composite when the plane can't, and at scanout when it can (the experiment).
+  patch -p1 < "${srcdir}/0001-WaylandBackend-wire-up-wl_touch-implementation.patch"
+  patch -p1 < "${srcdir}/0004-DRMBackend-Add-GAMESCOPE_FAKE_OUTPUT_MM-env-to-set-c.patch"
+  patch -p1 < "${srcdir}/0006-steamcompmgr-fix-gamepad-cursor-sprite-frozen-via-XTest.patch"
+}
+
+build() {
+  cd gamescope
+  # The pinned gamescope/wlroots build with -Werror, but ALARM's libs are newer than
+  # upstream CI built against (e.g. newer libinput adds enum values -> -Werror=switch).
+  # Disable -Werror wholesale rather than chase each version-skew warning. CFLAGS
+  # propagate into the subprojects (wlroots etc.), and being last they override -Werror.
+  export CFLAGS+=" -Wno-error" CXXFLAGS+=" -Wno-error"
+  # CPU tuning = ROCKNIX's exact SM8550 userspace flags (distribution config/arch.aarch64 +
+  # devices/SM8550/options): armv9-a + their feature set (SVE off), tuned for the X3 prime,
+  # -mno-outline-atomics per their arch config. Appended last so -march/-mtune override
+  # ALARM's generic armv8-a defaults; propagates into wlroots/libliftoff subprojects too.
+  # Per-SoC: build-packages.sh injects POCKNIX_TUNE_CFLAGS from config/tuning/${SOC}.conf
+  # (sm8250 = armv8.2/a76.a55); the fallback is the sm8550 string so a standalone makepkg
+  # reproduces the original build.
+  local _rocknix_tune="${POCKNIX_TUNE_CFLAGS:--march=armv9-a+fp16+crypto+i8mm+bf16+memtag+sm4+sha3+nosve+nosve2 -mtune=cortex-x3 -mno-outline-atomics}"
+  export CFLAGS+=" ${_rocknix_tune}" CXXFLAGS+=" ${_rocknix_tune}"
+  meson setup build \
+    --prefix=/usr --buildtype=release -Db_lto=false \
+    -Ddrm_backend=enabled \
+    -Dpipewire=enabled \
+    -Denable_openvr_support=false \
+    -Davif_screenshots=disabled \
+    -Dbenchmark=disabled \
+    -Dinput_emulation=disabled \
+    -Drt_cap=enabled \
+    -Denable_tests=false \
+    -Dsdl2_backend=enabled
+  meson compile -C build
+}
+
+package() {
+  cd gamescope
+  meson install -C build --destdir "${pkgdir}"
+}

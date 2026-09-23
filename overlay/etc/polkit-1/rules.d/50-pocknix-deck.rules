@@ -1,0 +1,31 @@
+// pocknix-os — let the non-root 'deck' session perform the actions the Steam Deck UI needs
+// (suspend/reboot/poweroff, Wi-Fi via NetworkManager, timezone, per-user service control) without a
+// password prompt. 'deck' is in the 'wheel' group; we scope this to the relevant action namespaces.
+polkit.addRule(function(action, subject) {
+    if (!subject.isInGroup("wheel")) { return; }
+    if (action.id.indexOf("org.freedesktop.login1.")          == 0 ||  // suspend/reboot/poweroff
+        action.id.indexOf("org.freedesktop.NetworkManager.")  == 0 ||  // Wi-Fi from Steam's net UI
+        action.id.indexOf("org.freedesktop.timedate1.")       == 0 ||  // timezone (OOBE)
+        action.id.indexOf("org.freedesktop.systemd1.")        == 0 ||  // manage units
+        action.id.indexOf("org.freedesktop.UDisks2.")         == 0) {  // removable storage
+        return polkit.Result.YES;
+    }
+    // SD-card format: Steam's Storage UI runs steamos-format-device, which pkexec's the hwsupport
+    // formatter. Authorize that one program (mmcblk-only, self-guarded) with no prompt.
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        action.lookup("program") == "/usr/lib/hwsupport/format-device.sh") {
+        return polkit.Result.YES;
+    }
+    // Internal-storage installer: pocknix-installer-gui (the Plasma app) pkexec's the two CLIs
+    // (detect probe + install/uninstall). Both are self-guarded (refuse removable disks, refuse
+    // the disk / is on, explicit-layout checks); wheel = the device owner, same trust as above.
+    // pocknix-update (the "Pocknix Updater" entry) is a fixed `pacman -Syu`, nothing else.
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        (action.lookup("program") == "/usr/local/bin/pocknix-install-internal" ||
+         action.lookup("program") == "/usr/local/bin/pocknix-uninstall-internal" ||
+         action.lookup("program") == "/usr/local/bin/pocknix-clear-frp" ||          // 512 KiB zero write, self-guarded
+         action.lookup("program") == "/usr/local/bin/pocknix-restore-stock-abl" ||  // validated + read-back-verified
+         action.lookup("program") == "/usr/local/bin/pocknix-update")) {
+        return polkit.Result.YES;
+    }
+});

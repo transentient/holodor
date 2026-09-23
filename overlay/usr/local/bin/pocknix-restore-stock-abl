@@ -1,0 +1,189 @@
+#!/bin/bash
+# pocknix-restore-stock-abl — put the device's STOCK bootloader (abl_a + abl_b) back, from Linux.
+#
+# The Android-side restore_backup_abl.sh needs a working, set-up Android with the backup
+# files inside its storage — which our internal install wipes. This tool does the same two
+# 1 MiB writes from the SD-booted Holodor, so going back to stock works even when Android is
+# locked, wiped, or not set up, and it checks what the runner cannot:
+#   * each image is exactly the partition size, starts with an ELF header, and is NOT a
+#     ROCKNIX ABL of any release (a backup taken AFTER the flash, or after an ArmadaOS or
+#     ROCKNIX install, would otherwise be "restored"). Releases are identified from the
+#     catalog in /usr/share/holodor/rocknix-abl-releases.tsv, with the shipped payload as
+#     a fallback;
+#   * frp is cleared first (a stock ABL + a locked Android would leave only EDL);
+#   * every write is read back and compared.
+# After it runs the device boots ONLY Android (the ROCKNIX menu is gone). Holodor's internal
+# partitions, if still present, are harmless; remove them first with pocknix-uninstall-internal
+# if you want the storage back. To boot Holodor again later, re-run flash_abl.sh from Android
+# (the rocknix_abl folder on the SD card).
+#
+# Where the backups come from (first hit wins, or --from DIR):
+#   /flash/rocknix_abl            the SD card's boot partition (backup_abl.sh copies there)
+#   /flash/rocknix_abl/<SOC>      the same folder in the ROCKNIX/ArmadaOS kit layout (their
+#                                 backup_abl.sh writes into a per-SoC subfolder, e.g. SM8750)
+#   /var/lib/holodor/abl-backup   the copy the internal installer kept on the rootfs
+#   <internal boot FAT>/abl-backup   the copy the installer kept on the internal ROCKNIX FAT
+#   <any mounted removable drive>/rocknix_abl[/<SOC>]   a USB drive or second card holding the
+#                                 rocknix_abl folder copied from an ArmadaOS/ROCKNIX card or a PC
+# --from DIR accepts the folder holding abl_a.img/abl_b.img, or its parent (the <SOC> subfolder
+# is tried too), so pointing at a whole rocknix_abl folder works.
+#
+# Usage: pocknix-restore-stock-abl [--from DIR] [--dry-run] [--yes]
+#        pocknix-restore-stock-abl --find [--from DIR]   # print backup_dir=<dir|none> (+ why), no writes
+set -euo pipefail
+
+[ -r /usr/lib/pocknix/device.conf ] && . /usr/lib/pocknix/device.conf
+[ -r /etc/pocknix/device.conf ] && . /etc/pocknix/device.conf
+DEVICE="${POCKNIX_INTERNAL_DISK:-/dev/sda}"
+BOOT_FAT_LABEL="${POCKNIX_BOOT_FAT_LABEL:-HOLODOR}"; LEGACY_BOOT_FAT_LABEL="ROCKNIX"   # internal boot FAT label (installs before 2026-09-17 used ROCKNIX)
+SOC_UC="${POCKNIX_SOC:-sm8750}"; SOC_UC="${SOC_UC^^}"
+SHIPPED_ELF="/usr/share/bootloader/rocknix_abl/abl_signed-${SOC_UC}.elf"   # what flash_abl.sh writes; a backup equal to it is not stock
+ABL_CATALOG="${POCKNIX_ABL_CATALOG:-/usr/share/holodor/rocknix-abl-releases.tsv}"   # every ROCKNIX ABL release: version, soc, size, sha256-of-prefix
+ABL_A="/dev/disk/by-partlabel/abl_a"; ABL_B="/dev/disk/by-partlabel/abl_b"
+
+FROM=""; DRY_RUN=0; ASSUME_YES=0; FIND=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --from) FROM="${2:-}"; shift ;;
+    --dry-run) DRY_RUN=1 ;;
+    --yes|-y) ASSUME_YES=1 ;;
+    --find) FIND=1 ;;
+    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+say()  { echo -e "\033[1;34m[restore-abl]\033[0m $*"; }
+warn() { echo -e "\033[1;33m[restore-abl] WARN\033[0m $*" >&2; }
+die()  { echo -e "\033[1;31m[restore-abl] ERROR\033[0m $*" >&2; exit 1; }
+
+[ "$(id -u)" = 0 ] || die "must run as root"
+[ -b "$ABL_A" ] && [ -b "$ABL_B" ] || die "abl_a/abl_b partitions not found by partlabel — not an A/B Qualcomm device?"
+PART_SIZE="$(blockdev --getsize64 "$ABL_A")"
+[ "$(blockdev --getsize64 "$ABL_B")" = "$PART_SIZE" ] || die "abl_a and abl_b differ in size — refusing"
+
+# --- validate one backup image; prints the reason on failure, returns 1 ---
+check_img() {
+  local f="$1"
+  [ -f "$f" ] || { echo "missing"; return 1; }
+  [ "$(stat -c %s "$f")" = "$PART_SIZE" ] || { echo "wrong size ($(stat -c %s "$f") bytes, partition is $PART_SIZE)"; return 1; }
+  [ "$(head -c 4 "$f" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ] || { echo "not an ELF image"; return 1; }
+  local rel; rel="$(rocknix_release "$f")"
+  if [ -n "$rel" ]; then
+    echo "this is the ROCKNIX ABL ${rel}, not a stock backup (taken after a bootloader flash, or an ArmadaOS/ROCKNIX card)"; return 1
+  fi
+  if [ -f "$SHIPPED_ELF" ] && cmp -s -n "$(stat -c %s "$SHIPPED_ELF")" "$f" "$SHIPPED_ELF"; then
+    echo "this is the ROCKNIX ABL, not a stock backup (taken after the flash?)"; return 1
+  fi
+  echo ok
+}
+
+# Identify a ROCKNIX ABL release from the catalog: prints "vX.Y.Z for SOC" or nothing. One
+# sha256 per distinct catalog size (they are all 258048 today), compared against every row.
+rocknix_release() {
+  local f="$1" ver soc sz digest
+  [ "$CATALOG_ROWS" -gt 0 ] || return 0
+  declare -A sums=()
+  while IFS=$'\t' read -r ver soc sz digest; do
+    case "$ver" in ''|'#'*|version) continue ;; esac
+    [[ "$sz" =~ ^[0-9]+$ ]] && [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || continue
+    [ "$(stat -c %s "$f")" -ge "$sz" ] || continue
+    if [ -z "${sums[$sz]:-}" ]; then sums[$sz]="$(head -c "$sz" "$f" | sha256sum | cut -d' ' -f1)"; fi
+    if [ "${sums[$sz]}" = "$digest" ]; then echo "v${ver} for ${soc}"; return 0; fi
+  done < <(tr -d '\r' < "$ABL_CATALOG")     # CRLF-proof: a catalog edited on Windows must still parse
+  return 0
+}
+# Count usable catalog rows once. Zero means the version check is blind (missing or mangled file):
+# say so loudly rather than let a ROCKNIX ABL backup pass as stock.
+CATALOG_ROWS=0
+if [ -r "$ABL_CATALOG" ]; then
+  CATALOG_ROWS="$(tr -d '\r' < "$ABL_CATALOG" | awk -F'\t' '$1 !~ /^(#|version|$)/ && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9a-f]{64}$/' | wc -l)"
+fi
+
+# --- locate a backup dir: --from, the SD's /flash, the rootfs copy, the internal FAT copy ---
+INT_MNT=""
+cleanup() {   # EXIT trap: must return 0, or a successful run exits 1 (the GUI would call that a failure)
+  if [ -n "$INT_MNT" ]; then umount "$INT_MNT" 2>/dev/null || true; rmdir "$INT_MNT" 2>/dev/null || true; fi
+  return 0
+}
+trap cleanup EXIT
+candidates=()
+if [ -n "$FROM" ]; then
+  # the folder itself, or its per-SoC subfolder (ROCKNIX/ArmadaOS kits back up into rocknix_abl/<SOC>)
+  candidates=("$FROM" "$FROM/$SOC_UC" "$FROM/rocknix_abl" "$FROM/rocknix_abl/$SOC_UC")
+else
+  candidates=(/flash/rocknix_abl "/flash/rocknix_abl/$SOC_UC" /var/lib/holodor/abl-backup)
+  # any mounted removable drive (udisks mounts under /run/media/<user>/<label>): a USB drive or a
+  # second card carrying the rocknix_abl folder from an ArmadaOS/ROCKNIX card or a PC copy
+  for m in /run/media/*/* /media/*; do
+    [ -d "$m" ] && [ -d "$m/rocknix_abl" ] || continue
+    candidates+=("$m/rocknix_abl" "$m/rocknix_abl/$SOC_UC")
+  done
+  # the internal boot FAT (not mounted when booted from the SD): mount it read-only
+  int_fat="$( { blkid -t LABEL="$BOOT_FAT_LABEL" -o device 2>/dev/null; blkid -t LABEL="$LEGACY_BOOT_FAT_LABEL" -o device 2>/dev/null; } | grep "^${DEVICE}" | head -1 || true)"
+  if [ -n "$int_fat" ] && ! findmnt -n "$int_fat" >/dev/null 2>&1; then
+    INT_MNT="$(mktemp -d)"
+    mount -o ro "$int_fat" "$INT_MNT" 2>/dev/null && candidates+=("$INT_MNT/abl-backup") || { rmdir "$INT_MNT"; INT_MNT=""; }
+  elif [ -n "$int_fat" ]; then
+    candidates+=("$(findmnt -nro TARGET "$int_fat" | head -1)/abl-backup")
+  fi
+fi
+
+DIR=""; reasons=()
+for d in "${candidates[@]}"; do
+  [ -d "$d" ] || continue     # only report on folders that exist (the <SOC> variants usually don't)
+  ra="$(check_img "$d/abl_a.img")" && rb="$(check_img "$d/abl_b.img")" && { DIR="$d"; break; }
+  reasons+=("$d: abl_a $ra; abl_b $(check_img "$d/abl_b.img" || true)")
+done
+if [ "${#reasons[@]}" -eq 0 ] && [ -z "$DIR" ]; then
+  if [ -n "$FROM" ]; then reasons+=("$FROM: not a folder, and no rocknix_abl folder inside it"); else reasons+=("no rocknix_abl folder found on the SD card, in the install, or on a plugged-in drive"); fi
+fi
+[ "$CATALOG_ROWS" -gt 0 ] || warn "bootloader release catalog unreadable ($ABL_CATALOG): cannot tell a ROCKNIX ABL backup from stock by version"
+
+if [ "$FIND" = 1 ]; then
+  if [ -n "$DIR" ]; then
+    echo "backup_dir=$DIR"; echo "abl_a_sha256=$(sha256sum "$DIR/abl_a.img" | cut -c1-16)"; echo "abl_b_sha256=$(sha256sum "$DIR/abl_b.img" | cut -c1-16)"
+  else
+    echo "backup_dir=none"; for r in "${reasons[@]}"; do echo "reason=$r"; done
+    [ "$CATALOG_ROWS" -gt 0 ] || echo "catalog=unreadable"
+  fi
+  exit 0
+fi
+[ -n "$DIR" ] || { for r in "${reasons[@]}"; do warn "$r"; done; die "no usable stock bootloader backup found (looked in: ${candidates[*]})"; }
+
+say "Stock bootloader backup: $DIR"
+say "  abl_a.img  sha256 $(sha256sum "$DIR/abl_a.img" | cut -c1-16)…  -> $ABL_A"
+say "  abl_b.img  sha256 $(sha256sum "$DIR/abl_b.img" | cut -c1-16)…  -> $ABL_B"
+case "$(findmnt -no SOURCE / || true)" in
+  "$DEVICE"*) warn "you are booted from INTERNAL storage: after this the device boots only Android, and you will need the Holodor SD card to get back here." ;;
+esac
+frp_state="$(pocknix-clear-frp --check 2>/dev/null | sed -n 's/^frp=//p' || true)"
+say "  Android factory-reset-protection marker: ${frp_state:-unknown} (cleared first if set)"
+
+if [ "$DRY_RUN" = 1 ]; then say "--dry-run: no changes made."; exit 0; fi
+if [ "$ASSUME_YES" != 1 ]; then
+  echo
+  echo "  This replaces the ROCKNIX boot menu with your saved STOCK bootloader on both slots."
+  echo "  The device will boot straight into Android. Holodor becomes unbootable until you"
+  echo "  run flash_abl.sh from Android again."
+  read -rp "Type 'RESTORE' to proceed: " ans || die "no input"
+  [ "$ans" = "RESTORE" ] || die "aborted."
+fi
+
+# 1. frp first: a stock ABL plus a locked Android would leave EDL as the only way out.
+if [ "$frp_state" = "populated" ]; then
+  pocknix-clear-frp --yes || die "could not clear frp — stopping BEFORE touching the bootloader"
+fi
+
+# 2. the two writes, each read back. ~1 MiB each; sub-second.
+for slot in a b; do
+  eval "dev=\$ABL_${slot^^}"
+  say "Writing abl_$slot ..."
+  dd if="$DIR/abl_$slot.img" of="$dev" bs=1M conv=fsync status=none
+  sync
+  cmp -s -n "$PART_SIZE" "$DIR/abl_$slot.img" "$dev" || die "read-back of abl_$slot does not match the image. Do NOT reboot; run this again (or flash_abl.sh from Android)."
+done
+say "Done: stock bootloader restored on both slots and verified by read-back."
+say "Power off. Take the SD card out. Power on: Android starts (a red 'device is corrupt' screen"
+say "on an unlocked bootloader restarts itself if untouched; a short power tap continues)."

@@ -1,0 +1,293 @@
+#!/bin/bash
+# pocknix-installer-gui — Plasma front-end ("Holodor Installer") for the internal-storage tools:
+# pocknix-install-internal, pocknix-uninstall-internal, pocknix-clear-frp, pocknix-restore-stock-abl.
+# (The armada-installer `gui` flow, ported to kdialog — the KDE stack is already on the image, so no
+# GTK/zenity pull; the busy dialog is a kdialog progressbar driven indeterminate over D-Bus.)
+#
+# Launched by pocknix-installer.desktop as the normal session user; every privileged step goes
+# through pkexec, authorized for the wheel group with no prompt in 50-pocknix-deck.rules (same
+# pattern as the SD-format helper). Branches on where we're booted from:
+#   SD boot, nothing installed   -> menu: install (Android-size picker -> FRP consent -> confirm ->
+#                                   busy -> poweroff) | fix Android setup lock | restore stock bootloader
+#   SD boot, Holodor installed   -> menu: reinstall (replace in place, Android untouched) | remove &
+#                                   give storage back | fix lock | restore stock
+#   SD boot, ArmadaOS/ROCKNIX/other Linux installed -> replace it with Holodor (Android untouched,
+#                                   not reset: the space after userdata is reused as is) | fix lock | restore
+#   internal boot                -> removal stage 1 (--disable-boot); finish from the SD with this app
+#
+# Two rules from docs/review-2026-09-11-dual-boot.md shape the flows:
+#   * every userdata wipe (install, reinstall, remove) offers to clear Android's factory-reset-
+#     protection marker (frp), default on — left in place it locks Android at its next setup;
+#   * restoring the stock bootloader is its own deliberate last step, never bundled into removal:
+#     after it the device boots only Android, so the user boots Android once to confirm it works
+#     BEFORE giving up the ROCKNIX menu that boots this SD.
+set -euo pipefail
+
+TITLE="Holodor Installer"
+LOG="/tmp/pocknix-installer.log"
+INSTALL_CLI="/usr/local/bin/pocknix-install-internal"
+UNINSTALL_CLI="/usr/local/bin/pocknix-uninstall-internal"
+FRP_CLI="/usr/local/bin/pocknix-clear-frp"
+RESTORE_CLI="/usr/local/bin/pocknix-restore-stock-abl"
+# Internal disk from the BSP's device.conf (matches the CLIs' resolution; RP6 default).
+[ -r /usr/lib/pocknix/device.conf ] && . /usr/lib/pocknix/device.conf
+[ -r /etc/pocknix/device.conf ] && . /etc/pocknix/device.conf
+DEVICE="${POCKNIX_INTERNAL_DISK:-/dev/sda}"
+
+command -v kdialog >/dev/null 2>&1 || { echo "kdialog not installed" >&2; exit 1; }
+# qdbus drives the progress dialog (Arch names the Qt6 binary qdbus6; ships in qt6-tools).
+QDBUS="$(command -v qdbus6 || command -v qdbus || true)"
+
+gui_die() { kdialog --title "$TITLE" --error "$1" || true; exit 1; }
+gui_info() { kdialog --title "$TITLE" --msgbox "$1" || true; }
+
+val() { sed -n "s/^$2=//p" <<<"$1" | head -1; }   # val "$info" key
+
+# Busy dialog around a privileged CLI run. The CLI's output is too sparse to drive a percentage,
+# so the bar is made indeterminate (Qt range 0..0). $ref is "service path" — two words, unquoted
+# on purpose. Output goes to $LOG for the failure dialogs.
+run_busy() {
+  local label="$1" ref rc=0; shift
+  ref=$(kdialog --title "$TITLE" --progressbar "$label" 100)
+  [ -n "$QDBUS" ] && $QDBUS $ref Set "" maximum 0 >/dev/null 2>&1 || true
+  pkexec "$@" >"$LOG" 2>&1 || rc=$?
+  [ -n "$QDBUS" ] && $QDBUS $ref close >/dev/null 2>&1 || true
+  return $rc
+}
+
+offer_poweroff() {
+  if kdialog --title "$TITLE" --yes-label "Power off" --no-label "Close" --yesno "$1"; then
+    systemctl poweroff
+  fi
+}
+
+# --- FRP (Android factory-reset protection) ----------------------------------------------------
+# Returns the CLI flag to pass (--clear-frp / --keep-frp) for a userdata-wiping action, after
+# asking the user when the marker is set. Empty marker = nothing to ask, no flag.
+FRP_TEXT="<b>Android has a Google account or screen lock marker</b> (factory reset protection).<br/><br/>After this step Android is factory-reset. With the marker left in place, Android would ask for the old Google account on its next start, and the Odin 3's setup screen cannot accept it, which locks Android out.<br/><br/>Clearing the marker writes zeros to a 512 KB partition and changes nothing else. <b>Recommended.</b>"
+frp_flag() {
+  local info="$1"
+  [ "$(val "$info" frp)" = populated ] || { echo ""; return; }
+  if kdialog --title "$TITLE" --yes-label "Clear it (recommended)" --no-label "Keep it" --warningyesno "$FRP_TEXT"; then
+    echo "--clear-frp"
+  else
+    kdialog --title "$TITLE" --sorry "Keeping the marker. Expect Android to ask for the old Google account at its next setup; if it cannot take it, come back here and use <b>Fix Android setup lock</b>." || true
+    echo "--keep-frp"
+  fi
+}
+
+fix_lock_flow() {
+  local state
+  state=$(pkexec "$FRP_CLI" --check 2>>"$LOG" | sed -n 's/^frp=//p' || true)
+  case "$state" in
+    clean)  gui_info "<b>Nothing to fix.</b><br/><br/>Android's factory-reset-protection marker is already clear. If Android still shows a \"Factory reset this device\" screen, that is a different problem: see the Holodor install guide, section \"Going back to Android\"."; return ;;
+    populated) ;;
+    *) gui_die "Could not read the frp partition (details in ${LOG})." ;;
+  esac
+  kdialog --title "$TITLE" --yes-label "Clear it" --no-label "Cancel" --warningyesno \
+    "<b>Fix Android setup lock.</b><br/><br/>Android's factory-reset-protection marker is set. If Android greets you with \"Factory reset this device\" and nothing else, this is why: the Odin 3's setup screen cannot take the old Google account.<br/><br/>Clearing the marker writes zeros to a 512 KB partition. Android then sets up normally. Nothing else changes." \
+    || return
+  run_busy "Clearing the marker…" "$FRP_CLI" --yes || gui_die "Could not clear the marker (details in ${LOG})."
+  gui_info "<b>Done.</b> Android will set up normally on its next start.<br/><br/>Power off, then boot Android from the bootloader menu (hold Volume Down while powering on, choose boot mode Android)."
+}
+
+# --- stock bootloader restore (deliberate, last, separate) --------------------------------------
+restore_stock_flow() {
+  local found dir reasons
+  local from=() pick
+  found=$(pkexec "$RESTORE_CLI" --find 2>>"$LOG" || true)
+  dir=$(val "$found" backup_dir)
+  if [ -z "$dir" ] || [ "$dir" = none ]; then
+    reasons=$(sed -n 's/^reason=/• /p' <<<"$found" | head -4 | sed 's/$/<br\/>/' | tr -d '\n')
+    kdialog --title "$TITLE" --yes-label "Browse for it" --no-label "Cancel" --warningyesno \
+      "<b>No usable stock bootloader backup found.</b><br/><br/>Holodor looks on the SD card (rocknix_abl/abl_a.img and abl_b.img, also in a rocknix_abl/SM8750 subfolder as the ArmadaOS and ROCKNIX kits write it), in the internal install, in the internal boot partition, and on any plugged-in USB drive.<br/><br/>${reasons:-}<br/>If the two files are on your PC or on an ArmadaOS/ROCKNIX card, copy them into the rocknix_abl folder on this SD card, or onto a USB drive, and try again. You can also point Holodor at the folder now. A backup taken after a bootloader flash is the ROCKNIX bootloader, not stock, and is refused." \
+      || return
+    pick=$(kdialog --title "$TITLE" --getexistingdirectory /run/media 2>/dev/null || true)
+    [ -n "$pick" ] || return
+    found=$(pkexec "$RESTORE_CLI" --find --from "$pick" 2>>"$LOG" || true)
+    dir=$(val "$found" backup_dir)
+    if [ -z "$dir" ] || [ "$dir" = none ]; then
+      reasons=$(sed -n 's/^reason=/• /p' <<<"$found" | head -4 | sed 's/$/<br\/>/' | tr -d '\n')
+      gui_die "<b>No usable stock bootloader backup in that folder.</b><br/><br/>${reasons:-}"
+    fi
+    from=(--from "$dir")
+  fi
+  case "$(findmnt -no SOURCE / 2>/dev/null || true)" in
+    "$DEVICE"*)
+      kdialog --title "$TITLE" --warningcontinuecancel \
+        "You are running Holodor from <b>internal storage</b>. After restoring the stock bootloader the device boots only Android, and you will need the Holodor SD card to come back here. Continue anyway?" \
+        || return ;;
+  esac
+  kdialog --title "$TITLE" --yes-label "Restore stock bootloader" --no-label "Cancel" --warningyesno \
+    "<b>Put the stock AYN bootloader back?</b><br/><br/>Backup found: <tt>${dir}</tt><br/>abl_a $(val "$found" abl_a_sha256)…  abl_b $(val "$found" abl_b_sha256)…<br/><br/>This replaces the ROCKNIX boot menu on both slots. Afterwards the device boots <b>straight into Android</b>; Holodor (SD or internal) cannot boot until you run flash_abl.sh from Android again.<br/><br/>Do this only after you have booted Android once and seen it work. Android's factory-reset-protection marker is cleared first, so Android cannot lock you out with the menu gone.<br/><br/>Each write is checked by reading it back." \
+    || return
+  run_busy "Restoring the stock bootloader…" "$RESTORE_CLI" --yes "${from[@]}" \
+    || gui_die "Restore failed (details in ${LOG}).<br/><br/>Do not power off yet: run this again. If it keeps failing, boot Android and run flash_abl.sh from the rocknix_abl folder to keep the ROCKNIX menu."
+  offer_poweroff "<b>Stock bootloader restored</b> on both slots and verified.<br/><br/>Power off, take the SD card out, power on: Android starts. (On an unlocked bootloader a red \"device is corrupt\" screen may appear; if it restarts by itself, a short tap of the power button continues.)"
+}
+
+# Android-size picker: a radio list of sensible sizes beats a slider here (kdialog sliders can't
+# set a default, and coarse presets are friendlier on a touch panel anyway).
+choose_android_size() {
+  local amin="$1" amax="$2" def g st args=()
+  def=$amin; [ "$amax" -ge 32 ] && def=32
+  for g in $(printf '%s\n' "$amin" 8 16 32 64 128 "$amax" | sort -nu); do
+    { [ "$g" -ge "$amin" ] && [ "$g" -le "$amax" ]; } || continue
+    st=off; [ "$g" = "$def" ] && st=on
+    args+=("$g" "${g} GB for Android" "$st")
+  done
+  kdialog --title "$TITLE" --radiolist \
+    "Choose how much internal storage Android keeps.<br/>Holodor gets the rest." "${args[@]}"
+}
+
+install_flow() {
+  local info="$1" amin amax acur ud frp bk
+  amin=$(val "$info" android_min_gib); amax=$(val "$info" android_max_gib)
+  acur=$(val "$info" android_current_gib)
+
+  bk=""
+  [ "$(val "$info" abl_backup)" = found ] \
+    || bk="<br/><br/>⚠️ <b>No stock bootloader backup was found on the SD card.</b> The install still works, but the copy you made on your PC (or the one in rocknix_abl/SM8750 on your ArmadaOS or ROCKNIX card) is then your only way back to a stock bootloader. To keep one on the device, cancel, copy abl_a.img and abl_b.img into the rocknix_abl folder on this SD card (or run backup_abl.sh from Android with this card inserted), then come back."
+  kdialog --title "$TITLE" --warningcontinuecancel \
+    "<b>Install Holodor to internal storage, alongside Android?</b><br/><br/>This <b>factory-resets Android</b>: its apps and data are lost; Android itself stays bootable.<br/>The SD card and the bootloader are not touched.${bk}" \
+    || exit 0
+
+  ud=$(choose_android_size "$amin" "$amax") || exit 0
+  [ -n "$ud" ] || exit 0
+  frp=$(frp_flag "$info")
+
+  kdialog --title "$TITLE" --warningcontinuecancel \
+    "<b>Ready to install.</b><br/><br/>Android: <b>${ud} GB</b><br/>Holodor: <b>$((acur - ud)) GB</b><br/><br/>Resizing <b>factory-resets Android</b>. Continue?" \
+    || exit 0
+
+  # shellcheck disable=SC2086  # $frp is one optional flag
+  run_busy "Installing Holodor to internal storage — do not power off…" \
+      "$INSTALL_CLI" --yes --userdata-gib "$ud" $frp \
+    || gui_die "Install failed (details in ${LOG}).<br/><br/>If internal storage was modified, do NOT boot it — boot this SD card again and re-run this installer to finish. The SD card is untouched and Android is not needed."
+  offer_poweroff "<b>Install complete.</b><br/><br/>Power off, remove the SD card, then power on — Holodor boots from internal storage. Keep the SD card: it is your rescue system.<br/><br/>Android is still there: hold Volume Down while powering on and choose boot mode Android."
+}
+
+# Replace whatever Linux install sits after Android's userdata with the system running now.
+# Android is neither resized nor wiped, so there is nothing to ask about frp. Used for a Holodor
+# reinstall and for moving from ArmadaOS / ROCKNIX / another distro to Holodor.
+replace_flow() {
+  local info="$1" what="$2" names gib bk
+  names=$(val "$info" tail_names); gib=$(val "$info" tail_gib)
+  [ "$(val "$info" replace_ok)" = 1 ] \
+    || gui_die "<b>The space used by ${what} is too small for Holodor</b> (${gib} GB after Android).<br/><br/>Remove that install from the bootloader menu first (its uninstall option gives the space back to Android), then install Holodor fresh and choose a smaller size for Android."
+  bk=""
+  [ "$(val "$info" abl_backup)" = found ] \
+    || bk="<br/><br/>⚠️ <b>No stock bootloader backup was found on the SD card.</b> Holodor can still be installed, but keep the backup you made when you first flashed the bootloader (on your PC, or in rocknix_abl/SM8750 on your ArmadaOS or ROCKNIX card). Copy abl_a.img and abl_b.img into the rocknix_abl folder on this SD card to keep one on the device."
+  kdialog --title "$TITLE" --yes-label "Replace with Holodor" --no-label "Cancel" --warningyesno \
+    "<b>Replace ${what} with Holodor?</b><br/><br/>After Android: <b>${what}</b> (${names}, ${gib} GB). Holodor takes exactly that space.<br/>Everything in ${what} is erased.<br/><b>Android is not touched</b>: not resized, not reset.${bk}" \
+    || exit 0
+  run_busy "Replacing ${what} with Holodor — do not power off…" \
+      "$INSTALL_CLI" --yes --replace \
+    || gui_die "Install failed (details in ${LOG}).<br/><br/>If internal storage was modified, do NOT boot it — boot this SD card again and re-run this installer to finish. The SD card is untouched and Android is not needed."
+  offer_poweroff "<b>Install complete.</b><br/><br/>Power off, remove the SD card, then power on — Holodor boots from internal storage. Keep the SD card: it is your rescue system.<br/><br/>Android is still there, exactly as it was: hold Volume Down while powering on and choose boot mode Android."
+}
+
+remove_flow() {
+  local info="$1" frp
+  kdialog --title "$TITLE" --warningcontinuecancel \
+    "<b>Remove Holodor and give all internal storage back to Android?</b><br/><br/>Erases the internal Holodor. Android is factory reset.<br/>The boot menu stays; restoring the stock bootloader is a separate step." \
+    || exit 0
+  frp=$(frp_flag "$info")
+  # shellcheck disable=SC2086
+  run_busy "Removing Holodor from internal storage — do not power off…" \
+      "$UNINSTALL_CLI" --yes $frp \
+    || gui_die "Remove failed (details in ${LOG})."
+}
+after_remove_msg() {
+  offer_poweroff "<b>Holodor removed.</b> Android has the full internal storage again (it factory-resets on its next boot).<br/><br/><b>Next:</b> power off, remove the SD card, boot Android and let it set up. Once you have seen Android work, boot this SD card again and choose <b>Restore stock bootloader</b> if you want the ROCKNIX boot menu gone too."
+}
+
+manage_flow() {
+  local info="$1" android pocknix choice
+  android=$(val "$info" android_gib); pocknix=$(val "$info" pocknix_gib)
+
+  if [ "$(val "$info" boot_disabled)" = 1 ]; then
+    # Stage 1 of a removal was done (internal boot FAT deleted) but the root is intact:
+    # offer to finish the removal, or to bring the internal install back (--enable-boot).
+    choice=$(kdialog --title "$TITLE" --menu \
+      "<b>Internal Holodor is present but its boot is disabled</b> (removal step 1 was done).<br/>Android: <b>${android} GB</b> &nbsp;&nbsp; Holodor: <b>${pocknix} GB</b>" \
+      finish "Finish removal: give the whole disk back to Android" \
+      enable "Re-enable internal boot: bring the internal Holodor back as it was" \
+      restore "Restore stock bootloader (after Android is confirmed working)" \
+      fixlock "Fix Android setup lock") || exit 0
+    case "$choice" in
+      finish) remove_flow "$info"; after_remove_msg ;;
+      enable) run_busy "Re-enabling internal boot…" "$UNINSTALL_CLI" --enable-boot --yes \
+                || gui_die "Re-enable failed (details in ${LOG})."
+              offer_poweroff "<b>Internal boot re-enabled.</b><br/><br/>Power off, remove the SD card, then power on — internal Holodor boots again." ;;
+      restore) restore_stock_flow ;;
+      fixlock) fix_lock_flow ;;
+    esac
+    return
+  fi
+
+  choice=$(kdialog --title "$TITLE" --menu \
+    "<b>Holodor is installed on internal storage.</b><br/>Android: <b>${android} GB</b> &nbsp;&nbsp; Holodor: <b>${pocknix} GB</b>" \
+    reinstall "Reinstall: replace it with the system running now (Android is not touched)" \
+    remove "Remove Holodor: erase it and give the whole disk back to Android" \
+    fixlock "Fix Android setup lock" \
+    restore "Restore stock bootloader (after Android is confirmed working)") || exit 0
+  case "$choice" in
+    reinstall) replace_flow "$info" "the existing Holodor install" ;;
+    remove)  remove_flow "$info"; after_remove_msg ;;
+    fixlock) fix_lock_flow ;;
+    restore) restore_stock_flow ;;
+  esac
+}
+
+internal_boot_flow() {
+  # Booted from the internal install: the disk under / can't be repartitioned, so the only action
+  # here is removal stage 1 (drop the internal boot FAT — safe while running; root is untouched).
+  kdialog --title "$TITLE" --yes-label "Disable internal boot" --no-label "Cancel" --warningyesno \
+    "<b>Holodor is running from internal storage.</b><br/><br/>To remove it and give the storage back to Android:<br/>1. <b>Disable internal boot</b> (nothing else is touched, and it can be re-enabled later).<br/>2. Power off and insert the Holodor SD card.<br/>3. Boot the SD and open ${TITLE} again to finish.<br/><br/>Without the SD card the device boots Android after this step." \
+    || exit 0
+  run_busy "Disabling internal boot…" "$UNINSTALL_CLI" --disable-boot --yes \
+    || gui_die "Could not disable internal boot (details in ${LOG})."
+  offer_poweroff "<b>Internal boot disabled.</b><br/><br/>Power off, then boot the Holodor SD card and open ${TITLE} again to finish the removal (or to re-enable internal boot)."
+}
+
+# --- main ---
+src=$(findmnt -no SOURCE / 2>/dev/null || true)
+case "$src" in
+  "$DEVICE"*) internal_boot_flow; exit 0 ;;
+esac
+
+info=$(pkexec "$INSTALL_CLI" --detect 2>>"$LOG") || gui_die "Could not inspect internal storage (details in ${LOG})."
+case "$(val "$info" mode)" in
+  fresh)
+    choice=$(kdialog --title "$TITLE" --menu "<b>Holodor is running from the SD card.</b> What would you like to do?" \
+      install "Install Holodor to internal storage (alongside Android)" \
+      fixlock "Fix Android setup lock (\"Factory reset this device\" screen)" \
+      restore "Restore the stock bootloader (leave Holodor)") || exit 0
+    case "$choice" in
+      install) install_flow "$info" ;;
+      fixlock) fix_lock_flow ;;
+      restore) restore_stock_flow ;;
+    esac ;;
+  occupied) manage_flow "$info" ;;
+  toosmall) gui_die "Internal storage is too small: Holodor needs about $(val "$info" needed_gib) GB and Android's data partition is only $(val "$info" android_current_gib) GB." ;;
+  foreign)
+    case "$(val "$info" tail_kind)" in
+      armada)  what="ArmadaOS" ;;
+      rocknix) what="ROCKNIX" ;;
+      free)    what="unused space (an earlier install was removed or interrupted)" ;;
+      *)       what="another Linux system" ;;
+    esac
+    [ "$(val "$info" tail_kind)" = unknown ] && [ -z "$(val "$info" tail_names)" ] \
+      && gui_die "Internal storage does not look like an Odin 3 with Android (no single userdata partition). Nothing was changed. Details in ${LOG}."
+    choice=$(kdialog --title "$TITLE" --menu "<b>Internal storage has ${what}</b> ($(val "$info" tail_gib) GB after Android).<br/>Holodor is running from the SD card. What would you like to do?" \
+      replace "Put Holodor there, replacing ${what} (Android is not touched)" \
+      fixlock "Fix Android setup lock (\"Factory reset this device\" screen)" \
+      restore "Restore the stock bootloader (leave everything else)") || exit 0
+    case "$choice" in
+      replace) replace_flow "$info" "$what" ;;
+      fixlock) fix_lock_flow ;;
+      restore) restore_stock_flow ;;
+    esac ;;
+  *)        gui_die "Unexpected internal-storage state (details in ${LOG})." ;;
+esac

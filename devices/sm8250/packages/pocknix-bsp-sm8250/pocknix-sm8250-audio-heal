@@ -1,0 +1,73 @@
+#!/bin/sh
+# pocknix-sm8250-audio-heal — retry hard-failed LPASS probes until the sound card exists.
+#
+# The sm8250 q6 audio stack depends on ADSP services that settle asynchronously:
+# we boot the ADSP from a module at ~6s (ROCKNIX embeds the firmware and boots it
+# at ~1s, long before any consumer probes). Any LPASS driver probing inside the
+# settling window gets a clock -ETIMEDOUT, and the kernel NEVER retries a hard
+# probe failure — the card never assembles ("no soundcards"). A different driver
+# loses the race each boot (lpass pinctrl once, va_macro another time; both seen
+# live on the RP5). Heal: once the adsp remoteproc is running, reload the modular
+# LPASS drivers whose devices are still unbound until the RetroidPocket card
+# appears. Requires the macros built =m (build-kernel.sh sm8250 config delta).
+card_up() { grep -q RetroidPocket /proc/asound/cards 2>/dev/null; }
+bound()   { [ -e "/sys/bus/platform/devices/$1/driver" ]; }
+reload()  { modprobe -r "$1" 2>/dev/null; modprobe "$1" 2>/dev/null; }
+
+# Plant the validated mixer gains once the card exists. Nothing on Arch runs
+# the UCM BootSequence (alsaucm boot), and PipeWire runs soft-mixer on this
+# card (51-pocknix-softmixer.conf) so it never touches the hardware mixer —
+# this is the ONE place the hardware gains are set. Values validated by ear
+# on the RP5 (2026-07-16): speakers at the clean-gain ceiling (the perceived
+# loudness on top comes from the PipeWire limiter, 60-pocknix-speaker-
+# loudness.conf); headphones +6dB analog (max) +18dB digital, clean on loud
+# content. 8.5V is the wsa881x boost maximum — drop to "7.500 V" first if
+# speaker longevity ever becomes a concern. -D hw:0 bypasses the UCM ctl
+# remap layer (name lookups fail on the default device once the remap is up).
+apply_gains() {
+  set_c() { amixer -D hw:0 cset "name=\"$1\"" "$2" >/dev/null 2>&1 || echo "audio-heal: cset '$1' failed" >&2; }
+  # speakers: WSA path
+  set_c "WSA_RX0 Digital Volume" 124
+  set_c "WSA_RX1 Digital Volume" 124
+  set_c "SpkrLeft PA Volume" 12
+  set_c "SpkrRight PA Volume" 12
+  set_c "SpkrLeft Smart Boost Level" "8.500 V"
+  set_c "SpkrRight Smart Boost Level" "8.500 V"
+  # headphones: wcd938x analog + rx-macro digital
+  set_c "HPHL Volume" 24
+  set_c "HPHR Volume" 24
+  set_c "RX_RX0 Digital Volume" 102
+  set_c "RX_RX1 Digital Volume" 102
+  # headset mic (UCM BootSequence value)
+  set_c "ADC2 Volume" 10
+}
+
+# Wait for the adsp remoteproc (module load + firmware + boot; up to 60s).
+i=0
+until [ "$i" -ge 60 ]; do
+  for r in /sys/class/remoteproc/remoteproc*; do
+    [ "$(cat "$r/name" 2>/dev/null)" = adsp ] && \
+    [ "$(cat "$r/state" 2>/dev/null)" = running ] && break 2
+  done
+  i=$((i+1)); sleep 1
+done
+[ "$i" -ge 60 ] && { echo "audio-heal: adsp never came up, giving up" >&2; exit 0; }
+
+try=0
+until card_up || [ "$try" -ge 15 ]; do
+  sleep 2
+  bound 33c0000.pinctrl || reload pinctrl_sm8250_lpass_lpi
+  bound 3370000.codec   || reload snd_soc_lpass_va_macro
+  bound 3200000.rxmacro || reload snd_soc_lpass_rx_macro
+  bound 3220000.txmacro || reload snd_soc_lpass_tx_macro
+  bound 3240000.codec   || reload snd_soc_lpass_wsa_macro
+  try=$((try+1))
+done
+
+if card_up; then
+  apply_gains
+  echo "audio-heal: RetroidPocket card up (retries: ${try}); gains planted"
+else
+  echo "audio-heal: card still absent after ${try} retries" >&2
+fi
+exit 0

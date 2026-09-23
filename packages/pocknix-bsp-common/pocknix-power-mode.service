@@ -1,0 +1,10 @@
+[Unit]
+Description=pocknix: re-apply the persisted power mode (cpu/gpu caps) at boot
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pocknix-power-mode
+
+[Install]
+WantedBy=multi-user.target

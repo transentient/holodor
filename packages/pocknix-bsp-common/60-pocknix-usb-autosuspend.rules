@@ -1,0 +1,20 @@
+# Runtime-suspend ONLY the Qualcomm DWC3 glue (the USB controller's platform
+# device), never the USB devices below it.
+#
+# Why: an active DWC3 holds a 1 GB/s USB-to-DDR interconnect vote in every RPMh
+# bucket, including the sleep set, which blocks the DDR low-power tiers while
+# the port is idle (awake drain). System suspend already drops that vote via
+# dwc3_qcom_pm_suspend regardless of this rule, so s2idle is unaffected.
+#
+# Why NOT a blanket "every USB device -> auto": ArmadaOS tried that (0656c6f)
+# and hubs autosuspended too, powering off their downstream ports, so input
+# devices behind a hub/dock re-enumerated on resume and froze for ~1 s
+# (armada issue #302). Leaf USB devices stay at the kernel default
+# power/control=on, so a hub/dock keeps its ports powered.
+#
+# Ported verbatim from ArmadaOS system_files/usr/lib/udev/rules.d/
+# 60-armada-usb-autosuspend.rules as of armada 98d8f53 (2026-09-15,
+# "fix(udev): only autosuspend the DWC3 controller, not whole USB tree").
+# Holodor 2026-09-20 (upstream sweep item U1). We had no USB power/control
+# rule before this; nothing is replaced.
+ACTION=="add|bind", SUBSYSTEM=="platform", KERNEL=="*.usb", DRIVERS=="dwc3-qcom", ATTR{power/control}="auto"

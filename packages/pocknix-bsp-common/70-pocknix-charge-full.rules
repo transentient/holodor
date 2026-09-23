@@ -1,0 +1,4 @@
+# The battmgr firmware re-asserts its 80/70 battery-care thresholds after boot and on
+# charger events (09-03), so applying our 100/95 policy once at boot is not enough.
+# Re-run the read-before-write restorer whenever a USB power supply changes state.
+SUBSYSTEM=="power_supply", ACTION=="change", ENV{POWER_SUPPLY_TYPE}=="USB", RUN+="/usr/local/bin/pocknix-charge-full"

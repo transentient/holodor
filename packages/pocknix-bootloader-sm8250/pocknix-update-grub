@@ -1,0 +1,46 @@
+#!/bin/bash
+# pocknix-update-grub — refresh the arm-efi bootloader files on /flash from the
+# installed pocknix-bootloader-<soc> package tree (/usr/share/pocknix/bootloader).
+#
+# Run by the 95-pocknix-bootloader alpm hook after a package upgrade (and runnable
+# by hand). Mirrors ROCKNIX's devices/SM8250/bootloader/update.sh: the GRUB binary
+# and grub.cfg are refreshed; grubenv is installed only if missing (it stores the
+# user's saved menu choice). dtbs are NOT handled here — they belong to the kernel
+# package (pocknix-update-boot).
+set -euo pipefail
+
+FLASH="${FLASH:-/flash}"
+BL=/usr/share/pocknix/bootloader
+
+[ -d "$BL" ] || { echo "pocknix-update-grub: no $BL — nothing to do"; exit 0; }
+# In the image-build chroot /flash isn't a real mount; build-sd-image.sh populates
+# the FAT there instead, so skip. On the device /flash is the FAT boot partition.
+mountpoint -q "$FLASH" || { echo "pocknix-update-grub: $FLASH not mounted — skipping (build chroot?)"; exit 0; }
+
+mount -o remount,rw "$FLASH" 2>/dev/null || true
+
+if [ -f "$BL/EFI/BOOT/bootaa64.efi" ]; then
+  mkdir -p "$FLASH/EFI/BOOT"
+  cp -f "$BL/EFI/BOOT/bootaa64.efi" "$FLASH/EFI/BOOT/bootaa64.efi"
+fi
+if [ -f "$BL/boot/grub/grub.cfg" ]; then
+  mkdir -p "$FLASH/boot/grub"
+  cp -f "$BL/boot/grub/grub.cfg" "$FLASH/boot/grub/grub.cfg"
+  # Re-pin root= to the RUNNING root partition's PARTUUID: the packaged cfg
+  # carries the fixed pocknix-SD GUID (fresh images), but this system's root
+  # may be an internal install or an older SD with a random GUID — the cfg on
+  # /flash must always point at the root that booted us.
+  ROOT_SRC="$(findmnt -no SOURCE / 2>/dev/null)"
+  ROOT_PU="$(blkid -s PARTUUID -o value "$ROOT_SRC" 2>/dev/null)"
+  if [ -n "$ROOT_PU" ]; then
+    sed -i -E "s|root=PART(LABEL\|UUID)=[^ ]*|root=PARTUUID=${ROOT_PU}|g" "$FLASH/boot/grub/grub.cfg"
+  else
+    echo "pocknix-update-grub: WARNING could not resolve the running root's PARTUUID; grub.cfg keeps the packaged default root=" >&2
+  fi
+fi
+if [ -f "$BL/boot/grub/grubenv" ] && [ ! -f "$FLASH/boot/grub/grubenv" ]; then
+  mkdir -p "$FLASH/boot/grub"
+  cp "$BL/boot/grub/grubenv" "$FLASH/boot/grub/grubenv"
+fi
+sync
+echo "pocknix-update-grub: refreshed $FLASH bootloader files (grubenv preserved)"

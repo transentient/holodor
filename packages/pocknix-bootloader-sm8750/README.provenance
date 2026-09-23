@@ -1,0 +1,13 @@
+abl_signed-SM8750.elf is the ROCKNIX ABL v1.1.7 payload for SM8750 (AYN Odin 3),
+extracted unchanged from the official release tarball:
+
+  https://github.com/ROCKNIX/abl/releases/download/v1.1.7/rocknix-abl-v1.1.7.tar.gz
+  tarball sha256: see PKGBUILD comment; the .sha256 sidecar is the release's own.
+
+v1.1.7 is the version every Holodor test on this device ran on. v1.1.8 (2026-08-25)
+changes the internal-vs-SD boot order and has not been tested with Holodor; bump
+only after an on-device test.
+
+The scripts in rocknix_abl/ are Holodor's versions of the ROCKNIX distribution's
+packages/tools/rocknix-abl/sources (GPL-2.0). backup_abl.sh additionally copies
+the backup to the SD card, and disable/enable_android_updates.sh are ours.

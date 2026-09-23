@@ -1,0 +1,49 @@
+Holodor provenance: cherry-picked from ROCKNIX distribution (next) commit
+2604fc64f7 (2026-07-19, "SM8750: persist RTC offset in SDAM", André Braga),
+devices/SM8750/patches/linux/0602-ROCKNIX-odin3-rtc-persist-offset-sdam.patch.
+Added by hand on 2026-09-20 (upstream sweep item K4) — NOT via make sync
+(ROCKNIX next is on 7.2). The added DTS lines are ROCKNIX's unchanged; ONLY the
+hunk was regenerated: ROCKNIX appends the two nodes at end-of-file
+(@@ -1268,3), but our 40-holodor/0700 haptics patch also appends at end-of-file
+with a context-less last hunk, which patch(1) anchors to EOF — inserting here
+at EOF would force 0700 onto fuzz. So the block is inserted right after the
+&pon_resin node instead (top-level overrides, order is irrelevant to dtc).
+Applies fuzz 0 at the stated line. Labels pmk8550_rtc / pmk8550_sdam_2 exist in
+stock 7.1.3 pmk8550.dtsi; CONFIG_NVMEM_SPMI_SDAM=y and CONFIG_RTC_DRV_PM8XXX=y
+are already set in kernel/sm8750/config/linux.aarch64.conf.
+Subject: [PATCH] arm64: dts: qcom: cq8725s-ayn-common: SDAM RTC offset
+
+RTC regs are TZ-locked; rtc-pm8xxx stores wall-clock as an offset.
+Android maintains that offset in userspace (time_daemon, persisted
+to /persist), which ROCKNIX does not inherit, so the clock resets
+to epoch every boot.
+
+Back it with an nvmem cell in the always-on PMK8550 SDAM at 0x72,
+a free 4-byte slot below the ADSP-owned alarm-log at 0x76-0x7b,
+verified on Odin 3 to survive cold power-off.
+---
+diff --git a/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi b/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
+--- a/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
+@@ -1006,6 +1006,21 @@
+ 
+ 	status = "okay";
+ };
++
++/* RTC regs are TZ-locked; persist the wall-clock offset in an SDAM
++ * nvmem cell (Android keeps it in userspace, not shared with us).
++ * 0x72 sits just below the ADSP-owned alarm-log at 0x76-0x7b.
++ */
++&pmk8550_rtc {
++	nvmem-cells = <&rtc_offset>;
++	nvmem-cell-names = "offset";
++};
++
++&pmk8550_sdam_2 {
++	rtc_offset: rtc-offset@72 {
++		reg = <0x72 0x4>;
++	};
++};
+ 
+ &pmih0108_eusb2_repeater {
+ 	status = "okay";

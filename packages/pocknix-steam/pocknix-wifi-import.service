@@ -1,0 +1,21 @@
+# Import Wi-Fi credentials from /flash/wifi.txt before the network stack starts.
+# The seedless first boot needs Wi-Fi before any Steam UI exists — see pocknix-wifi-import.
+# Condition-gated: boots without a wifi.txt skip this entirely (no failed-unit noise).
+# Ordered Before= iwd/NM so the credential is on disk when they scan; RequiresMountsFor
+# waits for the FAT boot partition (fstab: /flash, nofail) without failing if it's absent.
+[Unit]
+Description=Import Wi-Fi credentials from /flash/wifi.txt
+ConditionPathExists=/flash/wifi.txt
+RequiresMountsFor=/flash
+Before=iwd.service NetworkManager.service
+DefaultDependencies=no
+After=local-fs.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/pocknix-wifi-import
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

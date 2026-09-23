@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+# pocknix-stick-ledsd — animates the Odin 3 thumbstick RGB rings (HTR3212).
+# Reads /var/lib/pocknix/led-mode (off|static|rainbow|breathe) and led-color (RRGGBB).
+# Static/off idle cheaply; rainbow/breathe animate ~15fps. Files re-read each loop so
+# the plugin's writes take effect live with no restart.
+import colorsys, glob, os, time
+
+L = "/sys/class/leds"
+MODE_F = "/var/lib/pocknix/led-mode"
+COLOR_F = "/var/lib/pocknix/led-color"
+FPS = 15
+
+# discover the RGB channel files once: {(side,zone): {'r':path,'g':path,'b':path}}
+chans, maxb = {}, {}
+for f in glob.glob(f"{L}/r:*") + glob.glob(f"{L}/l:*"):
+    base = os.path.basename(f)              # e.g. r:g3
+    side_c, z = base.split(":")[0], base[-1]
+    color = base.split(":")[1][0]           # r/g/b
+    key = (side_c, z)
+    chans.setdefault(key, {})[color] = f + "/brightness"
+    try: maxb[f + "/brightness"] = int(open(f + "/max_brightness").read())
+    except Exception: maxb[f + "/brightness"] = 255
+
+def readf(p, d):
+    try: return open(p).read().strip()
+    except OSError: return d
+
+def write_all(r, g, b):
+    for ch in chans.values():
+        for c, v in (("r", r), ("g", g), ("b", b)):
+            p = ch.get(c)
+            if not p: continue
+            try: open(p, "w").write(str(v * maxb[p] // 255))
+            except OSError: pass
+
+def hex_rgb(h):
+    h = h.lstrip("#")
+    if len(h) != 6: return (0, 0, 0)
+    try: return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+    except ValueError: return (0, 0, 0)
+
+last = None
+t = 0.0
+while True:
+    mode = readf(MODE_F, "off")   # fresh devices: rings off until the user opts in
+    if mode == "off":
+        if last != ("off",): write_all(0, 0, 0); last = ("off",)
+        time.sleep(1.5); continue
+    if mode == "static":
+        # static always shows a color: no-color-yet falls back to the default
+        # orange, so "static but dark" (looks broken) can't happen. Off is a mode.
+        col = readf(COLOR_F, "ff6600")
+        if col == "off": col = "ff6600"
+        key = ("static", col)
+        if last != key: write_all(*hex_rgb(col)); last = key
+        time.sleep(1.0); continue
+    if mode == "rainbow":
+        t += 1.0 / FPS
+        hue = (t * 0.15) % 1.0                      # ~6.7s per full cycle
+        r, g, b = (int(x * 255) for x in colorsys.hsv_to_rgb(hue, 1.0, 1.0))
+        write_all(r, g, b); last = None
+        time.sleep(1.0 / FPS); continue
+    if mode == "breathe":
+        t += 1.0 / FPS
+        base = hex_rgb(readf(COLOR_F, "ff6600"))
+        lvl = (1 - abs((t * 0.4 % 2) - 1))          # triangle 0..1, ~5s period
+        write_all(*(int(c * lvl) for c in base)); last = None
+        time.sleep(1.0 / FPS); continue
+    time.sleep(1.0)

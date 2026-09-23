@@ -1,0 +1,73 @@
+#!/bin/bash
+# pocknix-clear-frp — clear Android's Factory Reset Protection marker (the `frp` partition).
+#
+# Why this exists: `frp` (512 KiB, GPT partlabel "frp", sda8 on the Odin 3) holds Google's
+# owner marker whenever Android had a Google account or a screen lock. Every wipe of
+# `userdata` that does not go through Android's own Settings reset — our installer, our
+# uninstaller, AYN's EDL factory package (which never writes frp) — leaves the marker in
+# place, and AYN's Dec-2025 setup wizard never offers the account sign-in that would clear
+# it. Result: a modal "Factory reset this device" wall with Reset as the only button
+# (com.google.android.gms/.auth.frp.FrpWarningActivity), proven 2026-09-11. Zeroing the
+# partition is exactly what the EDL erase did that day; Android booted clean afterwards.
+# The partition's last byte is the "OEM unlocking allowed" flag; zeroing it is harmless on
+# a device whose bootloader is already unlocked (the unlock state lives in devinfo).
+#
+# Usage: pocknix-clear-frp --check      # print frp=clean|populated|absent, exit 0/3/4; no writes
+#        pocknix-clear-frp [--yes]      # clear it (asks first unless --yes); verifies by read-back
+set -euo pipefail
+
+FRP="/dev/disk/by-partlabel/frp"
+CHECK=0; ASSUME_YES=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --check) CHECK=1 ;;
+    --yes|-y) ASSUME_YES=1 ;;
+    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+say() { echo -e "\033[1;34m[frp]\033[0m $*"; }
+die() { echo -e "\033[1;31m[frp] ERROR\033[0m $*" >&2; exit 1; }
+
+# State probe (also used by the installer/uninstaller/GUI through --check).
+frp_state() {
+  [ -b "$FRP" ] || { echo absent; return; }
+  local size; size="$(blockdev --getsize64 "$FRP")"
+  # A sane frp is small (512 KiB on the Odin 3). Refuse to reason about anything odd.
+  [ "$size" -gt 0 ] && [ "$size" -le $((4*1024*1024)) ] || { echo absent; return; }
+  if cmp -s -n "$size" "$FRP" /dev/zero; then echo clean; else echo populated; fi
+}
+
+state="$(frp_state)"
+if [ "$CHECK" = 1 ]; then
+  echo "frp=$state"
+  case "$state" in clean) exit 0 ;; populated) exit 3 ;; *) exit 4 ;; esac
+fi
+
+[ "$(id -u)" = 0 ] || die "must run as root"
+case "$state" in
+  absent)    die "no frp partition found at $FRP (not an Android A/B device, or partlabels not populated)" ;;
+  clean)     say "frp is already all zero — nothing to do."; exit 0 ;;
+esac
+
+size="$(blockdev --getsize64 "$FRP")"
+if [ "$ASSUME_YES" != 1 ]; then
+  cat <<EOF
+
+  Android's factory-reset-protection marker is set (a Google account or screen lock was
+  used on this device). After a userdata wipe, Android would demand the old account, and
+  the Odin 3's setup screen cannot accept it, which locks Android out.
+  Clearing the marker writes zeros to the ${size}-byte 'frp' partition. Nothing else changes.
+
+EOF
+  read -rp "Clear it? [y/N]: " ans || die "no input"
+  [[ "$ans" =~ ^[Yy]$ ]] || die "aborted (frp left as is)"
+fi
+
+say "Clearing $FRP ($size bytes) ..."
+dd if=/dev/zero of="$FRP" bs="$size" count=1 conv=fsync status=none
+sync
+cmp -s -n "$size" "$FRP" /dev/zero || die "read-back is not all zero — frp was NOT cleared cleanly"
+say "Done: frp is all zero (verified by read-back)."

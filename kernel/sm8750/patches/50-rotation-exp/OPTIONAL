@@ -1,0 +1,8 @@
+This series is OPTIONAL: scripts/build-kernel.sh skips any patches/<series>/ dir
+that contains a file named OPTIONAL unless the dir's basename is listed in
+HOLODOR_KERNEL_EXTRA_SERIES (space-separated), e.g.
+
+  HOLODOR_KERNEL_EXTRA_SERIES="50-rotation-exp" make kernel
+
+The default `make kernel` is byte-identical to a tree without this dir.
+See README.md here and docs/rotation-experiment-2026-09-20.md.

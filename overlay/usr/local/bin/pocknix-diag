@@ -1,0 +1,107 @@
+#!/bin/sh
+# pocknix-diag — write a boot report so it can be read by pulling the SD (no
+# keyboard/network needed). Written to the ext4 ROOT (persists across power-off;
+# read it in the Fedora VM by mounting p2) AND copied to the FAT boot partition
+# (readable on macOS). Runs once at boot via pocknix-diag.service.
+OUT=/var/log/pocknix-diag.txt
+{
+  echo "=== pocknix first-boot diagnostic ==="
+  date
+  printf '\n## uname\n';        uname -a
+  printf '\n## /proc/version\n'; cat /proc/version
+  printf '\n## /proc/cmdline\n'; cat /proc/cmdline
+  printf '\n## root mount\n';    findmnt / 2>/dev/null
+  printf '\n## block devices\n'; lsblk -f 2>/dev/null || lsblk
+  printf '\n## kernel modules dir\n'; ls /usr/lib/modules 2>/dev/null
+  printf '\n## network interfaces\n'; ip -br a 2>/dev/null
+  printf '\n## wifi: services alive?\n'
+  echo "NetworkManager: $(systemctl is-active NetworkManager 2>/dev/null)  iwd: $(systemctl is-active iwd 2>/dev/null)"
+  printf '\n## wifi: rfkill (sysfs)\n'
+  for r in /sys/class/rfkill/rfkill*; do
+    [ -e "$r/name" ] || continue
+    echo "$(cat "$r/name") type=$(cat "$r/type") soft=$(cat "$r/soft") hard=$(cat "$r/hard")"
+  done
+  printf '\n## wifi: NetworkManager device/conn\n'
+  nmcli radio all 2>/dev/null
+  nmcli device status 2>/dev/null
+  nmcli -f NAME,TYPE,DEVICE connection show 2>/dev/null
+  printf '\n## wifi: iwd devices\n'; iwctl device list 2>/dev/null || echo "(iwctl n/a)"
+  printf '\n## wifi: connection profile baked?\n'; ls -l /etc/NetworkManager/system-connections/ 2>/dev/null || echo "(none)"
+  printf '\n## wifi: profile contents (psk redacted) — confirms SSID actually baked in\n'
+  for f in /etc/NetworkManager/system-connections/*.nmconnection; do
+    [ -e "$f" ] || { echo "(NO .nmconnection files — SD_WIFI_SSID didn't reach the build)"; break; }
+    echo "--- $f ---"; sed 's/^psk=.*/psk=<redacted>/' "$f" 2>/dev/null
+  done
+  printf '\n## wifi: NM conf.d (backend should be iwd; wlan0 NOT unmanaged)\n'
+  cat /etc/NetworkManager/conf.d/*.conf 2>/dev/null || echo "(none)"
+  printf '\n## wifi: iwd main.conf (regdom Country; EnableNetworkConfiguration=false)\n'
+  cat /etc/iwd/main.conf 2>/dev/null || echo "(none)"
+  printf '\n## wifi: regulatory domain (5 GHz needs a country set)\n'; iw reg get 2>/dev/null || echo "(iw n/a)"
+  printf '\n## wifi: scan — does NM see any APs?\n'
+  nmcli -f SSID,SIGNAL,SECURITY,CHAN device wifi list 2>/dev/null | head -30 || echo "(nmcli wifi list n/a)"
+  printf '\n## wifi: wlan0 detail\n'
+  nmcli device show wlan0 2>/dev/null | grep -E 'GENERAL.STATE|GENERAL.CONNECTION|IP4.ADDRESS|WIFI-PROPERTIES' || true
+  nmcli networking connectivity 2>/dev/null
+  printf '\n## wifi: iwd station\n'; iwctl station wlan0 show 2>/dev/null || echo "(iwctl n/a)"
+  printf '\n## rfkill\n'; rfkill list 2>/dev/null || echo "(rfkill n/a)"
+  printf '\n## regulatory.db present?\n'; ls -l /usr/lib/firmware/regulatory.db* 2>/dev/null || echo "MISSING"
+  printf '\n## ath12k dmesg\n'; dmesg 2>/dev/null | grep -i ath12k | tail -20
+  printf '\n## wifi: FORCED connect attempt (prints the real activation failure reason)\n'
+  prof=$(ls /etc/NetworkManager/system-connections/*.nmconnection 2>/dev/null | head -1)
+  if nmcli -g GENERAL.STATE device show wlan0 2>/dev/null | grep -q '^100'; then
+    # already activated: re-running 'connection up' would tear the link down and
+    # rebuild it (visible as a wifi blip every boot)
+    echo "(wlan0 already connected — skipping forced activation)"
+  elif [ -n "$prof" ]; then
+    name=$(basename "${prof%.nmconnection}")
+    echo "+ nmcli --wait 25 connection up \"$name\""
+    nmcli --wait 25 connection up "$name" 2>&1
+    echo "--- wlan0 after attempt ---"
+    nmcli -f GENERAL.STATE,GENERAL.REASON,GENERAL.CONNECTION,IP4.ADDRESS device show wlan0 2>&1
+  else
+    echo "(no profile to activate)"
+  fi
+  printf '\n## NetworkManager journal (activation; iwd phy-capability spam filtered out)\n'
+  journalctl -u NetworkManager --no-pager -n 140 2>/dev/null
+  printf '\n## iwd journal (state/connect/auth/error events only)\n'
+  journalctl -u iwd --no-pager 2>/dev/null | grep -iE 'state:|connect|error|fail|auth|handshake|agent|psk|secret|disconnect' | tail -40
+  printf '\n## graphical session: seat / logind (gamescope needs an ACTIVE seat0 session)\n'
+  loginctl 2>/dev/null || echo "(loginctl n/a)"
+  loginctl session-status 2>/dev/null | head -25 || true
+  echo "seatd: $(systemctl is-active seatd 2>/dev/null)  systemd-logind: $(systemctl is-active systemd-logind 2>/dev/null)"
+  printf '\n## graphical session: processes (etimes = seconds alive; STAT D/Z = stuck; tar/zstd = seed extract)\n'
+  ps -eo pid,ppid,stat,etimes,comm 2>/dev/null | grep -iE 'gamescope|steam|Xwayland|kwin|seatd|plasma|tar|zstd|cpio' | grep -v grep || echo "(no gamescope/steam/kwin/tar running)"
+  printf '\n## seed extract: Steam dir size (re-run the diag; growing = extract in progress, not hung)\n'
+  du -sh /home/deck/.local/share/Steam 2>/dev/null || echo "(no ~deck Steam dir yet)"
+  ls -1 /usr/share/pocknix-steam/steam-seed.tar.zst 2>/dev/null && echo "seed present (offline first-boot)" || echo "(no seed -> first boot downloads)"
+  printf '\n## graphical session: which session is selected\n'
+  cat /home/deck/.local/state/pocknix-session 2>/dev/null || echo "(none -> default gamescope)"
+  printf '\n## failed systemd units\n'; systemctl --failed --no-legend 2>/dev/null || true
+  printf '\n## gamescope/steam launch log (tail — DRM/seat/atomic errors land here)\n'
+  tail -n 120 /home/deck/pocknix-steam.log 2>/dev/null || echo "(no ~deck/pocknix-steam.log yet — extract still running, or session not launched)"
+  printf '\n## gamescope: what is it blocked on? (wchan = kernel wait; D = uninterruptible)\n'
+  for p in $(pgrep -x gamescope 2>/dev/null); do
+    echo "gamescope pid $p: state=$(cut -d' ' -f3 /proc/$p/stat 2>/dev/null) wchan=$(cat /proc/$p/wchan 2>/dev/null)"
+  done || echo "(no gamescope process)"
+  printf '\n## steam client logs (tail)\n'
+  for L in /home/deck/.local/share/Steam/logs/bootstrap_log.txt /home/deck/.local/share/Steam/logs/stderr.txt /home/deck/.steam/steam/logs/bootstrap_log.txt; do
+    [ -f "$L" ] && { echo "--- $L ---"; tail -n 25 "$L" 2>/dev/null; }
+  done
+  printf '\n## dmesg DRM/msm/gpu (gamescope display acquisition)\n'
+  dmesg 2>/dev/null | grep -iE 'msm|drm|adreno|gpu|atomic|a740' | tail -40
+
+  printf '\n## suspend support\n'
+  echo "mem_sleep: $(cat /sys/power/mem_sleep 2>/dev/null)"
+  echo "state:     $(cat /sys/power/state 2>/dev/null)"
+  printf '\n## input devices\n'; ls -1 /dev/input 2>/dev/null
+  printf '\n## dmesg errors/warnings (tail)\n'; dmesg --level=err,warn 2>/dev/null | tail -100
+} > "$OUT" 2>&1
+
+# Copy onto the FAT boot partition (readable on macOS too).
+mp=$(mktemp -d)
+if mount /dev/disk/by-partlabel/system "$mp" 2>/dev/null || mount -L ROCKNIX "$mp" 2>/dev/null; then
+  cp "$OUT" "$mp/pocknix-diag.txt" 2>/dev/null || true
+  sync
+  umount "$mp" 2>/dev/null || true
+fi
+rmdir "$mp" 2>/dev/null || true

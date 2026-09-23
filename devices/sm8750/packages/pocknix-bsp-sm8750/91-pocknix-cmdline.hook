@@ -1,0 +1,18 @@
+# Rebuild /flash/KERNEL when the bsp's kernel-cmdline changes. The kernel package's
+# 90-linux-pocknix.hook only watches boot/Image, dtbs and modules — a cmdline-only bsp
+# bump (e.g. the 08-31 s2idle flip) would otherwise leave a stale /flash/KERNEL that
+# silently reverts the cmdline on the next reboot (bitten 2026-08-31: installing
+# bsp-16 rebuilt nothing; /flash/KERNEL still carried mem_sleep_default=deep).
+# pocknix-build-bootimg ships with linux-pocknix-sm8750; the sh guard keeps this hook
+# harmless if the kernel package isn't present, and the script itself no-ops in the
+# image-build chroot (no /flash mounted).
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Path
+Target = usr/lib/pocknix/kernel-cmdline
+
+[Action]
+Description = pocknix: kernel-cmdline changed, rebuilding /flash/KERNEL...
+When = PostTransaction
+Exec = /bin/sh -c '[ -x /usr/bin/pocknix-build-bootimg ] && exec /usr/bin/pocknix-build-bootimg; exit 0'

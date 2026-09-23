@@ -1,0 +1,67 @@
+#!/bin/sh
+# Hold a sleep inhibitor while Steam is actively downloading. Without this the
+# device idle-suspends mid-download and the download NEVER auto-resumes on wake
+# (Steam pauses it "Disabled (Suspended)" and stays silent — July lesson).
+# Detection: steamapps/downloading/ non-empty for the session user. Held in 45s
+# renewable chunks so a finished download releases within a minute.
+#
+# Policy (Pocknix Control > Power > "Stay awake for downloads"), one word in
+# /var/lib/pocknix/download-inhibit-mode:
+#   always  - hold it on charger and on battery (default, the behaviour since bsp-common-16)
+#   plugged - hold it only while on external power
+#   never   - never hold it (downloads pause when the device sleeps)
+# Whatever the policy, nothing is held at or below LOW_PCT on battery: UPower powers
+# the device off at 5% and a suspend that low is the brownout-death case (2026-09-02).
+# Note a block inhibitor also stops the power button from sleeping the device
+# mid-download; pocknix-powerd logs that refusal.
+DL="${POCKNIX_DL_DIR:-/home/deck/.local/share/Steam/steamapps/downloading}"
+MODE_FILE="${POCKNIX_DL_MODE_FILE:-/var/lib/pocknix/download-inhibit-mode}"
+PS="${POCKNIX_POWER_SUPPLY:-/sys/class/power_supply}"
+LOW_PCT=5
+
+on_ac() {
+  # Any non-battery supply reporting online, or the battery itself charging.
+  for d in "${PS}"/*; do
+    [ -r "${d}/type" ] || continue
+    if [ "$(cat "${d}/type" 2>/dev/null)" = "Battery" ]; then
+      [ "$(cat "${d}/status" 2>/dev/null)" = "Charging" ] && return 0
+    elif [ "$(cat "${d}/online" 2>/dev/null)" = "1" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+battery_pct() {
+  for d in "${PS}"/*; do
+    [ "$(cat "${d}/type" 2>/dev/null)" = "Battery" ] || continue
+    cat "${d}/capacity" 2>/dev/null; return
+  done
+  echo 100
+}
+policy() {
+  m="$(cat "${MODE_FILE}" 2>/dev/null | head -1 | tr -d '[:space:]')"
+  case "${m}" in always|plugged|never) echo "${m}" ;; *) echo always ;; esac
+}
+should_hold() {
+  [ -d "$DL" ] && [ -n "$(ls -A "$DL" 2>/dev/null)" ] || return 1
+  case "$(policy)" in
+    never) return 1 ;;
+    plugged) on_ac || return 1 ;;
+  esac
+  if ! on_ac; then
+    pct="$(battery_pct)"
+    case "${pct}" in ''|*[!0-9]*) ;; *) [ "${pct}" -le "${LOW_PCT}" ] && return 1 ;; esac
+  fi
+  return 0
+}
+
+LAST=""
+while :; do
+  if should_hold; then
+    [ "${LAST}" = hold ] || { echo "pocknix-download-inhibit: holding sleep (policy $(policy))"; LAST=hold; }
+    systemd-inhibit --what=sleep --mode=block --why="Steam download in progress" sleep 45
+  else
+    [ "${LAST}" = idle ] || { [ -n "${LAST}" ] && echo "pocknix-download-inhibit: released"; LAST=idle; }
+    sleep 30
+  fi
+done
