@@ -133,6 +133,33 @@ install_local_packages() {
   else
     die "${KERNEL_PKG} not in [pocknix] — run 'make kernel' first (build-packages.sh stages build/kernel/out into the package), then re-run. Without it the rootfs has no matching modules for the booted kernel."
   fi
+  # HOLODOR (WP4 B8, 2026-09-24): drop the base tarball's own kernel. Holo Core pre-installs
+  # `linux` (6.17.8: 126 MB of modules + vmlinuz under /usr/lib/modules) with its `initramfs`
+  # providers mkinitcpio + dracut; nothing boots it (the ABL loads /flash/KERNEL = our Image),
+  # nothing depends on it (`pacman -Qi linux`: Required By none, Optional For base only) and its
+  # alpm hooks ran on every -Syu. `-Rns` also drops the now-orphaned mkinitcpio-busybox. Guarded
+  # so a resumed rootfs (HOLODOR_RESUME=1) is a no-op; `|| warn` so a future base that makes
+  # something depend on it fails loudly here instead of failing the whole build. Only the root
+  # ext4 is touched — /boot (our Image + dtbs) and the FAT /flash are not part of these packages.
+  # Existing installs keep the dead weight (not worth a conflicts= that would break -Syu on them).
+  local _dead
+  for _dead in linux dracut mkinitcpio; do
+    chroot "${root}" pacman -Q "${_dead}" >/dev/null 2>&1 || continue
+    log "removing unused base kernel package: ${_dead}"
+    chroot "${root}" pacman -Rns --noconfirm "${_dead}" \
+      || warn "could not remove ${_dead} (something depends on it?) — image keeps it; check 'pacman -Qi ${_dead}'"
+  done
+  # Module trees that no installed package owns (depmod output of the removed kernel).
+  local _kver _mdir
+  _kver="$(cat "${root}/usr/lib/pocknix/kernelrelease" 2>/dev/null || true)"
+  for _mdir in "${root}"/usr/lib/modules/*/; do
+    [ -d "${_mdir}" ] || continue
+    [ "$(basename "${_mdir}")" = "${_kver}" ] && continue
+    if ! chroot "${root}" pacman -Qo "/usr/lib/modules/$(basename "${_mdir}")" >/dev/null 2>&1; then
+      log "removing orphaned module tree /usr/lib/modules/$(basename "${_mdir}")"
+      rm -rf "${_mdir}"
+    fi
+  done
   # Device selection LAST: the per-device metapackage (devices/${DEVICE}/packages.list)
   # pins the device identity and pulls the BSP + the kernel package (already present).
   _pkgs=()

@@ -11,6 +11,10 @@
 #     + the SoC config (kernel/${SOC}/config/linux.aarch64.conf)
 #   -> make Image dtbs modules
 #   -> boot image = gzip(Image) ++ appended DTBs, dummy ramdisk, mkbootimg (header v0)
+#      (HOLODOR: only the SoC image's board dtbs are appended — BOOTIMG_DTB_GLOBS below)
+#
+# KERNEL_ASSEMBLE_ONLY=1 make kernel   re-assembles build/image/<soc>/KERNEL from the
+#                                      existing out/ without recompiling (see main).
 #
 # We boot a plain ext4 root with NO initramfs (UFS/SCSI/ext4 are built-in), so the
 # cmdline uses a standard root= spec (KERNEL_CMDLINE) instead of ROCKNIX's
@@ -31,6 +35,24 @@ KBUILD="${KERNEL_BUILD_DIR}"   # per-SoC: build/kernel/${SOC} (set in lib.sh)
 KSRC="${KBUILD}/linux-${KERNEL_VERSION}"
 JOBS="${JOBS:-$(nproc)}"
 MKBOOTIMG=""
+
+# Which of the built dtbs go INTO the qcom-abl boot image (space-separated globs,
+# matched under out/dtbs). ROCKNIX appends every dtb the kernel built; for sm8750
+# that is 392 dtbs / 41 MB (all of arch/arm64/boot/dts/qcom) behind a 19 MB gzip
+# Image, and the ABL reads the whole KERNEL off the card before it can boot
+# (HOLODOR 2026-09-24, WP4 B1). The ROCKNIX ABL picks the dtb by the MODEL STRING
+# stored in devinfo ("ModelSelection = AYN Odin 3", read from the appended-dtb
+# region: 1.1.7 "read only the appended DTB region", 1.1.8 "make dtb scan more
+# granular"), not by position, so trimming to the boards this SoC image ships is
+# safe — a one-dtb KERNEL booted the Odin 3 on 2026-08-14 (the v1.1.7 model-menu
+# workaround). The kernel package ships the same set to /boot/dtbs and the
+# on-device rebuild hook (pocknix-build-bootimg) appends exactly those, so an OTA
+# kernel never re-fattens /flash/KERNEL. Other SoCs keep ROCKNIX's everything
+# behaviour until their board set is known. Override: BOOTIMG_DTB_GLOBS="a-*.dtb b.dtb".
+case "${SOC}" in
+  sm8750) : "${BOOTIMG_DTB_GLOBS:=cq8725s-*.dtb}" ;;   # AYN Odin 3 (cq8725s-ayn-odin3)
+  *)      : "${BOOTIMG_DTB_GLOBS:=*.dtb}" ;;
+esac
 
 # native on aarch64, else require an aarch64 cross toolchain
 if [ "$(uname -m)" = "aarch64" ]; then
@@ -356,9 +378,18 @@ fetch_mkbootimg() {
 assemble_bootimg() {
   fetch_mkbootimg
   mkdir -p "${IMAGE_DIR}"
-  local kgz="${KBUILD}/out/kernel.gz" ramdisk="${1:-}" d
+  local kgz="${KBUILD}/out/kernel.gz" ramdisk="${1:-}" d g n=0
   gzip -c "${KBUILD}/out/Image" > "${kgz}"
-  for d in "${KBUILD}"/out/dtbs/*.dtb; do [ -f "${d}" ] && cat "${d}" >> "${kgz}"; done
+  # Append the selected dtbs (BOOTIMG_DTB_GLOBS, see the top of this script). Sorted
+  # glob order, same as before the filter; the ABL selects by model string, not position.
+  for g in ${BOOTIMG_DTB_GLOBS}; do
+    for d in "${KBUILD}"/out/dtbs/${g}; do
+      [ -f "${d}" ] || continue
+      cat "${d}" >> "${kgz}"; n=$((n+1))
+    done
+  done
+  [ "${n}" -gt 0 ] || die "bootimg: no dtb in ${KBUILD}/out/dtbs matches BOOTIMG_DTB_GLOBS='${BOOTIMG_DTB_GLOBS}' — the ABL would have nothing to boot"
+  log "bootimg: gzip(Image) + ${n} dtb(s) [${BOOTIMG_DTB_GLOBS}] = $(du -h "${kgz}" | cut -f1) (built dtbs: $(ls "${KBUILD}/out/dtbs" | wc -l | tr -d ' '))"
   if [ -z "${ramdisk}" ]; then
     local fwlist="${POCKNIX_ROOT}/kernel/${SOC}/config/bootimg-firmware.list"
     if [ -f "${fwlist}" ]; then
@@ -414,6 +445,21 @@ assemble_bootimg() {
 }
 
 main() {
+  # KERNEL_ASSEMBLE_ONLY=1: re-run only the boot-image assembly from an existing
+  # build/kernel/<soc>/out (no fetch/patch/configure/compile). For changes that
+  # touch just the boot image recipe (dtb set, ramdisk, cmdline) — seconds, not
+  # a kernel build. The kernel package is unaffected (it packages out/, not KERNEL).
+  if [ "${KERNEL_ASSEMBLE_ONLY:-0}" = "1" ]; then
+    [ -f "${KBUILD}/out/Image" ] && [ -d "${KBUILD}/out/dtbs" ] \
+      || die "KERNEL_ASSEMBLE_ONLY=1 but no staged kernel in ${KBUILD}/out — run a full 'make kernel' first"
+    [ ! -f "${KBUILD}/out/soc" ] || [ "$(cat "${KBUILD}/out/soc")" = "${SOC}" ] \
+      || die "${KBUILD}/out was built for SOC=$(cat "${KBUILD}/out/soc"), not ${SOC}"
+    log "KERNEL_ASSEMBLE_ONLY=1: re-assembling ${IMAGE_DIR}/KERNEL from ${KBUILD}/out (kernel $(cat "${KBUILD}/out/kernelrelease" 2>/dev/null || echo '?'))"
+    if [ -f "${IMAGE_DIR}/KERNEL" ]; then
+      cp -f "${IMAGE_DIR}/KERNEL" "${IMAGE_DIR}/KERNEL.bak"
+      log "previous boot image kept as ${IMAGE_DIR}/KERNEL.bak"
+    fi
+  else
   fetch_source
   apply_patches
   install_dts
@@ -421,6 +467,7 @@ main() {
   configure
   build_kernel
   stage
+  fi
   case "${BOOTLOADER}" in
     arm-efi)
       # ROCKNIX arm-efi contract (SM8250): the ABL chainloads GRUB, whose

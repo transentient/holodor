@@ -1,8 +1,12 @@
 # linux-pocknix-sm8750 — the SM8750 kernel as a pacman package. Per-SoC, not
-# per-device: the boot image and /boot/dtbs carry EVERY board's dtb from
-# kernel/sm8750/dts (the qcom ABL selects by board id), so this one package
-# serves the AYN Odin 3, ... A new SoC gets a sibling copy of this
-# thin dir (linux-pocknix-<soc>). Successor to the old 'linux-pocknix'.
+# per-device: /boot/dtbs carries every SM8750 BOARD this image ships (_dtb_globs
+# below; the ROCKNIX ABL picks the dtb by the model string it stores in devinfo,
+# "ModelSelection = AYN Odin 3", scanning the dtbs appended to /flash/KERNEL), so
+# this one package serves the AYN Odin 3, ... — add a board = add its glob here
+# AND in scripts/build-kernel.sh (BOOTIMG_DTB_GLOBS). Up to -26 the package and
+# the boot image carried all 392 dtbs the kernel builds (41 MB, ROCKNIX's habit);
+# -28 trims to the board set (WP4 B1, 2026-09-24). A new SoC gets a sibling copy
+# of this thin dir (linux-pocknix-<soc>). Successor to the old 'linux-pocknix'.
 #
 # THIN package by design: it does NOT compile the kernel. The Fedora build host has no makepkg
 # (packages build in a separate ALARM chroot), and `make kernel` (scripts/build-kernel.sh) already
@@ -19,8 +23,11 @@
 # (quirk params), owned by each device's BSP (e.g. pocknix-bsp-rp6).
 pkgname=linux-pocknix-sm8750
 pkgver=7.1.3
-pkgrel=26   # 26: upstream sweep 2026-09-20 — 20-sm8750 +0602 (RTC offset in PMK8550 SDAM: clock no longer resets to epoch), +0603 (wcd939x stays resumed while a jack is set: headset insert detection), +0604 (swr1 PCM port mask, inert), +1020 (ath12k sends its scan priority: fast reconnects); 40-holodor 0811 DBV table capped at 3413 (vendor ceiling, Armada ee4f9b2). 25: charging in s2idle sleep — swap 0504 ipcc IRQF_NO_SUSPEND removal for Armada 973ced69 "mask summary irq for s2ram only" (keeps the battmgr doorbell live in s2idle). 24: OLED luminance-linear backlight (40-holodor 0810/0811)
-pkgdesc="SM8750 kernel (stock ${pkgver} + ROCKNIX patch stack, all-boards dtbs) — packaged from 'make kernel' output"
+pkgrel=28   # 28: WP4 B1 (2026-09-24) — /boot/dtbs and the rebuilt /flash/KERNEL carry only the board dtbs (cq8725s-*: 1 dtb, 127 KB) instead of all 392 (41 MB): KERNEL 60.3 MB -> ~19 MB, package -41 MB unpacked; same Image/modules as 26. (27 = the rotation experiment kernel, worktree only, never released.) 26: upstream sweep 2026-09-20 — 20-sm8750 +0602 (RTC offset in PMK8550 SDAM: clock no longer resets to epoch), +0603 (wcd939x stays resumed while a jack is set: headset insert detection), +0604 (swr1 PCM port mask, inert), +1020 (ath12k sends its scan priority: fast reconnects); 40-holodor 0811 DBV table capped at 3413 (vendor ceiling, Armada ee4f9b2). 25: charging in s2idle sleep — swap 0504 ipcc IRQF_NO_SUSPEND removal for Armada 973ced69 "mask summary irq for s2ram only" (keeps the battmgr doorbell live in s2idle). 24: OLED luminance-linear backlight (40-holodor 0810/0811)
+pkgdesc="SM8750 kernel (stock ${pkgver} + ROCKNIX patch stack, board dtbs: AYN Odin 3) — packaged from 'make kernel' output"
+# dtbs shipped to /boot/dtbs = the dtbs appended to /flash/KERNEL by pocknix-build-bootimg.
+# Keep in sync with BOOTIMG_DTB_GLOBS in scripts/build-kernel.sh (the SD image's KERNEL).
+_dtb_globs=('cq8725s-*.dtb')   # AYN Odin 3 (cq8725s-ayn-odin3.dtb)
 arch=('aarch64')
 url="https://github.com/shuuri-labs/pocknix-os"
 license=('GPL-2.0-only')
@@ -47,10 +54,19 @@ package() {
   fi
   local kver; kver="$(cat "${out}/kernelrelease")"
 
-  # kernel image + device trees
+  # kernel image + the board device trees (see _dtb_globs); the full 392-dtb set stays in
+  # build/kernel/sm8750/out/dtbs on the build host if another board ever needs adding.
   install -Dm644 "${out}/Image" "${pkgdir}/boot/Image"
   install -d "${pkgdir}/boot/dtbs"
-  cp "${out}/dtbs/"*.dtb "${pkgdir}/boot/dtbs/"
+  local g n=0
+  for g in "${_dtb_globs[@]}"; do
+    for d in "${out}/dtbs/"${g}; do
+      [ -f "${d}" ] || continue
+      install -m644 "${d}" "${pkgdir}/boot/dtbs/"; n=$((n+1))
+    done
+  done
+  [ "${n}" -gt 0 ] || { echo "${pkgname}: no dtb in ${out}/dtbs matches ${_dtb_globs[*]}" >&2; return 1; }
+  echo "${pkgname}: shipping ${n} dtb(s): $(ls "${pkgdir}/boot/dtbs")"
 
   # modules (already depmod'd by modules_install during `make kernel`; the .install re-runs depmod
   # post-transaction so modules.dep is correct against the live /usr/lib/modules path).

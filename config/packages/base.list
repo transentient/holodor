@@ -7,7 +7,11 @@ base
 systemd
 systemd-sysvcompat
 dbus-broker
-mkinitcpio
+# mkinitcpio: REMOVED 2026-09-24 (WP4 B8). We boot /flash/KERNEL (gzip Image + dtbs, GPU-firmware
+# ramdisk only) and never build an initramfs; plymouth's late mode does not need it either. It was
+# only ever pulled as the `initramfs` provider of Holo Core's own `linux` package, which the base
+# tarball pre-installs and which build-image.sh now removes together with dracut after our kernel
+# package is in (126 MB of 6.17.8 modules + hooks that ran on every -Syu for a kernel we never boot).
 
 # --- boot splash ---
 # HOLODOR: not in Holo Core preview. Installs from [pocknix] via pocknix-core.list
