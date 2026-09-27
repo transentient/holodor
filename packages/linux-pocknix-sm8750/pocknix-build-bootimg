@@ -69,6 +69,15 @@ python3 "$MKBOOTIMG" \
   --os_version 12.0.0 --os_patch_level "$(date '+%Y-%m')" --header_version 0 \
   --cmdline "$cmdline" -o "$tmp/KERNEL"
 
+# Two alpm hooks can call this in ONE transaction (90-linux-pocknix on Image/dtbs/modules, then the
+# bsp's 91-pocknix-cmdline on kernel-cmdline). Seen 2026-09-27 on the 25->28 update: the second
+# run rotated the first run's output into KERNEL.bak and the pre-update KERNEL was gone. If what
+# we just built is byte-identical to what is on /flash, there is nothing to deploy and the
+# rollback copy stays as it is.
+if [ -f "$FLASH/KERNEL" ] && cmp -s "$tmp/KERNEL" "$FLASH/KERNEL"; then
+  echo "pocknix-build-bootimg: $FLASH/KERNEL already matches this kernel ($ndtb dtb(s)) — nothing to do, KERNEL.bak untouched"
+  exit 0
+fi
 mount -o remount,rw "$FLASH" 2>/dev/null || true
 [ -f "$FLASH/KERNEL" ] && cp -f "$FLASH/KERNEL" "$FLASH/KERNEL.bak"
 cp -f "$tmp/KERNEL" "$FLASH/KERNEL"

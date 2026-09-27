@@ -1,0 +1,5 @@
+post_install() { _enable; }
+post_upgrade() { _enable; }
+_enable() {
+  systemctl enable pocknix-input-check.service >/dev/null 2>&1 || true
+}

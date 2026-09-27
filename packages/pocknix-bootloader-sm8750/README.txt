@@ -1,4 +1,4 @@
-Holodor bootloader folder for the AYN Odin 3 (ROCKNIX ABL v1.1.7)
+Holodor bootloader folder for the AYN Odin 3 (ROCKNIX ABL v1.1.8)
 
 Full instructions: INSTALL.md in the Holodor release. Short version:
 

@@ -222,6 +222,9 @@ EOF
   # Was never enabled before 2026-09-07, so a chosen mode silently reverted to uncapped on every
   # boot; bsp-common-19's helper also turns a persisted bench-only `max` into balanced here.
   chroot "${root}" systemctl enable pocknix-power-mode.service 2>/dev/null || true
+  # thumbstick LED animator (reads the mode file Pocknix Control writes) + the boot-time
+  # InputPlumber self-check (RC 20260927: nothing enabled the animator; upstream config stole the pad)
+  chroot "${root}" systemctl enable pocknix-stick-leds.service pocknix-input-check.service pocknix-input-calibration.service 2>/dev/null || true
   # Decky Loader (QAM plugins, incl. Pocknix Control): seed deck's ~/homebrew at boot, then run
   # the loader under FEX in its private-binfmt namespace (see packages/pocknix-decky).
   chroot "${root}" systemctl enable pocknix-decky-sync.service pocknix-decky-loader.service 2>/dev/null || true

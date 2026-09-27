@@ -1,0 +1,28 @@
+# pocknix-os: keep the InputPlumber virtual controller openable across suspend/resume.
+#
+# Adapted from InputPlumber issue #732 (open, 2026-09-21, IP 0.81.0, Legion Go 2, s2idle):
+# InputPlumber hides the RAW source devices it grabs by writing rules into
+# /run/udev/rules.d/{50,96}-inputplumber-hide-<node>-{early,late}.rules that match by the
+# VOLATILE node number (KERNEL=="hidraw0") and apply MODE:="0000" + RUN chmod 000 +
+# setfacl -b. On resume a source can re-enumerate; the uhid TARGET (Valve 28DE — the node
+# Steam actually reads) is recreated first and can inherit a number a stale rule still
+# matches, so the TARGET gets chmod 000 and Steam can no longer open its controller
+# (hid-steam falls back to lizard mode: d-pad/A still navigate, Guide/QAM dead).
+#
+# The reporter's workaround, verbatim apart from the user name: on every add|change of a
+# Valve 28DE hidraw (bus 0003 USB / 0005 Bluetooth / 0006 virtual), re-apply 0660 + uaccess
+# and, after udev has applied every other rule, RUN chmod 660 + an explicit ACL for the
+# session user. RUN programs execute in rule-file order, so this MUST sort after
+# 96-inputplumber-hide-*-late.rules — that is why it is a 99- file and not a line in
+# 60-pocknix-controllers.rules (where it would run before the stale late rule and lose).
+# Harmless when nothing is stale: the node already is 0660 + deck:rw via 60-pocknix (MODE +
+# uaccess), and IP 0.80.0+ re-triggers "add" on unhide, which just lands here again.
+#
+# Fit for OUR stack (read before trusting this as the fix): our composite has only evdev
+# sources (rsinput MCU + gpio-keys). IP's hide rule for an evdev source matches
+# SUBSYSTEMS=="input", KERNELS=="inputNN", ATTRS{id/vendor}, ATTRS{id/product} — the exact
+# #732 collision needs a hidraw SOURCE we do not have. Shipped as belt because it is cheap
+# and cannot hurt; the braces are the InputPlumber 0.81.0 bump (0.78.1 unhide perms,
+# 0.79.1 suspend composite, 0.80.0 restore perms + re-trigger add). The post-resume
+# forensics snapshot (journalctl -t pocknix-input-forensics) says which one mattered.
+ACTION=="add|change", SUBSYSTEM=="hidraw", KERNELS=="000[356]:28DE:*", MODE="0660", TAG+="uaccess", RUN+="/usr/bin/chmod 660 /dev/%k", RUN+="/usr/bin/setfacl -m u:deck:rw /dev/%k"

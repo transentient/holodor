@@ -1,13 +1,24 @@
-abl_signed-SM8750.elf is the ROCKNIX ABL v1.1.7 payload for SM8750 (AYN Odin 3),
-extracted unchanged from the official release tarball:
+abl_signed-SM8750.elf is the ROCKNIX ABL v1.1.8 payload for SM8750 (AYN Odin 3), unchanged.
 
-  https://github.com/ROCKNIX/abl/releases/download/v1.1.7/rocknix-abl-v1.1.7.tar.gz
-  tarball sha256: see PKGBUILD comment; the .sha256 sidecar is the release's own.
+Provenance (2026-09-27): ROCKNIX published v1.1.8 on 2026-08-25 at
+  https://github.com/ROCKNIX/abl/releases/tag/v1.1.8
+and removed the v1.1.5-v1.1.8 release assets on 2026-09-26 when v1.1.9 shipped (the URLs 404).
+This copy is the byte-identical file ArmadaOS vendored into their tree the same day
+(github.com/armada-os/armada, abl/, PR #560 merged 2026-09-27), whose sha256
+  bedff34b99bd06202301e78ee5ee025b81d5144c9773de179b5f48ba3b38455a  (258048 bytes)
+equals the 1.1.8 / SM8750 row of Armada's releases.tsv (computed from the original ROCKNIX
+tarball) and of overlay/usr/share/holodor/rocknix-abl-releases.tsv here. The .sha256 sidecar
+next to it is ours, in the release's format.
 
-v1.1.7 is the version every Holodor test on this device ran on. v1.1.8 (2026-08-25)
-changes the internal-vs-SD boot order and has not been tested with Holodor; bump
-only after an on-device test.
+History: v1.1.7 (sha256 79e82279…) shipped on every Holodor image through 20260925. v1.1.8
+ran on the development Odin 3 from 2026-09-15 (flashed by Armada's kit) through the 20260925
+acceptance, booting Holodor from SD and internal, plus Android. Its menu has no device-model
+step (auto "AYN Odin 3") and a strict boot-source setting (auto / Internal / SDCard).
+v1.1.9 (2026-09-26, "bootcfw: simplify and speed up the boot process") is catalogued but not
+adopted: untested here, and Armada is soaking it first.
 
 The scripts in rocknix_abl/ are Holodor's versions of the ROCKNIX distribution's
 packages/tools/rocknix-abl/sources (GPL-2.0). backup_abl.sh additionally copies
-the backup to the SD card, and disable/enable_android_updates.sh are ours.
+the backup to the SD card (verified on the device 2026-09-27), and
+disable/enable_android_updates.sh are ours (disable_android_updates.sh does NOT work
+from AYN's runner as of 2026-09-27: the update app stays usable; under investigation).

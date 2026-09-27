@@ -20,7 +20,7 @@
 # docs/plasma-mobile-plan.md and the plasma-mobile-compositor memory.
 pkgname=pocknix-desktop
 pkgver=0.1.0
-pkgrel=12  # 12: scale 1.5 (installer dialogs overflowed 960x540 with tablet mode, 09-18); 11: tablet mode + wallpaper; 10: startplasma-wayland
+pkgrel=13  # 13: /etc/xdg/kscreenlockerrc Autolock=false LockOnResume=false (no keyboard/OSK; lock screen unusable, 09-27); 12: scale 1.5 (installer dialogs overflowed 960x540 with tablet mode, 09-18); 11: tablet mode + wallpaper; 10: startplasma-wayland
 pkgdesc="Plasma Mobile desktop session for the RP6 + game<->desktop session switch"
 arch=('any')
 url="https://github.com/shuuri-labs/pocknix-os"
@@ -38,8 +38,8 @@ source=('pocknix-desktop' 'pocknix-desktop-rotate'
         'pocknix-desktop-remove-taskpanel' 'pocknix-desktop-remove-taskpanel.desktop'
         'steamos-session-select' 'return-to-gamemode.desktop'
         'pocknix-flathub-setup' 'pocknix-flathub.service' 'ksplashrc' 'pocknix-x11.conf'
-        'powerdevilrc')
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+        'powerdevilrc' 'kscreenlockerrc')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   install -Dm755 "${srcdir}/pocknix-desktop"          "${pkgdir}/usr/bin/pocknix-desktop"
@@ -69,6 +69,8 @@ package() {
   # power button -> NoAction in powerdevil: Plasma Mobile's ToggleScreenOnOff default turned
   # the panel back OFF on the (post-resume-delivered) wake press. pocknix-powerd owns the key.
   install -Dm644 "${srcdir}/powerdevilrc"             "${pkgdir}/etc/xdg/powerdevilrc"
+  # No lock screen on wake/idle: no keyboard, no OSK, and the locker overflows the panel.
+  install -Dm644 "${srcdir}/kscreenlockerrc"          "${pkgdir}/etc/xdg/kscreenlockerrc"
   # tmpfiles rule to create /tmp/.X11-unix at boot so kwin can start XWayland (X11 apps like Steam
   # in desktop mode). kwin expects the dir to exist; the minimal ALARM base ships no xorg-server
   # to provide it. See pocknix-x11.conf.

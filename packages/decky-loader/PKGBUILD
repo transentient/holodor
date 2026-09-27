@@ -1,0 +1,59 @@
+# decky-loader — Decky Loader (Steam gamepad-UI plugin framework), built from source for
+# aarch64. Upstream ships only an x86_64 PyInstaller bundle (PR #914 for arm64 is unmerged);
+# the backend is plain Python 3.10-3.14, so the poetry wheel is built on Holo Core's own
+# python and installed like any Arch python package: decky_loader/ in site-packages +
+# /usr/bin/decky-loader (the console script from pyproject [tool.poetry.scripts]).
+# Inherited from upstream: pyproject.toml deps, the wheel layout (locales/ + static/ ride
+# inside the package dir), the console script. Invented here: the prebuilt frontend tarball
+# (see build-frontend.sh; upstream builds static/ with pnpm+rollup and gitignores it) and the
+# updater patch (pacman owns updates; upstream's updater would download the x86 binary into cwd).
+pkgname=decky-loader
+pkgver=3.2.9
+pkgrel=1
+pkgdesc="Plugin loader for Steam's gamepad UI (Decky), native Python build"
+arch=('any')
+url="https://github.com/SteamDeckHomebrew/decky-loader"
+license=('GPL-2.0-only')
+# = backend/pyproject.toml [tool.poetry.dependencies]. The mirror's watchdog 6 and packaging 25
+# exceed poetry's caret pins (^4, ^24); pip/poetry would refuse, installer does not check, and
+# the APIs Decky uses (watchdog Observer/FileSystemEventHandler, packaging.version.Version) are
+# unchanged — covered by the chroot smoke test (loader starts, serves /frontend/index.js).
+depends=('python' 'python-aiohttp' 'python-aiohttp-jinja2' 'python-aiohttp-cors'
+         'python-watchdog' 'python-certifi' 'python-packaging' 'python-multidict'
+         'python-setproctitle')
+makedepends=('python-build' 'python-installer' 'python-poetry-core')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
+        "decky-frontend-v${pkgver}.tar.zst"
+        '0001-updater-managed-by-pacman.patch')
+sha256sums=('f677e2b8f00723506bf820a0f7281081d2d12100abfe138f08f260108aa76dc1'
+            '0d645fd0f135fa8cb282a1f7344a3b08582bee187a6e576e993b985c9bf9b246'
+            'e7b22366580adaca4d8fed560c75be9bdad8afd1dbf5960493299b5648368646')
+
+prepare() {
+  cd "${pkgname}-${pkgver}"
+  patch -Np1 -i "${srcdir}/0001-updater-managed-by-pacman.patch"
+  # poetry-dynamic-versioning derives the version from the git tag; a release tarball has
+  # none. Pin it (helpers.get_loader_version() reads it back as "v3.2.9" via
+  # importlib.metadata) and build with plain poetry-core: one makedep fewer, same wheel.
+  sed -i -e "s/^version = \"0.0.0\".*/version = \"${pkgver}\"/" \
+         -e 's/^requires = \["poetry-core>=1.0.0", "poetry-dynamic-versioning.*/requires = ["poetry-core>=1.0.0"]/' \
+         -e 's/^build-backend = "poetry_dynamic_versioning.backend"/build-backend = "poetry.core.masonry.api"/' \
+         backend/pyproject.toml
+  grep -q "^version = \"${pkgver}\"" backend/pyproject.toml
+  grep -q '^build-backend = "poetry.core.masonry.api"' backend/pyproject.toml
+  # Prebuilt frontend (makepkg extracted the tarball to ${srcdir}/static) -> where rollup
+  # would have written it; poetry-core picks it up as package data.
+  rm -rf backend/decky_loader/static
+  cp -a "${srcdir}/static" backend/decky_loader/static
+}
+
+build() {
+  cd "${pkgname}-${pkgver}/backend"
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd "${pkgname}-${pkgver}"
+  python -m installer --destdir="${pkgdir}" backend/dist/*.whl
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

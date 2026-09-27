@@ -10,6 +10,8 @@ export const setPowerMode = (mode: string) => call<[string], Config>("set_power_
 export const setChargeLimit = (pct: number) => call<[number], Config>("set_charge_limit", pct);
 export const setLedColor = (hex: string) => call<[string], Config>("set_led_color", hex);
 export const setLedMode = (mode: string) => call<[string], Config>("set_led_mode", mode);
+export const zeroStickCenters = () => call<[], Config>("zero_stick_centers");
+export const resetStickCenters = () => call<[], Config>("reset_stick_centers");
 export const setDownloadInhibitMode = (mode: string) => call<[string], Config>("set_download_inhibit_mode", mode);
 export const setLavdMode = (mode: string) => call<[string], Config>("set_lavd_mode", mode);
 export const saveTweaks = (data: Tweaks) => call<[Tweaks], Config>("save_tweaks", data);

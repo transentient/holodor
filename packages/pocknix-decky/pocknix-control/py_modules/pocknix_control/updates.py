@@ -19,15 +19,11 @@ VER_RE = re.compile(r"^(\S+)\s+(\S+)$")
 
 
 def _pacman(args, timeout):
-    # Every pacman call goes through PID 1, never in-process: the plugin's python is an
-    # x86_64 FEX guest, so a bare "pacman" resolves into the FEX x86 rootfs overlay - a
-    # foreign pacman reading the overlay's stock pacman.conf (no [pocknix] repo, so repo
-    # priority pins vanish and held-back packages get reported as updates) whose download
-    # sandbox also dies under emulation ("restricting syscalls via seccomp: 22").
-    return run_cmd(
-        ["systemd-run", "--quiet", "--collect", "--wait", "--pipe", "/usr/bin/pacman", *args],
-        timeout=timeout,
-    )
+    # Read-only pacman calls (db refresh into the throwaway copy, -Sup, -Q) run in-process:
+    # the loader is native python since pocknix-decky 19, so /usr/bin/pacman is the real one
+    # (under FEX it resolved into the x86 rootfs and its download sandbox died under
+    # emulation). The real upgrade in start_update() still goes through PID 1 on purpose.
+    return run_cmd(["/usr/bin/pacman", *args], timeout=timeout)
 
 
 def _unit_running():

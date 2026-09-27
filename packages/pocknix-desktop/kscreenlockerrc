@@ -1,0 +1,7 @@
+# Holodor: no screen locking in Desktop Mode. The device has no keyboard and no on-screen
+# keyboard (Holo Core ships no plasma-mobile/maliit), so a locked session cannot be unlocked
+# without a USB keyboard; the lock screen also renders larger than the 1080p panel at scale 1.5
+# (Cliff, 2026-09-27). System-wide default; a user setting in ~/.config overrides it.
+[Daemon]
+Autolock=false
+LockOnResume=false

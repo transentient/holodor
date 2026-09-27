@@ -1,0 +1,13 @@
+[Unit]
+Description=pocknix: verify InputPlumber built the expected controller (boot-time self-check)
+After=inputplumber.service
+Wants=inputplumber.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sleep 20
+ExecStart=/usr/local/bin/pocknix-input-check
+Nice=19
+
+[Install]
+WantedBy=multi-user.target

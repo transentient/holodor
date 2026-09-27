@@ -141,3 +141,39 @@ def set_led_mode(mode):
     if mode not in LED_MODES:
         raise ValueError(f"bad led mode: {mode!r}")
     run_cmd(["/usr/local/bin/pocknix-stick-leds", "mode", mode])
+
+
+# --- per-unit stick centres (rsinput module params via pocknix-input-calibration) ---
+import json as _json
+
+def stick_centers():
+    """Saved centres from /etc/pocknix/input-calibration.conf as 'lx/ly/rx/ry' text, '' if none."""
+    try:
+        conf = {}
+        for line in open("/etc/pocknix/input-calibration.conf"):
+            if "=" in line and not line.startswith("#"):
+                k, v = line.strip().split("=", 1); conf[k] = v
+        vals = [conf.get(f"axis_{a}_center") for a in ("leftx", "lefty", "rightx", "righty")]
+        return "" if not any(vals) else "/".join(v or "0" for v in vals)
+    except OSError:
+        return ""
+
+
+def zero_stick_centers():
+    """Sample the sticks at rest and persist centres so they read 0. Raises on movement/failure."""
+    proc = run_cmd(["/usr/local/bin/pocknix-input-calibration", "zero"], timeout=10)
+    if proc is None:
+        raise RuntimeError("pocknix-input-calibration failed to spawn")
+    try:
+        res = _json.loads((proc.stdout or "").strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        raise RuntimeError(f"pocknix-input-calibration: bad output rc={proc.returncode}")
+    if not res.get("ok"):
+        raise RuntimeError(res.get("error", "calibration failed"))
+    return res
+
+
+def reset_stick_centers():
+    proc = run_cmd(["/usr/local/bin/pocknix-input-calibration", "reset"], timeout=10)
+    if proc is None or proc.returncode != 0:
+        raise RuntimeError("pocknix-input-calibration reset failed")

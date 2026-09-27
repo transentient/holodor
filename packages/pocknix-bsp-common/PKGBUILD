@@ -5,7 +5,12 @@
 # devices/<name>/packages/pocknix-bsp-<name>, which depends on this package.
 pkgname=pocknix-bsp-common
 pkgver=0.1.0
-pkgrel=21   # 21: 60-pocknix-usb-autosuspend.rules — runtime-suspend ONLY the dwc3-qcom glue (drops its
+pkgrel=23   # 23 (2026-09-27): pocknix-input-check (boot-time InputPlumber layout self-check, journal tag pocknix-input-check + /run/pocknix/input-check); .install enables it. 22: WP2 resume dead-controls (2026-09-24): READ-ONLY post-resume forensics
+            #     (sleep.d/post/090-input-forensics -> journalctl -t pocknix-input-forensics),
+            #     pocknix-resume-recover (manual H1/H2/H3/H4 ladder, never auto-run), and the
+            #     InputPlumber #732 udev workaround 99-pocknix-inputplumber-target.rules (belt;
+            #     braces = inputplumber 0.81.0).
+            # 21: 60-pocknix-usb-autosuspend.rules — runtime-suspend ONLY the dwc3-qcom glue (drops its
             #     1 GB/s USB-to-DDR interconnect vote while the port is idle), leaf USB devices/hubs
             #     stay powered (ArmadaOS 98d8f53, 2026-09-15; upstream sweep 2026-09-20 item U1).
             # 20: download-inhibit policy file (always|plugged|never, Pocknix Control switch) + no hold at <=5% on battery. 19: power-mode: `max` no longer survives a reboot (boot re-apply turns it into balanced). 18: wake-grace-post: `$i` not `${i}` in the error line (systemd expanded `${i}` inside the sh -c string, cosmetic warning every wake). 17: wake-grace retries the inhibit (logind race = 2-presses-to-wake); wifi-heal launched as a
@@ -15,6 +20,7 @@ pkgdesc="pocknix shared board support: sleep.d dispatcher, suspend hooks, power-
 arch=('any')
 url="https://github.com/shuuri-labs/pocknix-os"
 license=('GPL2')
+install=pocknix-bsp-common.install
 depends=('gptfdisk')
 source=('pocknix-sleep' 'sdam-debug-pre' 'sdam-debug-post'
         'wifi-sleep-pre' 'wifi-sleep-post'
@@ -29,8 +35,11 @@ source=('pocknix-sleep' 'sdam-debug-pre' 'sdam-debug-post'
         'iwd-wait-wlan0.conf'
         '20-pocknix-powerkey.conf' 'no-freeze-user-sessions.conf'
         '90-pocknix-backlight.rules' '60-pocknix-controllers.rules'
-        '60-pocknix-usb-autosuspend.rules')
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+        '60-pocknix-usb-autosuspend.rules'
+        'input-forensics-post' 'pocknix-input-forensics' 'pocknix-resume-recover'
+        '99-pocknix-inputplumber-target.rules'
+        'pocknix-input-check' 'pocknix-input-check.service')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   # systemd system-sleep hook that dispatches our sleep.d/{pre,post} scripts
@@ -67,6 +76,22 @@ package() {
   # re-suspend request (post-resume instant re-suspend bug, hardware 08-28).
   install -Dm755 "${srcdir}/wake-grace-post" \
     "${pkgdir}/usr/lib/pocknix/sleep.d/post/006-wake-grace"
+
+  # 090-input-forensics: READ-ONLY controller-stack snapshot into the journal 3 s and
+  # 20 s after every resume (WP2: Guide/QAM dead after an idle s2idle wake, 09-23).
+  # journalctl -t pocknix-input-forensics. Runs last so it sees the other hooks' work.
+  # Boot-time InputPlumber self-check (RC 20260927: upstream config stole the gamepad silently).
+  install -Dm755 "${srcdir}/pocknix-input-check" "${pkgdir}/usr/local/bin/pocknix-input-check"
+  install -Dm644 "${srcdir}/pocknix-input-check.service" \
+    "${pkgdir}/usr/lib/systemd/system/pocknix-input-check.service"
+  install -Dm755 "${srcdir}/input-forensics-post" \
+    "${pkgdir}/usr/lib/pocknix/sleep.d/post/090-input-forensics"
+  install -Dm755 "${srcdir}/pocknix-input-forensics" \
+    "${pkgdir}/usr/lib/pocknix/pocknix-input-forensics"
+  # Manual recovery ladder for the repro session (H1 perms -> H2 udev add -> H3 IP
+  # restart -> H4 evtest). Nothing runs it automatically.
+  install -Dm755 "${srcdir}/pocknix-resume-recover" \
+    "${pkgdir}/usr/local/bin/pocknix-resume-recover"
 
   # Download guard: hold sleep while Steam is mid-download (a suspended download
   # never auto-resumes on wake). Enabled in build-sd-image.
@@ -142,6 +167,11 @@ package() {
   # Critical for the InputPlumber 'deck' target (Valve 28de) hidraw that Steam Input reads.
   install -Dm644 "${srcdir}/60-pocknix-controllers.rules" \
     "${pkgdir}/usr/lib/udev/rules.d/60-pocknix-controllers.rules"
+  # InputPlumber #732 workaround: re-apply 0660 + deck ACL on the Valve 28DE (deck-uhid)
+  # hidraw on every add|change, sorted AFTER IP's runtime 96-inputplumber-hide-*-late
+  # rules so a stale hide rule cannot leave Steam's controller node at 0000 after resume.
+  install -Dm644 "${srcdir}/99-pocknix-inputplumber-target.rules" \
+    "${pkgdir}/usr/lib/udev/rules.d/99-pocknix-inputplumber-target.rules"
   # USB controller runtime PM: autosuspend ONLY the dwc3-qcom glue (its idle
   # interconnect vote blocks DDR low-power tiers); never the devices/hubs below
   # it (a dock's hub would power its ports off — ArmadaOS issue #302). See the

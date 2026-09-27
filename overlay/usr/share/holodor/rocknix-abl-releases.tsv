@@ -4,7 +4,7 @@
 # SHA-256 covers `size` bytes from the start of the image or ABL partition.
 # Source: ArmadaOS abl/releases.tsv (GPL-2.0-or-later, https://github.com/armada-os/armada),
 # itself computed from the ROCKNIX ABL release tarballs (https://github.com/ROCKNIX/abl/releases).
-# Holodor's own payload (1.1.7 SM8750, packages/pocknix-bootloader-sm8750) matches its row.
+# Holodor's own payload (1.1.8 SM8750 since 2026-09-27, 1.1.7 before; packages/pocknix-bootloader-sm8750) matches its row.
 # Append new releases as ROCKNIX publishes them; never edit existing rows.
 version	soc	size	sha256
 1.1	SM8250	258048	739c20cd8d8c5adaa5c0e16ea0692dab83544cb2e85477e8b059ad8f67d7d8a9
@@ -43,3 +43,7 @@ version	soc	size	sha256
 1.1.8	SM8550	258048	5f1018211feaa109563d5890ab52dccfb31db90f4bbe9e6b7fb39e94f860f8d4
 1.1.8	SM8650	258048	4ed04dda4da2ac76bc27925ae68094c055a043697f1a1bee4b958b979905bed5
 1.1.8	SM8750	258048	bedff34b99bd06202301e78ee5ee025b81d5144c9773de179b5f48ba3b38455a
+1.1.9	SM8250	258048	e8ada32f217c8232d8c68388138773180544075763b479f30cc7e744643046e2
+1.1.9	SM8550	258048	1aad3626b7830742cacdcdcf0c8696261ec7fa277bfbcfb9402a60bf896527e9
+1.1.9	SM8650	258048	5ac42e28789ee61f278cc1de6fa95b90f04e2e4d4569f091a65bbf750dc100db
+1.1.9	SM8750	258048	73d6a1cfd713811a4020ca9bf069f4395922e24056eca967d785c71b14dedc08

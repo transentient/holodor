@@ -1,0 +1,37 @@
+From: Holodor <holodor@bonesaw.com>
+Date: Sun, 27 Sep 2026 23:40:00 +0900
+Subject: [PATCH] steamcompmgr: sanitize GAMESCOPE_COLOR_NIGHT_MODE values
+
+Steam writes three floats (amount, hue, saturation) into the property. On an AYN Odin 3
+running Holodor (2026-09-27) it wrote amount 0, hue 0.95, saturation NaN. color_helpers
+computes clamp01(saturation * amount) for the night-mode tint, and NaN * 0 is NaN, so the
+tint is applied with a NaN saturation whatever the amount says: the whole output turned a
+uniform red and no Steam display toggle could clear it, because every update carried the
+same NaN. Treat non-finite values as 0 and clamp amount/saturation to [0, 1]; a NaN can
+then only ever mean "identity".
+
+--- a/src/steamcompmgr.cpp
++++ b/src/steamcompmgr.cpp
+@@ -45,6 +45,7 @@
+ #include <atomic>
+ #include <vector>
+ #include <algorithm>
++#include <cmath>
+ #include <array>
+ #include <iostream>
+ #include <fstream>
+@@ -6505,7 +6506,14 @@
+ 		if ( bHasVec && user_vec.size() == 3 )
+ 		{
+ 			for (int i = 0; i < 3; i++)
++			{
+ 				vec[i] = bit_cast<float>( user_vec[i] );
++				// Holodor: Steam has been seen sending NaN here (saturation); NaN survives
++				// clamp01(saturation * amount) and paints the whole output. Non-finite -> 0.
++				if ( !std::isfinite( vec[i] ) )
++					vec[i] = 0.0f;
++			}
++			vec[0] = std::clamp( vec[0], 0.0f, 1.0f ); vec[2] = std::clamp( vec[2], 0.0f, 1.0f );
+ 		}
+ 
+ 		nightmode_t nightmode;

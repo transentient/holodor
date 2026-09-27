@@ -1,0 +1,32 @@
+From: Holodor <holodor@bonesaw.com>
+Date: Sun, 27 Sep 2026 16:30:00 +0900
+Subject: [PATCH] input: rsinput: program the MCU for 250 Hz status with 1-count analog resolution
+
+The bring-up driver (ROCKNIX 0031) sets the MCU parameter pair to debounce 40 / report
+period 7: analog changes smaller than 40 counts (of +-1024) are not reported at all, so a
+slow stick sweep arrives in ~4 % steps ("jumpy" sticks in games, Cliff, 2026-09-27).
+ArmadaOS 475b776 ("rsinput: improve analog report response", shipped since 2026-09-18)
+programs 6 / 2 instead: 250 Hz status rate and one-count analog changes. Same bytes here.
+
+Holodor, measured 2026-09-27 (stick-steps.py, EVIOCGABS at 200 Hz, slow sweep): without this
+patch the axis moves in steps of 41-53 counts; with it 9-13. It was reverted once in kernel-31
+on a wrong diagnosis (a pre-existing per-unit centre offset, fixed by pocknix-input-calibration)
+and restored in kernel-32.
+
+Holodor: applied on top of 20-sm8750/0031 (never edit that file: sync.sh regenerates it).
+Watch after suspend/resume: 5x the UART frame rate goes through 1005/1006 (quiesce +
+frame reassembly); look for checksum complaints in the kernel log.
+
+--- a/drivers/input/joystick/rsinput.c
++++ b/drivers/input/joystick/rsinput.c
+@@ -221,8 +221,8 @@
+     uint8_t mcu_params[] = {
+         DATA_COMMOD_SET_PAR,
+         0x01,
+-        0x00, 0x00, 0x00, 0x28,
+-        0x00, 0x00, 0x00, 0x07
++        0x00, 0x00, 0x00, 0x06,
++        0x00, 0x00, 0x00, 0x02
+     };
+     error = rsinput_send_command(drv, CMD_COMMOD, mcu_params, sizeof(mcu_params));
+     if (error < 0) {

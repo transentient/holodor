@@ -1,0 +1,16 @@
+#!/bin/sh
+# 090-input-forensics (post): after EVERY resume, snapshot the controller stack into the
+# journal at t+3 s and t+20 s (WP2: Guide/QAM dead after an idle s2idle wake, reproduced
+# 2026-09-23 with no data). READ-ONLY — see /usr/lib/pocknix/pocknix-input-forensics.
+# Two snapshots because Steam's re-open of the virtual controller can take seconds; the
+# 20 s one shows whether it self-healed. Read with:  journalctl -t pocknix-input-forensics
+#
+# Transient unit, not a backgrounded shell: anything merely backgrounded (setsid &) from a
+# systemd-sleep hook dies with the hook's cgroup (000-wifi post, 09-03). Nice 10 so the
+# snapshot never competes with the session for the wake.
+systemd-run -q --collect --unit="pocknix-input-forensics-$(date +%s)" \
+  -p SyslogIdentifier=pocknix-input-forensics -p Nice=10 \
+  /bin/sh -c 'sleep 3;  /usr/lib/pocknix/pocknix-input-forensics resume+3s;
+              sleep 17; /usr/lib/pocknix/pocknix-input-forensics resume+20s' \
+  2>/dev/null || true
+exit 0

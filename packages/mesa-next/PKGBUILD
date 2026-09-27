@@ -26,6 +26,12 @@ pkgbase=mesa
 pkgname=(mesa-next vulkan-freedreno-next)
 epoch=2
 pkgver=26.3.0_devel
+# pkgrel 7 (2026-09-27) = pkgrel 5's pin + ONE patch: a8xx has_64b_image_atomics=False
+# (patches-staged/0002, now applied). Reason: Expedition 33 (UE5/Nanite) black-screens with
+# audio on the DX12 path because turnip advertises 64-bit image atomics that are broken on a830;
+# on 2026-09-27 the game ran (slowly) with -dx11, which confirms the diagnosis. The 0001 fs-tex-
+# prefetch patch stays parked (measured neutral). The pin is NOT moved (pkgrel 6's move lost the
+# 09-06 Cyberpunk A/B), so this is a one-variable change against the soaked build.
 # pkgrel 5 = the SHIPPED build (RC 20260906c, soaked). Its source was the un-pinned
 # mesa-main tarball, frozen by SRCDEST at the commit below (read from the cached
 # tarball's pax header on 2026-09-07); it is now pinned explicitly so a clean checkout
@@ -34,7 +40,7 @@ pkgver=26.3.0_devel
 # patches and LOST the 2026-09-06 Cyberpunk A/B by 3.2% (docs/cyberpunk-bench-plan.md);
 # never shipped, patches parked in patches-staged/. Next pin bump: one variable at a
 # time, benched with tools/ab before it enters localrepo.
-pkgrel=5
+pkgrel=7
 _commit=bab34da4a378379e65d212b405525f50255efd31   # mesa main, 2026-08-09
 pkgdesc="Mesa trimmed for the RP6/SM8550: freedreno GL + turnip Vulkan, cortex-x3 tuned (26.1.5)"
 arch=('aarch64')
@@ -51,12 +57,15 @@ makedepends=(glslang
 )
 # upstream considers LTO broken until explicit notice (Arch mesa does the same)
 options=(!lto)
-# No source patches (see patches-staged/README.md for the parked ones).
-source=("mesa-${_commit}.tar.gz::https://gitlab.freedesktop.org/mesa/mesa/-/archive/${_commit}/mesa-${_commit}.tar.gz")
-sha256sums=('f12e8fc8b3e93ca107faf6ef6caccd99f523191d4e5cf59ff370b4e1043bcb60')
+# One source patch (a8xx 64-bit image atomics off); 0001 stays parked in patches-staged/.
+source=("mesa-${_commit}.tar.gz::https://gitlab.freedesktop.org/mesa/mesa/-/archive/${_commit}/mesa-${_commit}.tar.gz"
+        '0002-freedreno-a8xx-disable-64b-image-atomics.patch')
+sha256sums=('f12e8fc8b3e93ca107faf6ef6caccd99f523191d4e5cf59ff370b4e1043bcb60'
+            '814bc4f091ed358d0d5621f7954552fbcd1456602273f14883b2ffc6b77e56ea')
 
 prepare() {
   cd "mesa-${_commit}"
+  patch -Np1 -i "${srcdir}/0002-freedreno-a8xx-disable-64b-image-atomics.patch"
   # (the 25.1.5-era c11-threads C23 patch is upstream in 26.x — dropped)
   # Include the package release in the version string so Chromium/CEF (steamwebhelper!)
   # invalidates its GPU cache across our rebuilds — same trick as Arch's mesa.

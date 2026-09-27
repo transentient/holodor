@@ -1,0 +1,10 @@
+# pocknix-stick-leds.service animates the thumbstick rings from /var/lib/pocknix/led-mode.
+# Until 2026-09-27 nothing enabled it, so the Pocknix Control LED modes wrote a file nobody
+# read (static colours worked because `pocknix-stick-leds save` also writes the hardware).
+post_install() { _enable_leds; }
+post_upgrade() { _enable_leds; }
+_enable_leds() {
+  systemctl enable pocknix-stick-leds.service pocknix-input-calibration.service >/dev/null 2>&1 || true
+  # on a running system (OTA) start it now; in the image-build chroot there is no PID 1
+  [ -d /run/systemd/system ] && systemctl start pocknix-stick-leds.service >/dev/null 2>&1 || true
+}

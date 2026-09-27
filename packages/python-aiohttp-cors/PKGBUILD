@@ -1,0 +1,27 @@
+# python-aiohttp-cors — CORS support for aiohttp. Runtime dependency of decky-loader.
+# Not in Holo Core's mirror (nor ALARM's); PyPI sdist, standard Arch python packaging.
+# aiohttp-cors is an abandoned project (last release 2018); carried as-is because that is
+# exactly what upstream Decky pins (backend/poetry.lock: aiohttp-cors 0.7.0).
+pkgname=python-aiohttp-cors
+_pyname=aiohttp-cors
+pkgver=0.7.0
+pkgrel=1
+pkgdesc="CORS support for aiohttp"
+arch=('any')
+url="https://github.com/aio-libs/aiohttp-cors"
+license=('Apache-2.0')
+depends=('python' 'python-aiohttp')
+makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+source=("https://files.pythonhosted.org/packages/source/${_pyname::1}/${_pyname}/${_pyname}-${pkgver}.tar.gz")
+sha256sums=('4d39c6d7100fd9764ed1caf8cebf0eb01bf5e3f24e2e073fda6234bc48b19f5d')
+
+build() {
+  cd "${_pyname}-${pkgver}"
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd "${_pyname}-${pkgver}"
+  python -m installer --destdir="${pkgdir}" dist/*.whl
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

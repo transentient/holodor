@@ -72,7 +72,7 @@ ANDROID_MIN_GIB=1                 # smallest Android userdata we'll leave
 BOOT_GPT_NAME="${POCKNIX_BOOT_GPT_NAME:-HOLODOR}"     # GPT partition name of the internal boot FAT
 BOOT_FAT_LABEL="${POCKNIX_BOOT_FAT_LABEL:-HOLODOR}"   # its FAT label (the ABL keys on neither)
 LEGACY_BOOT_NAME="ROCKNIX"                             # what installs before 2026-09-17 were named
-SD_FAT_LABEL="${POCKNIX_SD_FAT_LABEL:-ROCKNIX}"       # the SD card's boot FAT label (build-sd-image), where KERNEL is copied from
+SD_FAT_LABEL="${POCKNIX_SD_FAT_LABEL:-HOLODOR}"       # the SD card's boot FAT label (build-sd-image; cards up to 20260925 say ROCKNIX)
 ROOT_GPT_NAME="${POCKNIX_ROOT_LABEL:-POCKNIX_ROOT}"   # same GPT name as the SD root (root= itself is PARTUUID-pinned)
 DRY_RUN=0; ASSUME_YES=0; UD_GIB=""; DETECT=0; FRP_MODE=""   # FRP_MODE: clear | keep | "" (ask)
 REPLACE=0; OPERATION=fresh                                   # OPERATION: fresh | replace
@@ -378,8 +378,12 @@ mount "$BOOT_PART" "$BMNT"; mount "$ROOT_PART" "$RMNT"
 # Copy the ENTIRE current boot partition (KERNEL + KERNEL.md5 — the ABL verifies KERNEL against its
 # md5, so a missing KERNEL.md5 = "installation corrupt") from the SD onto the internal FAT. The SD's
 # boot FAT is the only ROCKNIX-labelled FAT that isn't on the internal $DEVICE.
-SD_BOOT="$(blkid -t LABEL="$SD_FAT_LABEL" -o device 2>/dev/null | grep -v "^${DEVICE}" | head -1 || true)"
-[ -n "$SD_BOOT" ] || die "couldn't find the SD boot partition (LABEL=$SD_FAT_LABEL) to copy KERNEL from"
+# The card we are running from has its boot FAT on /flash (fstab, by PARTUUID): that is the
+# authoritative source. Fall back to the volume label (HOLODOR, or ROCKNIX on cards written
+# before 20260925), never matching a partition on the internal disk.
+SD_BOOT="$(findmnt -no SOURCE /flash 2>/dev/null | grep -v "^${DEVICE}" | head -1 || true)"
+[ -n "$SD_BOOT" ] || SD_BOOT="$( { blkid -t LABEL="$SD_FAT_LABEL" -o device 2>/dev/null; blkid -t LABEL=ROCKNIX -o device 2>/dev/null; } | grep -v "^${DEVICE}" | head -1 || true)"
+[ -n "$SD_BOOT" ] || die "couldn't find the SD boot partition (/flash not mounted and no FAT labelled $SD_FAT_LABEL or ROCKNIX) to copy KERNEL from"
 # The SD boot FAT is usually ALREADY mounted (the SD image mounts it on /flash via fstab). vfat can't
 # be re-mounted RO while it's mounted RW elsewhere ("Can't mount, would change RO state"), so reuse
 # the existing mountpoint when there is one; only mount it ourselves otherwise.

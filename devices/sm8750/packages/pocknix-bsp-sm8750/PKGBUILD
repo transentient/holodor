@@ -17,7 +17,14 @@
 #                                matches devices/sm8750/profile.conf
 pkgname=pocknix-bsp-sm8750
 pkgver=0.2.0
-pkgrel=18   # 18: HiFi.conf jack routing restored (MBHC detection works with kernel-26)
+pkgrel=22   # 22 (2026-09-27): pocknix-input-calibration (zero/apply/reset/show; per-unit stick centres persisted in /etc/pocknix/input-calibration.conf, re-applied Before=inputplumber). Cliff's unit: left stick 22 % off-centre at rest on every kernel; centre params fix it live. 21: also shadow 50-retroid_pocket6.yaml (the collision guard caught it; our family file covers the RP6). 20 (2026-09-27, RC 20260927 findings): 01-rsinput-controller.yaml lists gpio-keys-paddles
+            #     (paddles + gamepad had gone to InputPlumber 0.81's own 50-ayn_odin3.yaml: A/B swapped);
+            #     stubs shadow upstream's 50-ayn_odin{3,2,2_mini}.yaml in /etc/inputplumber/devices.d;
+            #     .install enables pocknix-stick-leds.service (LED modes never animated: no one enabled it).
+            # 19: HiFi.conf Headphones PlaybackMixerElem "HP" (was the nonexistent "HP Digital":
+            #     software volume on a max-gain analog path = hiss; agenda E step 1). JackControl
+            #     block from 18 untouched.
+            # 18: HiFi.conf jack routing restored (MBHC detection works with kernel-26)
             # 17: 91-pocknix-cmdline.hook — cmdline-only bsp bumps now rebuild /flash/KERNEL
             # (the kernel pkg's 90-hook doesn't watch kernel-cmdline; bsp-16 shipped stale on-device)
             # 16: kernel-cmdline mem_sleep_default=s2idle (sleeps 5x deeper than "deep" on sm8750; validated 08-31)
@@ -26,6 +33,7 @@ arch=('any')
 url="https://github.com/shuuri-labs/pocknix-os"
 license=('GPL2')
 depends=('pocknix-bsp-common')
+install=pocknix-bsp-sm8750.install
 # Exactly one device BSP may be installed (wrong-device guard for a shared repo).
 # 'replaces' migrates installs of the retired per-device BSPs (and the ancient
 # unified 'pocknix-bsp', carried over from the rp6 lineage).
@@ -42,8 +50,10 @@ source=('device.conf'
         '10-pocknix-deeponly.conf' '30-pocknix-cpuidle.conf'
         '50-no-sink-suspend.conf'
         'kernel-cmdline' '91-pocknix-cmdline.hook'
-        'pocknix-stick-leds' 'pocknix-stick-ledsd' 'pocknix-stick-leds.service')
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+        'pocknix-stick-leds' 'pocknix-stick-ledsd' 'pocknix-stick-leds.service'
+        '50-holodor-ip-stub.yaml'
+        'pocknix-input-calibration' 'pocknix-input-calibration.service')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   # Runtime device facts: the model dispatcher + per-board files. boards/ is
@@ -97,6 +107,18 @@ package() {
     "${pkgdir}/usr/local/bin/pocknix-stick-ledsd"
   install -Dm644 "${srcdir}/pocknix-stick-leds.service" \
     "${pkgdir}/usr/lib/systemd/system/pocknix-stick-leds.service"
+
+  # Per-unit stick calibration (centres) + the boot service that re-applies it.
+  install -Dm755 "${srcdir}/pocknix-input-calibration" "${pkgdir}/usr/local/bin/pocknix-input-calibration"
+  install -Dm644 "${srcdir}/pocknix-input-calibration.service" \
+    "${pkgdir}/usr/lib/systemd/system/pocknix-input-calibration.service"
+
+  # Shadow InputPlumber's built-in AYN Odin configs (same filenames, /etc wins): our
+  # 01-rsinput-controller.yaml owns this family. See 50-holodor-ip-stub.yaml.
+  local stub
+  for stub in 50-ayn_odin3.yaml 50-ayn_odin2.yaml 50-ayn_odin2_mini.yaml 50-retroid_pocket6.yaml; do
+    install -Dm644 "${srcdir}/50-holodor-ip-stub.yaml" "${pkgdir}/etc/inputplumber/devices.d/${stub}"
+  done
 
   # Kernel command line for the on-device /flash/KERNEL rebuild (pocknix-build-bootimg,
   # shipped by linux-pocknix-sm8750). One family cmdline (the retired per-device ones

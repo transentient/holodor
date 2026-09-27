@@ -1,0 +1,32 @@
+diff --git a/backend/decky_loader/updater.py b/backend/decky_loader/updater.py
+index 3fdfcc0..409b8b4 100644
+--- a/backend/decky_loader/updater.py
++++ b/backend/decky_loader/updater.py
+@@ -100,6 +100,16 @@ class Updater:
+         }
+ 
+     async def check_for_updates(self):
++        # Holodor: the loader is the decky-loader pacman package, built natively from source.
++        # Upstream's self-update fetches the x86_64 PyInstaller binary into cwd; pacman -Syu
++        # owns updates here, so report "no remote version" (the Settings button stays
++        # "Check for updates" and never offers an install).
++        logger.debug("update check skipped: decky-loader is managed by pacman")
++        self.remoteVer = None
++        self.allRemoteVers = []
++        return await self.get_version_info()
++
++    async def _check_for_updates_upstream(self):
+         logger.debug("checking for updates")
+         selectedBranch = self.get_branch(self.context.settings)
+         async with ClientSession() as web:
+@@ -186,6 +196,10 @@ class Updater:
+         await self.do_restart()
+ 
+     async def do_update(self):
++        logger.warning("update refused: decky-loader is managed by pacman (run pacman -Syu)")
++        return
++
++    async def _do_update_upstream(self):
+         logger.debug("Starting update.")
+         try:
+             assert self.remoteVer

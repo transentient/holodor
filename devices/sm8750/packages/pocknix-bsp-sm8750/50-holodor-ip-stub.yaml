@@ -1,0 +1,13 @@
+# Holodor: installed under the SAME filenames as InputPlumber's built-in AYN Odin configs
+# (50-ayn_odin3, 50-ayn_odin2, 50-ayn_odin2_mini, 50-retroid_pocket6 .yaml) in /etc/inputplumber/devices.d,
+# which takes precedence over /usr/share/inputplumber/devices for equal filenames. The SM8750/
+# SM8550 RSInput family is handled by 01-rsinput-controller.yaml; upstream's file competed for the
+# same source devices and won the gamepad on 2026-09-27 (xbox-elite target, A/B swapped). This
+# stub parses as a CompositeDevice that can never match.
+version: 1
+kind: CompositeDevice
+name: AYN RSInput device (disabled by Holodor; see 01-rsinput-controller.yaml)
+matches:
+  - dmi_data:
+      product_name: holodor-never-matches
+source_devices: []

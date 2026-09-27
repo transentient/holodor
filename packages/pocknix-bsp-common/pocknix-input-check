@@ -1,0 +1,29 @@
+#!/bin/bash
+# pocknix-input-check — verify InputPlumber built the controller we expect (boot-time, root).
+# RC 20260927 booted with TWO composite devices (upstream's 50-ayn_odin3.yaml took the gamepad
+# with an Xbox mapping) and nothing said so until a human pressed A. Expectation on the SM8750
+# family: exactly one CompositeDevice named like "*[holodor]*", all rsinput/gpio-keys sources in
+# it, target deck-uhid. Anything else -> warning in the journal (tag pocknix-input-check) and
+# /run/pocknix/input-check for pocknix-diag / Pocknix Control. Read-only; never restarts anything.
+set -u
+OUT=/run/pocknix/input-check; mkdir -p /run/pocknix
+BUS=org.shadowblip.InputPlumber; IFACE=org.shadowblip.Input.CompositeDevice
+report() { printf '%s\n' "$1" > "$OUT"; logger -t pocknix-input-check -p "${2:-daemon.warning}" -- "$1"; }
+paths=$(busctl tree "$BUS" 2>/dev/null | grep -o '/org/shadowblip/InputPlumber/CompositeDevice[0-9]*' | sort -u)
+[ -n "$paths" ] || { report "no InputPlumber composite device (inputplumber not running or nothing matched)"; exit 0; }
+n=$(printf '%s\n' "$paths" | wc -l)
+expected_sources=$(grep -l -E 'rsinput-gamepad|gpio-keys' /sys/class/input/event*/device/phys 2>/dev/null | wc -l)
+summary=""; ours=0; ours_sources=0; ours_target=""
+for p in $paths; do
+  name=$(busctl get-property "$BUS" "$p" "$IFACE" Name 2>/dev/null | sed 's/^s "//; s/"$//')
+  srcs=$(busctl get-property "$BUS" "$p" "$IFACE" SourceDevicePaths 2>/dev/null | awk '{print $2}')
+  tgts=$(busctl get-property "$BUS" "$p" "$IFACE" TargetDevices 2>/dev/null | grep -o 'target/[a-z0-9_-]*' | tr '\n' ' ')
+  summary+="${p##*/}: \"$name\" sources=$srcs targets=[$tgts]; "
+  case "$name" in *"[holodor]"*) ours=$((ours+1)); ours_sources=$srcs; ours_target=$tgts ;; esac
+done
+if [ "$n" -eq 1 ] && [ "$ours" -eq 1 ] && [ "$ours_sources" -eq "$expected_sources" ]; then
+  report "ok: 1 composite device, $ours_sources/$expected_sources sources, targets [$ours_target]" daemon.info
+else
+  report "UNEXPECTED controller layout ($n composite devices, ours=$ours with $ours_sources/$expected_sources sources): $summary"
+fi
+exit 0

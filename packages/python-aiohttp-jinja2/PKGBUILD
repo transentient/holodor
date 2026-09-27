@@ -1,0 +1,26 @@
+# python-aiohttp-jinja2 — jinja2 template renderer for aiohttp.web. Runtime dependency of
+# decky-loader (backend/poetry.lock pins 1.6). Not in Holo Core's mirror (nor ALARM's);
+# PyPI sdist, standard Arch python packaging.
+pkgname=python-aiohttp-jinja2
+_pyname=aiohttp-jinja2
+pkgver=1.6
+pkgrel=1
+pkgdesc="jinja2 template renderer for aiohttp.web"
+arch=('any')
+url="https://github.com/aio-libs/aiohttp-jinja2"
+license=('Apache-2.0')
+depends=('python' 'python-aiohttp' 'python-jinja')
+makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+source=("https://files.pythonhosted.org/packages/source/${_pyname::1}/${_pyname}/${_pyname}-${pkgver}.tar.gz")
+sha256sums=('a3a7ff5264e5bca52e8ae547bbfd0761b72495230d438d05b6c0915be619b0e2')
+
+build() {
+  cd "${_pyname}-${pkgver}"
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd "${_pyname}-${pkgver}"
+  python -m installer --destdir="${pkgdir}" dist/*.whl
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

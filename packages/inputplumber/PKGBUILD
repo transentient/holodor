@@ -3,8 +3,27 @@
 # Guide button, rumble, etc. We use the upstream PREBUILT aarch64 release (same as
 # ROCKNIX) — no Rust build in the chroot. RP6 device config ships in pocknix-bsp.
 pkgname=inputplumber
-pkgver=0.77.2
-pkgrel=1
+pkgver=0.81.0
+pkgrel=2   # 2 (2026-09-27): package() collision guard — fail the build if upstream ships a device config for our hardware that pocknix-bsp-sm8750 does not shadow (0.79+ added 50-ayn_odin3.yaml and it stole the gamepad on RC 20260927)
+# 0.77.2 -> 0.81.0 (2026-09-24, WP2 resume dead-controls, the "braces"): carries 0.78.1
+# "Resolve permission errors when unhiding devices" (#582), 0.79.1 "Prevent Legion Go 2
+# from dropping CompositeDevice on suspend", 0.80.0 "restore device node permissions on
+# unhide and re-trigger udev add". Checked against our config on the v0.81.0 source:
+#   * `deck-uhid` target still exists (src/input/target/mod.rs), same VID/bus/PID logic
+#     (our composite name is not in the per-device PID table -> ProductId::Generic, as before).
+#   * composite_device_v1 / capability_map_v2 serde structs still carry every field
+#     01-rsinput-controller.yaml + sm8750-gamepad.yaml use (udev.attributes, evdev
+#     name/phys_path/handler, options.persist, capability_map_id, gamepad button/
+#     trigger/axis targets, keyboard target).
+#   * 0.79.0 adds UPSTREAM configs for AYN Odin 3 / Odin 2 / RP5 / RP6 (50-ayn_odin3.yaml,
+#     dt compatible "ayn,odin3", target xbox-elite). Configs load sorted by filename and
+#     the first match wins (src/config/path.rs, manager.rs), so our 01- file still wins;
+#     if ours ever failed to match, upstream's would now take over with an Xbox target.
+#   * 0.78.0 ships 60-inputplumber-uaccess.rules (hidraw 000[356]:28DE / 054C uaccess) —
+#     duplicates one line of our 60-pocknix-controllers.rules; harmless.
+#   * 0.79.1 "Allow missed events under 1 frame" rewrote the uhid target's same-frame
+#     button queueing (MIN_FRAME_TIME gone) — re-verify short taps in-game.
+# Tarball wraps usr/ in a top-level inputplumber/ dir (handled below).
 pkgdesc="Open source input router and remapper daemon (prebuilt aarch64 release)"
 arch=('aarch64')
 url="https://github.com/ShadowBlip/InputPlumber"
@@ -15,7 +34,8 @@ conflicts=('inputplumber')
 # Prebuilt binary: don't strip/lto/etc.
 options=('!strip' '!debug' '!lto')
 source=("inputplumber-aarch64-${pkgver}.tar.gz::https://github.com/ShadowBlip/InputPlumber/releases/download/v${pkgver}/inputplumber-aarch64.tar.gz")
-sha256sums=('SKIP')
+# From the release's inputplumber-aarch64.tar.gz.sha256.txt sidecar, verified 2026-09-24.
+sha256sums=('5509a6f79bec95c240de34833639e3ba8a144752e3745e6eb978b38b8aa05a10')
 
 package() {
   # Release tarball lays out usr/ at the top (bin, lib/systemd, share/inputplumber, dbus,
@@ -28,4 +48,23 @@ package() {
   fi
   [ -n "${usrdir}" ] || { echo "could not find usr/ in the release tarball"; return 1; }
   cp -a "${usrdir}" "${pkgdir}/usr"
+
+  # Collision guard (2026-09-27). InputPlumber matches device configs in filename order, but a
+  # source device that is not yet claimed by OUR composite (01-rsinput-controller.yaml) can be
+  # claimed by an upstream config for the same hardware, and the gamepad then follows whichever
+  # composite is checked first for "missing" sources. 0.79 added 50-ayn_odin3.yaml and RC
+  # 20260927 booted with an Xbox mapping and A/B swapped. pocknix-bsp-sm8750 shadows the known
+  # upstream files with stubs in /etc/inputplumber/devices.d; this guard fails the build when a
+  # NEW upstream file matches our device-tree compatibles so the bump cannot ship unnoticed.
+  local _ours='ayn,odin3|ayn,odin2|ayn,odin2mini|ayn,odin2portal|AYN Odin 3|AYN Odin 2|Retroid Pocket 6'
+  local _shadowed='50-ayn_odin3.yaml 50-ayn_odin2.yaml 50-ayn_odin2_mini.yaml 50-retroid_pocket6.yaml'   # keep in sync with pocknix-bsp-sm8750
+  local f hit=0
+  for f in "${pkgdir}"/usr/share/inputplumber/devices/*.yaml; do
+    grep -qE "${_ours}" "${f}" || continue
+    case " ${_shadowed} " in *" $(basename "${f}") "*) ;; *)
+      echo "inputplumber: upstream config $(basename "${f}") matches our hardware and is NOT shadowed by pocknix-bsp-sm8750 — add it to the stub list there and to _shadowed here" >&2
+      hit=1 ;;
+    esac
+  done
+  [ "${hit}" -eq 0 ] || return 1
 }

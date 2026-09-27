@@ -1,0 +1,133 @@
+#!/bin/bash
+# pocknix-resume-recover — MANUAL recovery ladder for "Guide/QAM dead after an idle s2idle
+# wake" (WP2, docs/post-release-agenda-2026-09-24.md section D). NOT run automatically by
+# anything; it exists so the repro session yields a verdict: which step brings the buttons
+# back tells us which hypothesis is true.
+#
+#   h1  perms/ACL lost on the InputPlumber deck-uhid hidraw (Valve 28DE) — IP #732 family
+#         -> chmod 660 + setfacl -m u:deck:rw on every 28DE hidraw node
+#   h2  node recreated but no udev "add" reached Steam's device watcher
+#         -> udevadm trigger --action=add on every 28DE hidraw node
+#   h3  InputPlumber composite/target wedged on the persist re-attach path
+#         -> systemctl restart inputplumber  (REFUSED while a game runs: a mid-game IP
+#            restart = crash/disconnect, HANDOFF knowledge item 6; override with --force)
+#   h4  MCU/UART not delivering (kernel side) — read-only probe, nothing to fix here:
+#         -> 8 s of evtest on the hid-steam evdev of the 28DE target while you press buttons
+#
+# A forensics snapshot (pocknix-input-forensics) is taken before the first step and after
+# every step, and every action is logged with tag pocknix-resume-recover, so the journal
+# carries the whole timeline:  journalctl -t pocknix-input-forensics -t pocknix-resume-recover
+#
+# Usage (root):
+#   pocknix-resume-recover                 interactive: h1 -> h2 -> h3, asking after each
+#   pocknix-resume-recover h1|h2|h3|h4     one step, no questions
+#   pocknix-resume-recover --force h3      restart IP even though a game is running
+#   pocknix-resume-recover snapshot        forensics only
+# Root on the device (deck has no sudo):
+#   systemd-run -t --wait --collect /usr/local/bin/pocknix-resume-recover
+set -u
+
+FORENSICS=/usr/lib/pocknix/pocknix-input-forensics
+SESSION_USER=deck
+force=0
+steps=()
+for a in "$@"; do
+  case "${a}" in
+    --force) force=1 ;;
+    h1|h2|h3|h4|snapshot) steps+=("${a}") ;;
+    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    *) echo "unknown argument: ${a}" >&2; exit 2 ;;
+  esac
+done
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "run as root:  systemd-run -t --wait --collect $0 ${*}" >&2
+  exit 1
+fi
+
+note() { echo "[recover] $*"; logger -t pocknix-resume-recover -- "$*" 2>/dev/null || true; }
+snapshot() { [ -x "${FORENSICS}" ] && "${FORENSICS}" "recover:$1" || echo "(no ${FORENSICS})"; }
+
+# Valve 28DE hidraw nodes = the InputPlumber deck-uhid target(s) Steam reads.
+valve_hidraws() {
+  local h dev
+  for h in /sys/class/hidraw/hidraw*; do
+    [ -e "${h}" ] || continue
+    dev="$(readlink -f "${h}/device" 2>/dev/null)"
+    case "${dev##*/}" in *:28DE:*|*:28de:*) echo "/dev/${h##*/}" ;; esac
+  done
+}
+# hid-steam evdev node(s) of the 28DE target (vendor id 28de on the input device).
+valve_evdevs() {
+  local e
+  for e in /sys/class/input/event*; do
+    [ -e "${e}" ] || continue
+    [ "$(cat "${e}/device/id/vendor" 2>/dev/null)" = "28de" ] && echo "/dev/input/${e##*/}"
+  done
+}
+game_running() { pidof reaper >/dev/null 2>&1; }
+
+step_h1() {
+  local nodes n; nodes="$(valve_hidraws)"
+  [ -n "${nodes}" ] || { note "h1: no Valve 28DE hidraw node exists — target gone (points at h3)"; return 1; }
+  for n in ${nodes}; do
+    note "h1: before: $(ls -l "${n}") acl=[$(getfacl -p -c "${n}" 2>/dev/null | tr '\n' ' ')]"
+    chmod 660 "${n}" && setfacl -m "u:${SESSION_USER}:rw" "${n}" \
+      && note "h1: applied chmod 660 + setfacl u:${SESSION_USER}:rw on ${n}" \
+      || note "h1: FAILED on ${n}"
+    note "h1: after:  $(ls -l "${n}") acl=[$(getfacl -p -c "${n}" 2>/dev/null | tr '\n' ' ')]"
+  done
+}
+step_h2() {
+  local nodes n; nodes="$(valve_hidraws)"
+  [ -n "${nodes}" ] || { note "h2: no Valve 28DE hidraw node exists (points at h3)"; return 1; }
+  for n in ${nodes}; do
+    udevadm trigger --action=add "/sys/class/hidraw/${n##*/}" \
+      && note "h2: udevadm trigger --action=add on ${n}" \
+      || note "h2: udevadm trigger FAILED on ${n}"
+  done
+  udevadm settle -t 3 2>/dev/null || true
+}
+step_h3() {
+  if game_running && [ "${force}" -ne 1 ]; then
+    note "h3: REFUSED — a game is running (reaper pid $(pidof reaper)); quit it or pass --force"
+    return 1
+  fi
+  note "h3: systemctl restart inputplumber (before: $(systemctl show inputplumber -p ActiveState,NRestarts --value | tr '\n' ' '))"
+  systemctl restart inputplumber && note "h3: restarted" || note "h3: restart FAILED"
+  sleep 3
+}
+step_h4() {
+  local nodes n
+  command -v evtest >/dev/null 2>&1 || { note "h4: evtest not installed — skip"; return 1; }
+  nodes="$(valve_evdevs)"
+  [ -n "${nodes}" ] || { note "h4: no 28DE evdev (hid-steam) node — target gone (points at h3)"; return 1; }
+  for n in ${nodes}; do
+    note "h4: 8 s evtest on ${n} — PRESS BUTTONS/STICKS NOW; events here = MCU + IP path alive, so the problem is Steam-side"
+    timeout 8 evtest "${n}" 2>&1 | grep -E 'Event: time' | head -n 20 || true
+  done
+}
+
+[ "${#steps[@]}" -gt 0 ] || steps=(h1 h2 h3)
+interactive=0; [ -t 0 ] && [ "${#steps[@]}" -eq 3 ] && [ $# -eq 0 ] && interactive=1
+
+note "start: steps=${steps[*]} force=${force} game_running=$(game_running && echo yes || echo no)"
+snapshot before
+for s in "${steps[@]}"; do
+  case "${s}" in
+    snapshot) continue ;;
+    h1) step_h1 ;; h2) step_h2 ;; h3) step_h3 ;; h4) step_h4 ;;
+  esac
+  sleep 2
+  snapshot "after-${s}"
+  if [ "${interactive}" -eq 1 ]; then
+    read -r -p "[recover] ${s} done. Did Guide/QAM come back? [y/N/q] " ans
+    case "${ans}" in
+      y|Y) note "VERDICT: recovered after ${s}"; exit 0 ;;
+      q|Q) note "aborted after ${s}"; exit 0 ;;
+      *)   note "${s}: no recovery reported" ;;
+    esac
+  fi
+done
+note "end: no step reported recovery (non-interactive runs report nothing by themselves)"
+exit 0

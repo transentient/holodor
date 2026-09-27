@@ -9,6 +9,11 @@ FLAG=/var/lib/pocknix/expand-root.done
 [ -e "${FLAG}" ] && exit 0
 
 log() { echo "[pocknix-expand-root] $*"; }
+# The unit is ConditionPathExists=!${FLAG}: once stamped it is not even started (0 ms on
+# every later boot). An internal install inherits the stamp through the installer's rsync
+# of the running root (pocknix-install-internal sizes the internal root itself), so it
+# never runs there. EVERY exit below must stamp, or the probe repeats each boot (B4).
+stamp() { mkdir -p "$(dirname "${FLAG}")"; date -u +%FT%TZ > "${FLAG}"; }
 
 # Resolve the real device backing / (e.g. /dev/mmcblk0p2, /dev/sda2, /dev/nvme0n1p2).
 src=$(findmnt -nro SOURCE /)
@@ -16,7 +21,7 @@ src=$(readlink -f "${src}")
 case "${src}" in
   */*[0-9]p[0-9]*) disk="${src%p*}"; part="${src##*p}" ;;   # mmcblk0p2 / nvme0n1p2
   *[0-9])          disk="${src%%[0-9]*}"; part="${src##*[!0-9]}" ;;  # sda2
-  *) log "cannot parse root device '${src}' — skipping"; exit 0 ;;
+  *) log "cannot parse root device '${src}' — nothing to expand; stamping so this is not retried every boot"; stamp; exit 0 ;;
 esac
 
 log "root=${src} disk=${disk} part=${part}"
@@ -32,6 +37,5 @@ fi
 # Online-grow the ext4 root to the (possibly) larger partition. No-op if already full.
 resize2fs "${src}" || log "resize2fs returned non-zero (already at max?)"
 
-mkdir -p "$(dirname "${FLAG}")"
-date -u +%FT%TZ > "${FLAG}"
+stamp
 log "done — root filesystem expanded to fill the disk"

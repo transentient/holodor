@@ -17,6 +17,10 @@ SUBSYSTEM=="input", ATTRS{idVendor}=="28de", MODE="0660", TAG+="uaccess"
 # InputPlumber `deck-uhid` target: uhid devices have NO USB parent, so idVendor
 # above never matches — match the HID device kernel name (bus 0003 = HID, Valve
 # 28DE). Without this Steam gets "Unable to open local device: /dev/hidrawN".
+# (InputPlumber >= 0.78.0 ships the same line in 60-inputplumber-uaccess.rules;
+# both applying is harmless.) The post-RESUME re-apply for this node — IP #732,
+# stale hide rules chmod 000 the recreated target — lives in
+# 99-pocknix-inputplumber-target.rules: it must sort AFTER IP's 96-*-late rules.
 KERNEL=="hidraw*", KERNELS=="0003:28DE:*", MODE="0660", TAG+="uaccess"
 
 # Common external controllers, so plugged-in pads work in the deck session too.

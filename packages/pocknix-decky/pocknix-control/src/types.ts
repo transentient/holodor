@@ -48,6 +48,7 @@ export interface Config {
   chargeLimit: number;
   ledColor: string;
   ledMode: string;
+  stickCenters: string;
   lavdMode: string;
   downloadInhibitMode: string;
   tweaks: Tweaks;

@@ -1,7 +1,7 @@
 import { ButtonItem, PanelSection, PanelSectionRow, showModal } from "@decky/ui";
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { getFanStatus, setDownloadInhibitMode, setFanMode, setLavdMode, setPowerMode, setChargeLimit, setLedColor, setLedMode } from "../backend";
+import { getFanStatus, setDownloadInhibitMode, setFanMode, setLavdMode, setPowerMode, setChargeLimit, setLedColor, setLedMode, zeroStickCenters, resetStickCenters } from "../backend";
 import { FanCurveGraph } from "../components/FanCurveGraph";
 import { FanCurveModal } from "../components/FanCurveModal";
 import { ColorPalette, SelectEdit } from "../components/widgets";
@@ -55,6 +55,20 @@ export function Power({ config, setConfig, reload }: {
   setConfig: Dispatch<SetStateAction<Config | null>>;
   reload: () => void;
 }) {
+  const [stickMsg, setStickMsg] = useState<string>("");
+  const zeroSticks = async () => {
+    setStickMsg("Sampling, hands off...");
+    try {
+      const cfg = await zeroStickCenters();
+      setConfig(cfg);
+      setStickMsg("Centres saved: " + (cfg.stickCenters || "0/0/0/0"));
+    } catch (e: any) {
+      setStickMsg("Failed: " + (e?.message ?? String(e)));
+    }
+  };
+  const resetSticks = async () => {
+    try { setConfig(await resetStickCenters()); setStickMsg("Centres reset"); } catch (e: any) { setStickMsg("Failed: " + (e?.message ?? String(e))); }
+  };
   const applyLedMode = async (mode: string) => {
     try {
       const next = await setLedMode(mode);
@@ -144,6 +158,19 @@ export function Power({ config, setConfig, reload }: {
             {activeCurve?.factory ? "Customize this curve..." : "Edit this curve..."}
           </ButtonItem>
         </PanelSectionRow>
+      </PanelSection>
+      <PanelSection title="STICKS">
+        <PanelSectionRow>
+          <ButtonItem layout="below" description={"Sets the resting position of both sticks as centre. Let go of the sticks first." + (config.stickCenters ? " Saved: " + config.stickCenters : "")} onClick={zeroSticks}>
+            Zero stick centres
+          </ButtonItem>
+        </PanelSectionRow>
+        {config.stickCenters && (
+          <PanelSectionRow>
+            <ButtonItem layout="below" onClick={resetSticks}>Reset stick centres</ButtonItem>
+          </PanelSectionRow>
+        )}
+        {stickMsg && <PanelSectionRow><div style={{ fontSize: "12px", opacity: 0.8 }}>{stickMsg}</div></PanelSectionRow>}
       </PanelSection>
       <PanelSection title="STICK LEDS">
         <SelectEdit label="Effect" value={config.ledMode} options={ledEffectOptions} onChange={(mode) => applyLedMode(mode as string)} />

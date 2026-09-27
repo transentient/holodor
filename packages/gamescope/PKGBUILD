@@ -39,7 +39,7 @@
 pkgname=gamescope
 epoch=1
 pkgver=3.16.0.rocknix.4286887
-pkgrel=3
+pkgrel=4  # 4 (2026-09-27): 0007 sanitize GAMESCOPE_COLOR_NIGHT_MODE (NaN saturation from Steam painted the output red; no toggle could clear it)
 _commit=428688779e481681ddf6e2ea346987889527a0b7
 # Grant CAP_SYS_NICE to the installed binary (realtime scheduling) — see gamescope.install.
 install=gamescope.install
@@ -64,8 +64,10 @@ source=("gamescope::git+https://github.com/ValveSoftware/gamescope.git#commit=${
         '0001-WaylandBackend-wire-up-wl_touch-implementation.patch'
         '0004-DRMBackend-Add-GAMESCOPE_FAKE_OUTPUT_MM-env-to-set-c.patch'
         '0005-feature-add-rotation-shader-for-rotating-output.patch'
-        '0006-steamcompmgr-fix-gamepad-cursor-sprite-frozen-via-XTest.patch')
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+        '0006-steamcompmgr-fix-gamepad-cursor-sprite-frozen-via-XTest.patch'
+        '0007-steamcompmgr-sanitize-night-mode-property.patch')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP'
+            'SKIP')
 
 prepare() {
   cd gamescope
@@ -80,6 +82,8 @@ prepare() {
   # see packages/pocknix-steam/pocknix-steam and device.conf.
   patch -p1 < "${srcdir}/0005-feature-add-rotation-shader-for-rotating-output.patch"
   patch -p1 < "${srcdir}/0006-steamcompmgr-fix-gamepad-cursor-sprite-frozen-via-XTest.patch"
+  # Holodor: NaN guard for Steam's night-mode property (see the patch header).
+  patch -p1 < "${srcdir}/0007-steamcompmgr-sanitize-night-mode-property.patch"
 }
 
 build() {

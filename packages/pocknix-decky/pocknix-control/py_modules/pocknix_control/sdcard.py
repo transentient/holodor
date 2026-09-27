@@ -62,10 +62,10 @@ def format_sdcard(label):
     if not _format_lock.acquire(blocking=False):
         raise RuntimeError("A format is already in progress")
     try:
-        # Run the formatter through PID 1, not directly: in our private mount namespace its
-        # umount would only detach the card locally while the init-namespace mount stayed
-        # live under mkfs. systemd-run puts it in the init namespace (and with a clean env,
-        # sidestepping the PyInstaller LD_LIBRARY_PATH poisoning entirely).
+        # Run the formatter through PID 1, not as our child: pocknix-decky-loader.service is
+        # Restart=always with KillMode=mixed, so a loader restart mid-format would SIGKILL a
+        # direct mkfs child and leave a half-written card. As a transient unit it runs to
+        # completion whatever the loader does. (The FEX-era mount-namespace reason is gone.)
         proc = run_cmd(
             ["systemd-run", "--quiet", "--collect", "--wait", "--pipe",
              FORMATTER, "--device", SD_DISK, "--label", label, "--force"],

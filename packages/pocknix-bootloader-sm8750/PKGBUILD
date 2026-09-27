@@ -10,10 +10,11 @@
 # enough (it holds only the signed ELFs, no scripts).
 #
 # Contents (flat in this dir; installed under /usr/share/bootloader/rocknix_abl/):
-#   abl_signed-SM8750.elf   VENDORED ROCKNIX BINARY, v1.1.7, unchanged
-#                                       (release tarball sha256 9af8b0b5…, see
-#                                       README.provenance; the .sha256 sidecar is
-#                                       the release's own).
+#   abl_signed-SM8750.elf   VENDORED ROCKNIX BINARY, v1.1.8, unchanged. ROCKNIX deleted
+#                                       the v1.1.5-v1.1.8 release assets on 2026-09-26; this
+#                                       copy is ArmadaOS's vendored one (see README.provenance),
+#                                       sha256 = the 1.1.8/SM8750 row of the catalog. The
+#                                       .sha256 sidecar is ours (same format as the release's).
 #   backup_abl.sh           dd abl_a/abl_b -> /sdcard/rocknix_abl AND the
 #                                       SD card (the /sdcard copy dies with the first
 #                                       internal install, the SD copy survives).
@@ -30,9 +31,9 @@
 # tree on updates. pocknix-restore-stock-abl compares a user's backup against the
 # ELF here to refuse a backup that was taken AFTER the flash.
 pkgname=pocknix-bootloader-sm8750
-pkgver=1.1.7            # the ROCKNIX ABL release vendored here
+pkgver=1.1.8            # the ROCKNIX ABL release vendored here (1.1.7 shipped through image 20260925)
 pkgrel=1
-pkgdesc="SM8750 (AYN Odin 3) ROCKNIX ABL v1.1.7 payload + the Android-side backup/flash/restore scripts"
+pkgdesc="SM8750 (AYN Odin 3) ROCKNIX ABL v1.1.8 payload + the Android-side backup/flash/restore scripts"
 arch=('any')
 url="https://github.com/ROCKNIX/abl"
 license=('GPL-2.0-only')   # scripts: ROCKNIX distribution (GPL-2.0); ABL: ROCKNIX abl repo
@@ -45,7 +46,7 @@ source=('abl_signed-SM8750.elf'
         'disable_android_updates.sh'
         'enable_android_updates.sh'
         'README.txt')
-sha256sums=('79e822791bcf088f72ef90601da02bfb8e8b268bf0489965f0213e95de45c311'
+sha256sums=('bedff34b99bd06202301e78ee5ee025b81d5144c9773de179b5f48ba3b38455a'
             'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {

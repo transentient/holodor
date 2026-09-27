@@ -1,0 +1,117 @@
+#!/bin/sh
+# pocknix-input-forensics — READ-ONLY snapshot of the controller stack, for the
+# "Guide/QAM dead after an idle s2idle wake" investigation (WP2, reproduced 2026-09-23).
+#
+# Prints to stdout. The sleep.d/post/090-input-forensics hook runs it in a transient unit
+# 3 s and 20 s after every resume, so the snapshots land in the journal:
+#     journalctl -t pocknix-input-forensics            (all snapshots, this boot: add -b)
+# By hand (root):  pocknix-input-forensics [label]
+#
+# What it captures and which hypothesis each block discriminates (agenda section D):
+#   hidraw nodes + owner/mode + HID parent + getfacl   H1 stale hide rule / lost ACL on the
+#                                                       Valve 28DE deck-uhid node Steam reads
+#   /run/udev/rules.d mtimes + the inputplumber-hide  H1 (rules older than the last resume
+#     rule bodies                                        are stale by definition)
+#   InputPlumber unit state + D-Bus tree + composite   H3 composite/target wedged on the
+#     Source/Target lists                                 persist re-attach path
+#   kernel log: rsinput/uhid/hid-steam since resume    H4 MCU/UART not delivering
+#   Steam pids + controller.txt tail/signatures        H2/H5 Steam never re-opened the node
+# No side effects: ls, getfacl, busctl get-property, journalctl, tail. Every step is
+# best-effort; a missing tool or path prints one line and moves on.
+
+label="${1:-manual}"
+
+say() { printf '== %s\n' "$*"; }
+
+printf '##### pocknix-input-forensics [%s] %s uptime=%ss\n' \
+  "${label}" "$(date -u +%FT%TZ 2>/dev/null)" "$(cut -d' ' -f1 /proc/uptime 2>/dev/null)"
+
+# --- last suspend/resume stamps (so "stale" below has a reference point) ---------------
+say "last suspend/resume (kernel, monotonic)"
+journalctl -k -b --no-pager -o short-monotonic 2>/dev/null \
+  | grep -E 'PM: suspend (entry|exit)' | tail -n 2 || true
+
+# --- hidraw: which node is the InputPlumber deck-uhid target, and can deck open it -----
+say "hidraw nodes (mode/owner, HID parent, HID name)"
+for h in /dev/hidraw*; do
+  [ -e "${h}" ] || continue
+  n="${h##*/}"
+  dev="$(readlink -f "/sys/class/hidraw/${n}/device" 2>/dev/null)"
+  hidname="$(sed -n 's/^HID_NAME=//p' "/sys/class/hidraw/${n}/device/uevent" 2>/dev/null)"
+  printf '%s  parent=%s  name="%s"\n' "$(ls -l "${h}" 2>/dev/null)" "${dev##*/}" "${hidname}"
+done
+say "hidraw ACLs (getfacl)"
+if command -v getfacl >/dev/null 2>&1; then
+  getfacl -p /dev/hidraw* 2>&1 | grep -v '^$' || true
+else
+  echo "getfacl not installed"
+fi
+
+# --- evdev: the sources IP grabs/hides and the hid-steam evdev of the target ------------
+say "evdev nodes (mode/owner) + vendor id"
+for e in /dev/input/event*; do
+  [ -e "${e}" ] || continue
+  n="${e##*/}"
+  vid="$(cat "/sys/class/input/${n}/device/id/vendor" 2>/dev/null)"
+  name="$(cat "/sys/class/input/${n}/device/name" 2>/dev/null)"
+  phys="$(cat "/sys/class/input/${n}/device/phys" 2>/dev/null)"
+  printf '%s  vid=%s  name="%s"  phys=%s\n' "$(ls -l "${e}" 2>/dev/null)" "${vid}" "${name}" "${phys}"
+done
+say "/dev/inputplumber (hidden / moved source nodes)"
+ls -lR /dev/inputplumber 2>&1 || true
+
+# --- udev runtime rules: stale hide rules are the #732 mechanism ------------------------
+say "/run/udev/rules.d (full-iso mtimes; compare with the resume stamp above)"
+ls -la --time-style=full-iso /run/udev/rules.d 2>&1 || true
+for r in /run/udev/rules.d/*inputplumber-hide*; do
+  [ -e "${r}" ] || continue
+  printf -- '--- %s\n' "${r}"
+  grep -v -e '^#' -e '^$' "${r}" 2>/dev/null || true
+done
+
+# --- InputPlumber: unit + D-Bus object tree + composite device wiring -------------------
+say "inputplumber unit"
+systemctl show inputplumber \
+  -p ActiveState,SubState,MainPID,NRestarts,ExecMainStartTimestamp,ActiveEnterTimestamp 2>&1 || true
+say "InputPlumber D-Bus tree"
+tree="$(busctl --system tree org.shadowblip.InputPlumber --list 2>&1)" || true
+printf '%s\n' "${tree}"
+for cd in $(printf '%s\n' "${tree}" | grep -E '/CompositeDevice[0-9]+$'); do
+  printf -- '--- %s\n' "${cd}"
+  for p in Name SourceDevicePaths TargetDevices DbusDevices; do
+    printf '%s: ' "${p}"
+    busctl --system get-property org.shadowblip.InputPlumber "${cd}" \
+      org.shadowblip.Input.CompositeDevice "${p}" 2>&1 || true
+  done
+done
+for t in $(printf '%s\n' "${tree}" | grep -E '/target/'); do
+  printf '%s Name: ' "${t}"
+  busctl --system get-property org.shadowblip.InputPlumber "${t}" \
+    org.shadowblip.Input.Target Name 2>&1 || true
+done
+
+# --- kernel + daemon logs since the wake -----------------------------------------------
+say "kernel: rsinput / uhid / hid-steam / PM lines, last 5 min"
+journalctl -k --since -5min --no-pager -o short-monotonic 2>/dev/null \
+  | grep -i -E 'rsinput|uhid|hid-steam|steam|PM: suspend|Checksum' | tail -n 40 || true
+say "inputplumber journal, last 5 min (tail 40)"
+journalctl -u inputplumber --since -5min --no-pager -o short-monotonic 2>/dev/null | tail -n 40 || true
+
+# --- Steam side ------------------------------------------------------------------------
+say "steam"
+printf 'steam pids: %s\n' "$(pidof steam 2>/dev/null || echo none)"
+printf 'game wrapper (reaper) pids: %s\n' "$(pidof reaper 2>/dev/null || echo none)"
+for f in /home/deck/.local/share/Steam/logs/controller.txt; do
+  if [ -r "${f}" ]; then
+    # controller.txt carries binary bytes (HANDOFF 08-17): -a for grep, scrub for the journal.
+    say "controller.txt tail (last 25 lines, non-printables -> ?)"
+    tail -n 25 "${f}" 2>/dev/null | tr -c '[:print:]\n' '?' || true
+    say "controller.txt open/close signatures (last 15)"
+    grep -a -n -i -E 'hid_read|unable to open|28de|closed|opened|lizard|reserv|activation' "${f}" 2>/dev/null \
+      | tail -n 15 | tr -c '[:print:]\n' '?' || true
+  else
+    echo "controller.txt not readable: ${f}"
+  fi
+done
+printf '##### end [%s]\n' "${label}"
+exit 0

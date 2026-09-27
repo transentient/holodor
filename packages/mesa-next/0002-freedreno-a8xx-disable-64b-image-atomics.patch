@@ -1,0 +1,15 @@
+--- a/src/freedreno/common/freedreno_devices.py
++++ b/src/freedreno/common/freedreno_devices.py
+@@ -1304,6 +1304,12 @@
+         max_texel_buffer_range_elements = (1 << 29) - 1,
+         max_storage_buffer_range_bytes = (1 << 31) - 1,
+         alias_mova_quirk = False,
++        # pocknix: 64-bit image atomics (upstream 5b87bbfad3b, Apr 2026) hang
++        # the GPU on a8xx under UE5/VKD3D-Proton SM6.6 workloads. Turn the
++        # feature off for all a8xx until the a8xx implementation is fixed;
++        # a6xx/a7xx keep upstream behavior (this block overrides the
++        # has_64b_image_atomics = True inherited from a7xx_gen2/gen3).
++        has_64b_image_atomics = False,
+     )
+ 
+ # For a8xx, the chicken bit and most other non-ctx reg

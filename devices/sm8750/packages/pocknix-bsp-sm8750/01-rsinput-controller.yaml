@@ -74,6 +74,17 @@ source_devices:
       phys_path: gpio-keys/input0
       handler: event*
     capability_map_id: holodor_odin3_gamepad
+  # The Odin 3 dts splits the GPIO keys in two nodes with the same phys: "gpio-keys" (volume
+  # rocker) and "gpio-keys-paddles" (back paddles, BTN_Z/BTN_C). Name matching is exact, so
+  # both must be listed; with only the first, InputPlumber 0.79+'s own 50-ayn_odin3.yaml took
+  # the paddles AND the gamepad (2026-09-27: Xbox mapping, A/B swapped). The upstream files are
+  # shadowed by stubs in /etc/inputplumber/devices.d (this package).
+  - group: gamepad
+    evdev:
+      name: gpio-keys-paddles
+      phys_path: gpio-keys/input0
+      handler: event*
+    capability_map_id: holodor_odin3_gamepad
 
 options:
   auto_manage: true
