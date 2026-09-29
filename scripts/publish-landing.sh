@@ -44,14 +44,17 @@ cat > "${OUT}" <<EOF
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Holodor downloads</title>
 <meta name="description" content="Download Holodor, a SteamOS Linux for the AYN Odin 3.">
+<link rel="icon" type="image/png" href="${BASE}/holodor-icon.png">
 <style>
-  :root { --bg:#f6f6f4; --fg:#1b1b1b; --muted:#5b5b5b; --accent:#1d5fbf; --card:#ffffff; --line:#dcdcd8; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#141414; --fg:#eaeaea; --muted:#a8a8a8; --accent:#7fb0ff; --card:#1e1e1e; --line:#333; } }
+  /* page background = the character sprite background (#000000), in both colour schemes */
+  :root { --bg:#000000; --fg:#eaeaea; --muted:#a8a8a8; --accent:#7fb0ff; --card:#141414; --line:#2a2a2a; color-scheme: dark; }
   body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   main { max-width: 760px; margin: 0 auto; padding: 40px 16px 64px; }
   h1 { font-size: 2rem; margin: 0 0 4px; } .sub { color: var(--muted); margin: 0 0 28px; }
+  .logo { display:block; width: 320px; max-width: 60%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; margin: 0 auto 18px; }
+  .visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px 20px 16px; margin-bottom: 24px; }
-  .btn { display:inline-block; background: var(--accent); color:#fff; text-decoration:none; font-weight:600; padding: 14px 22px; border-radius: 10px; font-size: 1.1rem; }
+  .btn { display:inline-block; background: var(--accent); color:#0b1a33; text-decoration:none; font-weight:600; padding: 14px 22px; border-radius: 10px; font-size: 1.1rem; }
   .btn:hover { filter: brightness(1.08); }
   .meta { color: var(--muted); margin: 12px 0 0; font-size: .95rem; word-break: break-all; }
   code.sha { font-size: .8rem; word-break: break-all; }
@@ -62,7 +65,8 @@ cat > "${OUT}" <<EOF
 </head>
 <body>
 <main>
-  <h1>Holodor</h1>
+  <img class="logo" src="${BASE}/holodor-character.png" width="64" height="64" alt="Holodor">
+  <h1 class="visually-hidden">Holodor</h1>
   <p class="sub">A SteamOS Linux distro for the AYN Odin 3. Boots from an SD card next to Android.</p>
 
   <div class="card">
