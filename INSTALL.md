@@ -15,13 +15,13 @@ A quick heads-up about your first boot: Holodor will download Steam and let it u
 * An **AYN Odin 3**.
 * A **microSD card** (32 GB or larger). The bootloader can be surprisingly picky about SD cards. For instance, I found that a couple of newer Silicon Power A2 cards wouldn't work at all. Part II, step 8 will help you confirm if your card is compatible.
 * A PC with an SD card reader.
-* The Holodor image: `https://holodor.bonesaw.com/holodor-odin3-20260927d-seedless.img.zst` (3.1 GB) and its checksum file `https://holodor.bonesaw.com/holodor-odin3-20260927d-seedless.img.zst.sha256`.
+* The Holodor image: [holodor-odin3-20260927d-seedless.img.zst](https://holodor.bonesaw.com/holodor-odin3-20260927d-seedless.img.zst) (3.1 GB) and its checksum file [holodor-odin3-20260927d-seedless.img.zst.sha256](https://holodor.bonesaw.com/holodor-odin3-20260927d-seedless.img.zst.sha256).
 
 ---
 
 ## Part I - Write the SD card
 
-1. Download both the image and the checksum file into the same folder on your PC.
+1. Download both the [image](https://holodor.bonesaw.com/holodor-odin3-20260927d-seedless.img.zst) and the [checksum file](https://holodor.bonesaw.com/holodor-odin3-20260927d-seedless.img.zst.sha256) into the same folder on your PC.
 2. Verify the download:
     * **Linux or Mac:** Run `sha256sum -c holodor-odin3-20260927d-seedless.img.zst.sha256`
     * **Windows:** Run `certutil -hashfile holodor-odin3-20260927d-seedless.img.zst SHA256` and visually compare the output to the contents of the checksum file.
