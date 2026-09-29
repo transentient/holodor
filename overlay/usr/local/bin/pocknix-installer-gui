@@ -38,8 +38,10 @@ command -v kdialog >/dev/null 2>&1 || { echo "kdialog not installed" >&2; exit 1
 # qdbus drives the progress dialog (Arch names the Qt6 binary qdbus6; ships in qt6-tools).
 QDBUS="$(command -v qdbus6 || command -v qdbus || true)"
 
-gui_die() { kdialog --title "$TITLE" --error "$1" || true; exit 1; }
-gui_info() { kdialog --title "$TITLE" --msgbox "$1" || true; }
+# kdialog does not wrap long single-line messages on the 1080-wide portrait panel: fold at 64 cols.
+wrap64() { printf '%s' "$1" | fold -s -w 64; }
+gui_die() { kdialog --title "$TITLE" --error "$(wrap64 "$1")" || true; exit 1; }
+gui_info() { kdialog --title "$TITLE" --msgbox "$(wrap64 "$1")" || true; }
 
 val() { sed -n "s/^$2=//p" <<<"$1" | head -1; }   # val "$info" key
 
