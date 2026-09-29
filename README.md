@@ -2,6 +2,8 @@
 
 **A SteamOS Linux distro for Snapdragon handhelds.**
 
+[![Latest release](https://img.shields.io/github/v/release/transentient/holodor?label=latest%20release)](https://github.com/transentient/holodor/releases/latest)
+
 ## Download
 
 **[Download Holodor for AYN Odin 3 (20260927d, 3.1 GB)](https://holodor.bonesaw.com/holodor-odin3-20260927d-seedless.img.zst)** · [SHA-256 checksum](https://holodor.bonesaw.com/holodor-odin3-20260927d-seedless.img.zst.sha256)

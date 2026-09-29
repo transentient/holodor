@@ -27,7 +27,7 @@ A quick heads-up about your first boot: Holodor will download Steam and let it u
     * **Windows:** Run `certutil -hashfile holodor-odin3-20260927d-seedless.img.zst SHA256` and visually compare the output to the contents of the checksum file.
 3. Write the image to your SD card.
     * **Linux or Mac:** Run `zstd -d holodor-*.img.zst`, and then `sudo dd if=holodor-*.img of=/dev/sdX bs=4M conv=fsync status=progress`. Please triple-check your `/dev/sdX` path, as this command will entirely erase the target disk!
-    * **Windows:** Decompress the file, then write the `.img` using Rufus or balenaEtcher.
+    * **Windows:** Decompress the file (7-Zip 24.01 or newer, or PeaZip, opens `.zst`), then write the `.img` using Rufus or balenaEtcher. USBImager can write the `.img.zst` directly without decompressing.
     * If your flashing tool asks to verify the write, it is a good idea to let it do so.
 4. Once finished, your PC will show a small new partition on the SD card containing a folder named `rocknix_abl`. Leave this right where it is; you will need it for Part II.
 
