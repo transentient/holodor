@@ -307,6 +307,21 @@ main() {
     if [ -f "${pkgdir}/OPTIONAL" ]; then
       case " ${want[*]} " in *" ${name} "*) ;; *) log "skipping optional package ${name} (build with PKG=${name})"; continue ;; esac
     fi
+    # SoC gate (HOLODOR 2026-09-24, RP5 bring-up; the idea is upstream pocknix 73e0566's
+    # per-package one-line `socs` files, without the shared/soc directory split): a package
+    # dir carrying a file named SOCS (space-separated SoC names) is built ONLY for those
+    # SoCs. Needed the moment two SoCs want DIFFERENT packages under one pkgname:
+    # proton-cachyos (sm8550/sm8750, DXVK 3) vs proton-cachyos-dxvk2 (sm8250 - the a650 has
+    # no 8-bit storage, DXVK 3 rejects it; it provides/conflicts/replaces proton-cachyos, so
+    # pocknix-core.list's `proton-cachyos` resolves to it there). Both in one repo would make
+    # build-image install the plain one first and the metapackage's -dxvk2 conflict with it.
+    # No SOCS file = every SoC, exactly as before.
+    if [ -f "${pkgdir}/SOCS" ]; then
+      case " $(tr -s '[:space:]' ' ' < "${pkgdir}/SOCS") " in
+        *" ${SOC} "*) ;;
+        *) log "skipping ${name} (SOCS: not built for ${SOC})"; continue ;;
+      esac
+    fi
     force=0
     [ "${POCKNIX_FORCE_REBUILD:-0}" = "1" ] && force=1
     if [ "${#want[@]}" -gt 0 ]; then

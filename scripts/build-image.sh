@@ -294,7 +294,44 @@ install_firmware() {
     # kernel/sm8250/config/kernel-firmware.dat (a650 GPU, adsp/cdsp, ath11k,
     # BT) comes from upstream linux-firmware, which ALARM's linux-firmware/
     # linux-firmware-qcom packages already put in the rootfs.
-    log "no ${SOC} firmware overlay (expected: all blobs come from ALARM linux-firmware packages)"
+    # HOLODOR (2026-09-24, RP5 bring-up): checked against the Holo Core snapshot's
+    # linux-firmware-qcom + linux-firmware-atheros (20251111): every manifest entry is
+    # present (.zst) EXCEPT rtl_nic/rtl8153a-4.fw (USB_RTL8152 ethernet dongles; Holo has
+    # no realtek split). Reconcile against the manifest like the sm8750 branch does, with
+    # two differences: comment lines and GLOB entries (ath11k/QCA6390/hw2.0/*.bin,
+    # .../RB5/slpi*) are handled (globs are only checked, never fetched), and a miss only
+    # warns - nothing boot-critical is fetched here, so a CDN hiccup must not fail the build.
+    local dat="${KERNEL_DIR}/config/kernel-firmware.dat" fetched=0 missing=0 f fwdir
+    fwdir="${root}/usr/lib/firmware"
+    if [ -f "${dat}" ]; then
+      log "no ${SOC} firmware overlay — reconciling rootfs against ${dat} (Holo linux-firmware + upstream gaps)"
+      while IFS= read -r f || [ -n "$f" ]; do
+        f="${f%%#*}"; f="$(echo "$f" | tr -d '[:space:]')"; [ -z "$f" ] && continue
+        case "$f" in
+          *[\*\?]*)
+            if ! compgen -G "${fwdir}/${f}" >/dev/null && ! compgen -G "${fwdir}/${f}.zst" >/dev/null; then
+              warn "  nothing in the rootfs matches ${f}"; missing=$((missing+1))
+            fi
+            continue ;;
+        esac
+        if [ -e "${fwdir}/${f}" ] || [ -e "${fwdir}/${f}.zst" ]; then
+          continue
+        fi
+        mkdir -p "${fwdir}/$(dirname "${f}")"
+        if curl -fsSL --retry 3 --max-time 120 -o "${fwdir}/${f}" \
+             "https://web.git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/${f}"; then
+          chown root:root "${fwdir}/${f}"; chmod 644 "${fwdir}/${f}"
+          log "  fetched ${f}"
+          fetched=$((fetched+1))
+        else
+          warn "  could NOT fetch ${f} — device may lack this firmware"
+          missing=$((missing+1))
+        fi
+      done < "${dat}"
+      log "firmware reconciled (${fetched} fetched, ${missing} missing)"
+    else
+      log "no ${SOC} firmware overlay and no manifest at ${dat} — relying on the Holo linux-firmware packages"
+    fi
   else
     # HOLODOR: SM8750 also ships NO overlay — its manifest blobs live in RECENT
     # upstream linux-firmware, which Holo Core's pinned snapshot predates (the

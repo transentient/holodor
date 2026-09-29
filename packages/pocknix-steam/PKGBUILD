@@ -4,9 +4,9 @@
 # Steam is experimental (Valve publicbeta linuxarm64).
 pkgname=pocknix-steam
 pkgver=0.1.0
-pkgrel=42   # 42: POCKNIX_ROTATION=shader|hw switch in the launcher (hw = drop --use-rotation-shader for
-            #     DPU hardware rotation with gamescope-next + the 50-rotation-exp kernel; default shader,
-            #     launch line unchanged). docs/rotation-experiment-2026-09-20.md
+pkgrel=43   # 43: pocknix-proton-prep swaps the DXVK-2.7 donor into the downloaded Valve ARM Proton on
+            #     POCKNIX_GPU_DXVK3=no boards (sm8250/a650; upstream d3b4743). 42: POCKNIX_ROTATION=shader|hw
+            #     switch in the launcher (docs/rotation-experiment-2026-09-20.md)
 pkgdesc="Native ARM64 Steam Big Picture (gamescope) for the RP6 — installer + launcher"
 arch=('any')
 url="https://github.com/shuuri-labs/pocknix-os"

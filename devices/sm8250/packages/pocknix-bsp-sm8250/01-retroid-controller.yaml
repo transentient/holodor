@@ -29,6 +29,13 @@ matches:
       attributes:
         - name: model
           value: Retroid Pocket 5
+  # Same board with the 120 Hz Visionox VTDR6130 panel (dtb sm8250-retroidpocket-rp5-visionox):
+  # the model string differs, the gamepad does not. Found 2026-09-28 on Cliff's unit.
+  - udev:
+      sys_path: /sys/firmware/devicetree/base
+      attributes:
+        - name: model
+          value: Retroid Pocket 5 Visionox
 
 single_source: false
 
@@ -43,5 +50,5 @@ options:
   auto_manage: true
 
 target_devices:
-  - deck
+  - deck-uhid
   - keyboard

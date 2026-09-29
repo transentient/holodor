@@ -16,7 +16,7 @@
 #     (pocknix-bootloader-sm8250), not in a boot-image rebuild file.
 pkgname=pocknix-bsp-sm8250
 pkgver=0.1.0
-pkgrel=9
+pkgrel=16   # 16: deck-uhid target (the "deck" target is USB/IP-backed in InputPlumber 0.81: loads vhci_hcd, two busy kernel threads, and blocks suspend with -EBUSY); 15: kernel-cmdline fbcon=logo-pos:center (boot logo, like sm8750)
 pkgdesc="pocknix board support: SM8250 family (RP5, RP Flip 2) — runtime board dispatch, input maps, audio UCM, wake quirks"
 arch=('any')
 url="https://github.com/shuuri-labs/pocknix-os"
@@ -39,10 +39,11 @@ source=('device.conf'
         'pocknix-sm8250-audio-resume' 'pocknix-sm8250-audio-resume.service'
         'pocknix-sm8250-audio-heal' 'pocknix-sm8250-audio-heal.service'
         'pocknix-sm8250-board-select' 'pocknix-sm8250-board-select.service'
-        '51-pocknix-softmixer.conf' '60-pocknix-speaker-loudness.conf')
+        '51-pocknix-softmixer.conf' '60-pocknix-speaker-loudness.conf'
+        '52-pocknix-default-volume.conf' 'kernel-cmdline' '91-pocknix-cmdline.hook')
 sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP'
             'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP'
-            'SKIP')
+            'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   # Runtime device facts: the model dispatcher + per-board files. boards/ is
@@ -65,6 +66,16 @@ package() {
     "${pkgdir}/usr/share/inputplumber/devices/01-retroid-flip2-controller.yaml"
   install -Dm644 "${srcdir}/rpflip2-gamepad.yaml" \
     "${pkgdir}/usr/share/inputplumber/capability_maps/rpflip2-gamepad.yaml"
+
+  # qcom-abl: the family kernel cmdline the on-device /flash/KERNEL rebuild reads
+  # (linux-pocknix-sm8250's pocknix-build-bootimg); build-packages.sh enforces it
+  # byte-matches devices/sm8250/profile.conf KERNEL_CMDLINE. 91-hook rebuilds KERNEL on
+  # cmdline-only bsp bumps.
+  install -Dm644 "${srcdir}/kernel-cmdline" "${pkgdir}/usr/lib/pocknix/kernel-cmdline"
+  install -Dm644 "${srcdir}/91-pocknix-cmdline.hook" "${pkgdir}/usr/share/libalpm/hooks/91-pocknix-cmdline.hook"
+  # WirePlumber: a never-seen route starts at 1.0, not at the mixer's boot-time 0 (RP5 silent first boot).
+  install -Dm644 "${srcdir}/52-pocknix-default-volume.conf" \
+    "${pkgdir}/usr/share/wireplumber/wireplumber.conf.d/52-pocknix-default-volume.conf"
 
   # ALSA UCM for the "RetroidPocket" card (sm8250-sndcard). Mirrors ROCKNIX's
   # tree: master conf under Qualcomm/sm8250 + card-longname symlinks under

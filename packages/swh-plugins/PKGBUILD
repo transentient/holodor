@@ -1,0 +1,28 @@
+# swh-plugins — Steve Harris' LADSPA plug-in suite, for the Holo Core userland.
+#
+# HOLODOR (2026-09-24, RP5 bring-up): pocknix-bsp-sm8250 depends on it — the RP5
+# speaker loudness stack (60-pocknix-speaker-loudness.conf, inherited from upstream
+# pocknix / validated by ear on the RP5 2026-07-16) runs PipeWire's filter-chain
+# through this suite's fast_lookahead_limiter_1913.so in front of the speaker sink.
+# The Holo Core preview carries no swh-plugins (verified against the sync dbs
+# 2026-09-24), so the image build died on the BSP's dependency. Arch Linux ARM's
+# aarch64 build drops in unmodified, plymouth/scx-scheds-style: its runtime deps
+# (fftw, gsm, glibc) are all in Holo under the same names; ALARM's virtual
+# 'ladspa-host' is not provided by anything in Holo, so it is spelled as the SDK
+# package 'ladspa' here (the host is PipeWire's filter-chain, already installed).
+# sm8250 only (SOCS): nothing on sm8550/sm8750 uses it.
+_alarmrel=7
+pkgname=swh-plugins
+pkgver=0.4.17
+pkgrel=8   # > ALARM's pkgrel so our repackage wins
+pkgdesc="Steve Harris' LADSPA plug-ins suite (ALARM binary, repackaged for Holo Core)"
+arch=('aarch64')
+url="https://github.com/swh/ladspa"
+license=('GPL-2.0-or-later')
+depends=('fftw' 'glibc' 'gsm' 'ladspa')
+source=("http://mirror.archlinuxarm.org/aarch64/extra/swh-plugins-${pkgver}-${_alarmrel}-aarch64.pkg.tar.xz")
+sha256sums=('cfa6500788700824371dbe17a872e6d6ecd1ce55e2f00ce73e26be9a954aacfb')
+
+package() {
+  cp -a "${srcdir}/usr" "${pkgdir}/"
+}

@@ -1,0 +1,77 @@
+#!/bin/bash
+# pocknix-build-bootimg (sm8250) — rebuild the qcom-abl /flash/KERNEL from the installed kernel.
+#
+# Mirrors scripts/build-kernel.sh's assemble_bootimg and the sm8750 package's script:
+# gzip(/boot/Image) with the board dtbs appended (DTB_GLOBS; the ROCKNIX ABL builds its
+# "Set device model" menu from the appended-dtb region — max 63 entries, and it scans
+# \boot\grub\*.dtb FIRST if that dir exists, so never put dtbs on the FAT), a GPU-firmware
+# ramdisk (the built-in msm driver requests a650 sqe/gmu before the SD rootfs mounts), then
+# mkbootimg (header v0, offsets 0) with the cmdline from /usr/lib/pocknix/kernel-cmdline
+# (shipped by pocknix-bsp-sm8250), root= re-pinned to the running root's PARTUUID.
+#
+# 2026-09-28: ROCKNIX ABL 1.1.8/1.1.9 boot ONLY an ANDROID! image at \KERNEL ("invalid boot
+# image magic" for a raw Image); the raw Image + GRUB layout this package used to install is
+# dead. The rootfs ships Arch's *.zst firmware; the ramdisk needs plain files, so decompress.
+set -euo pipefail
+FLASH="${FLASH:-/flash}"
+MKBOOTIMG=/usr/lib/pocknix/mkbootimg/mkbootimg.py
+CMDLINE_FILE=/usr/lib/pocknix/kernel-cmdline
+DTB_GLOBS="${POCKNIX_BOOTIMG_DTB_GLOBS:-sm8250-retroidpocket-*.dtb}"
+FW_FILES="qcom/a650_sqe.fw qcom/a650_gmu.bin qcom/sm8250/a650_zap.mbn"
+
+[ -f /boot/Image ] || { echo "pocknix-build-bootimg: no /boot/Image — nothing to do"; exit 0; }
+[ -f "$MKBOOTIMG" ] && [ -f "$CMDLINE_FILE" ] || { echo "pocknix-build-bootimg: mkbootimg/cmdline missing"; exit 0; }
+mountpoint -q "$FLASH" || { echo "pocknix-build-bootimg: $FLASH not mounted — skipping (build chroot?)"; exit 0; }
+
+cmdline="$(cat "$CMDLINE_FILE")"
+rootsrc="$(findmnt -nvo SOURCE / 2>/dev/null || true)"
+rootuuid="$(blkid -s PARTUUID -o value "$rootsrc" 2>/dev/null || true)"
+if [ -n "$rootuuid" ]; then
+  cmdline="$(printf '%s' "$cmdline" | sed -E "s@root=PART(LABEL|UUID)=[^ ]*@root=PARTUUID=${rootuuid}@")"
+fi
+
+tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+gzip -c /boot/Image > "$tmp/kernel.gz"
+ndtb=0
+for g in $DTB_GLOBS; do
+  for d in /boot/dtbs/$g; do [ -f "$d" ] || continue; cat "$d" >> "$tmp/kernel.gz"; ndtb=$((ndtb+1)); done
+done
+if [ "$ndtb" -eq 0 ]; then
+  echo "pocknix-build-bootimg: WARNING: no /boot/dtbs match '$DTB_GLOBS' — appending every dtb instead"
+  for d in /boot/dtbs/*.dtb; do [ -f "$d" ] || continue; cat "$d" >> "$tmp/kernel.gz"; ndtb=$((ndtb+1)); done
+fi
+[ "$ndtb" -gt 0 ] || { echo "pocknix-build-bootimg: no dtb under /boot/dtbs — refusing to write a KERNEL the ABL cannot boot"; exit 1; }
+
+# Boot-critical GPU firmware ramdisk (plain files; decompress the rootfs' .zst copies).
+fwroot="$tmp/fwroot"; nfw=0
+for f in $FW_FILES; do
+  mkdir -p "$fwroot/lib/firmware/$(dirname "$f")"
+  if [ -f "/usr/lib/firmware/$f" ]; then cp "/usr/lib/firmware/$f" "$fwroot/lib/firmware/$f"; nfw=$((nfw+1))
+  elif [ -f "/usr/lib/firmware/$f.zst" ] && command -v zstd >/dev/null 2>&1; then zstd -dq -f "/usr/lib/firmware/$f.zst" -o "$fwroot/lib/firmware/$f"; nfw=$((nfw+1))
+  elif [ -f "/usr/lib/firmware/$f.xz" ]; then xz -dc "/usr/lib/firmware/$f.xz" > "$fwroot/lib/firmware/$f"; nfw=$((nfw+1))
+  fi
+done
+[ "$nfw" -gt 0 ] || echo "pocknix-build-bootimg: WARNING: no a650 firmware found — KERNEL will boot with a dead GPU"
+if command -v cpio >/dev/null 2>&1; then (cd "$fwroot" && find lib | cpio -o -H newc --quiet) | gzip -9 > "$tmp/ramdisk"
+elif command -v bsdtar >/dev/null 2>&1; then (cd "$fwroot" && bsdtar --format newc -cf - lib) | gzip -9 > "$tmp/ramdisk"
+else printf 'dummy' > "$tmp/ramdisk"; echo "pocknix-build-bootimg: WARNING: no cpio/bsdtar — shipped a dummy ramdisk (GPU race!)"; fi
+
+python3 "$MKBOOTIMG" \
+  --kernel "$tmp/kernel.gz" --ramdisk "$tmp/ramdisk" \
+  --kernel_offset 0x00000000 --ramdisk_offset 0x00000000 --tags_offset 0x00000000 \
+  --os_version 12.0.0 --os_patch_level "$(date '+%Y-%m')" --header_version 0 \
+  --cmdline "$cmdline" -o "$tmp/KERNEL"
+
+if [ -f "$FLASH/KERNEL" ] && cmp -s "$tmp/KERNEL" "$FLASH/KERNEL"; then
+  echo "pocknix-build-bootimg: $FLASH/KERNEL already matches this kernel ($ndtb dtb(s)) — nothing to do, KERNEL.bak untouched"
+  exit 0
+fi
+mount -o remount,rw "$FLASH" 2>/dev/null || true
+[ -f "$FLASH/KERNEL" ] && cp -f "$FLASH/KERNEL" "$FLASH/KERNEL.bak"
+cp -f "$tmp/KERNEL" "$FLASH/KERNEL"
+( cd "$FLASH" && md5sum KERNEL > KERNEL.md5 )
+# The ABL prefers \boot\grub\*.dtb over the appended dtbs: a leftover GRUB-era dir would hijack
+# the model menu with the wrong set. Remove it (and the dead EFI chainloader) if present.
+rm -rf "$FLASH/boot" "$FLASH/EFI" 2>/dev/null || true
+sync
+echo "pocknix-build-bootimg: rebuilt $FLASH/KERNEL (kernel $(cat /usr/lib/pocknix/kernelrelease 2>/dev/null || echo '?'), $ndtb dtb(s), $nfw fw, $(du -h "$FLASH/KERNEL" | cut -f1); KERNEL.bak kept)"

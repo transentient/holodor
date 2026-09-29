@@ -51,6 +51,7 @@ MKBOOTIMG=""
 # behaviour until their board set is known. Override: BOOTIMG_DTB_GLOBS="a-*.dtb b.dtb".
 case "${SOC}" in
   sm8750) : "${BOOTIMG_DTB_GLOBS:=cq8725s-*.dtb}" ;;   # AYN Odin 3 (cq8725s-ayn-odin3)
+  sm8250) : "${BOOTIMG_DTB_GLOBS:=sm8250-retroidpocket-*.dtb}" ;;   # RP5 (+Visionox), Flip 2 (+Visionox), Mini, Mini V2: 6 dtbs, user picks the model in the ABL menu (panel revision is not hardware-detectable)
   *)      : "${BOOTIMG_DTB_GLOBS:=*.dtb}" ;;
 esac
 

@@ -1,22 +1,21 @@
 # linux-pocknix-sm8250 — the SM8250 kernel as a pacman package. Per-SoC, not
-# per-device: /boot/dtbs carries EVERY board's dtb from kernel/sm8250/dts, so
-# this one package serves the RP5 and its siblings. Sibling of
-# linux-pocknix-sm8550 (see that PKGBUILD for the thin-package rationale).
+# per-device: /boot/dtbs carries the boards this image serves (_dtb_globs — the Retroid
+# Pocket 5 / Flip 2 (+ their Visionox-panel variants) / Mini / Mini V2), packaged from
+# 'make kernel' output: build-packages.sh copies build/kernel/sm8250/out into the
+# package's build dir as ./staged; package() lays it out as /boot/Image + /boot/dtbs +
+# /usr/lib/modules/<ver> + the mkbootimg tool.
 #
-# THIN package by design: it does NOT compile the kernel. build-packages.sh
-# stages `make kernel DEVICE=sm8250` output (build/kernel/out) into this
-# package's build dir as ./staged; package() lays it out as /boot/Image +
-# /boot/dtbs + /usr/lib/modules/<ver>.
-#
-# arm-efi difference vs the sm8550 package: there is NO boot image and NO
-# mkbootimg. GRUB loads /flash/KERNEL as a RAW Image and the board dtb as a
-# separate /flash/boot/grub/<board>.dtb; the cmdline lives in grub.cfg
-# (pocknix-bootloader-sm8250). The alpm hook therefore just copies Image +
-# dtbs to /flash (pocknix-update-boot) instead of rebuilding a bootimg.
+# Boot contract (qcom-abl, settled 2026-09-28): the ROCKNIX ABL loads /flash/KERNEL as an
+# ANDROID! boot image = gzip(Image) with the board dtbs appended + a GPU-firmware ramdisk +
+# the cmdline (from pocknix-bsp-sm8250's /usr/lib/pocknix/kernel-cmdline). The alpm hook
+# (90-linux-pocknix.hook -> pocknix-build-bootimg) rebuilds it after a kernel transaction.
 pkgname=linux-pocknix-sm8250
 pkgver=7.1.2
-pkgrel=2   # 0018 home-pulse stretch (guide+a chord window)
-pkgdesc="SM8250 kernel (stock ${pkgver} + ROCKNIX patch stack, all-boards dtbs) — packaged from 'make kernel' output"
+pkgrel=3   # 3 (2026-09-28): qcom-abl boot contract — board dtbs only (Visionox variants added), mkbootimg + pocknix-build-bootimg hook, FW_LOADER_COMPRESS; 2: 0018 home-pulse stretch
+pkgdesc="SM8250 kernel (stock ${pkgver} + ROCKNIX patch stack, board dtbs: Retroid Pocket 5/Flip 2/Mini/Mini V2 incl. Visionox) — packaged from 'make kernel' output"
+# dtbs shipped to /boot/dtbs = the dtbs appended to /flash/KERNEL by pocknix-build-bootimg.
+# Keep in sync with BOOTIMG_DTB_GLOBS (scripts/build-kernel.sh) and DTB_GLOBS (pocknix-build-bootimg).
+_dtb_globs=('sm8250-retroidpocket-*.dtb')
 arch=('aarch64')
 url="https://github.com/shuuri-labs/pocknix-os"
 license=('GPL-2.0-only')
@@ -27,8 +26,10 @@ provides=("linux=${pkgver}")
 conflicts=('linux-aarch64')
 replaces=('linux-aarch64')
 install=linux-pocknix.install
+# python3 + cpio run the on-device /flash/KERNEL rebuild hook.
+depends=('python' 'cpio')
 options=('!strip')          # don't strip the kernel Image / DTBs (modules are already stripped by modules_install)
-source=('pocknix-update-boot' '90-linux-pocknix.hook')
+source=('pocknix-build-bootimg' '90-linux-pocknix.hook')
 sha256sums=('SKIP' 'SKIP')
 
 package() {
@@ -43,7 +44,15 @@ package() {
   # kernel image + device trees
   install -Dm644 "${out}/Image" "${pkgdir}/boot/Image"
   install -d "${pkgdir}/boot/dtbs"
-  cp "${out}/dtbs/"*.dtb "${pkgdir}/boot/dtbs/"
+  local g d n=0
+  for g in "${_dtb_globs[@]}"; do
+    for d in "${out}/dtbs/"${g}; do
+      [ -f "${d}" ] || continue
+      install -m644 "${d}" "${pkgdir}/boot/dtbs/"; n=$((n+1))
+    done
+  done
+  [ "${n}" -gt 0 ] || { echo "${pkgname}: no dtb in ${out}/dtbs matches ${_dtb_globs[*]}" >&2; return 1; }
+  echo "${pkgname}: shipping ${n} dtb(s): $(ls "${pkgdir}/boot/dtbs")"
 
   # modules (already depmod'd by modules_install during `make kernel`; the .install re-runs depmod
   # post-transaction so modules.dep is correct against the live /usr/lib/modules path).
@@ -55,6 +64,8 @@ package() {
 
   # On-device /flash refresh: raw Image + dtbs copy (arm-efi, no bootimg) + the
   # alpm hook that runs it after a kernel pacman txn.
-  install -Dm755 "${srcdir}/pocknix-update-boot"    "${pkgdir}/usr/bin/pocknix-update-boot"
+  [ -d "${out}/mkbootimg" ] || { echo "${pkgname}: ${out}/mkbootimg missing — re-run 'make kernel'"; return 1; }
+  cp -r "${out}/mkbootimg" "${pkgdir}/usr/lib/pocknix/mkbootimg"
+  install -Dm755 "${srcdir}/pocknix-build-bootimg" "${pkgdir}/usr/bin/pocknix-build-bootimg"
   install -Dm644 "${srcdir}/90-linux-pocknix.hook"  "${pkgdir}/usr/share/libalpm/hooks/90-linux-pocknix.hook"
 }

@@ -5,6 +5,8 @@
 # have paddles). BTN_BACK -> QuickAccess (Steam QAM; ROCKNIX had KeyF1 for
 # their UI), BTN_MODE -> Guide. The Flip 2 used to share this map but has no
 # back button — it forks it as rpflip2-gamepad.yaml (Guide+A QAM chord).
+# 2026-09-28: BTN_SOUTH->East and BTN_EAST->South so the physical A/B labels match Steam's glyphs
+# (Cliff on the Visionox RP5: "buttons are backwards"); X/Y were already swapped below.
 # Schema version number
 version: 2
 
@@ -37,7 +39,7 @@ mapping:
           value_type: button
     target_event:
       gamepad:
-        button: South
+        button: East
 
   - name: West Button
     source_events:
@@ -67,7 +69,7 @@ mapping:
           value_type: button
     target_event:
       gamepad:
-        button: East
+        button: South
 
   - name: Start Button
     source_events:

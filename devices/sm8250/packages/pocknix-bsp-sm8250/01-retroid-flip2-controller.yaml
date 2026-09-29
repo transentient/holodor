@@ -17,6 +17,11 @@ matches:
       attributes:
         - name: model
           value: Retroid Pocket Flip2
+  - udev:
+      sys_path: /sys/firmware/devicetree/base
+      attributes:
+        - name: model
+          value: Retroid Pocket Flip2 Visionox
 
 single_source: false
 
@@ -31,5 +36,5 @@ options:
   auto_manage: true
 
 target_devices:
-  - deck
+  - deck-uhid
   - keyboard

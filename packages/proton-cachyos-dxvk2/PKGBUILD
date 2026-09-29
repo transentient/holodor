@@ -1,0 +1,72 @@
+# proton-cachyos-dxvk2 — proton-cachyos with DXVK pinned to 2.7 (the sm8250 variant).
+#
+# DXVK 3.x requires storageBuffer8BitAccess, which turnip exposes only on a7xx, so on
+# the a650 every DXVK-3 tool rejects the GPU ("No adapters found"). This is the CURRENT
+# cachy release with only files/lib/wine/dxvk/ swapped for their last DXVK-2 dlls.
+# The donor must stay SAME-VENDOR: arm64ec dxvk dlls do not transplant across wine
+# trees. Full story: pocknix-notes dev/steam.md "The sm8250 DXVK-3 wall".
+#
+# Same tool dir + internal vdf name as proton-cachyos, so Steam per-game selections and
+# the dropdown are indistinguishable from stock. replaces= migrates existing installs
+# on -Syu — publish to the sm8250 repo ONLY (on sm8550 it would wrongly downgrade DXVK
+# for a GPU that supports 3.x).
+#
+# Version bump: _srctag tracks proton-cachyos in lockstep; _dxvktag stays pinned.
+# Support files are copies of proton-cachyos's — keep in sync on change.
+pkgname=proton-cachyos-dxvk2
+_srctag=11.0-20260703
+_dxvktag=11.0-20260602
+_build=slr
+_major=${_srctag%%.*}
+pkgver=${_srctag//-/.}
+pkgrel=1
+pkgdesc="CachyOS Proton (ARM64) with DXVK pinned to 2.7 for GPUs without 8-bit storage (a6xx)"
+arch=('aarch64')
+url="https://github.com/CachyOS/proton-cachyos"
+license=('BSD' 'LGPL' 'zlib' 'MIT' 'MPL' 'custom')
+depends=('bash' 'python' 'pocknix-steam')
+options=('!strip' 'emptydirs')
+provides=("proton-cachyos=${pkgver}")
+conflicts=('proton-cachyos')
+replaces=('proton-cachyos')
+_dist="proton-cachyos-${_srctag}-${_build}-arm64"
+_donor="proton-cachyos-${_dxvktag}-${_build}-arm64"
+source=("https://github.com/CachyOS/proton-cachyos/releases/download/cachyos-${_srctag}-${_build}/${_dist}.tar.xz"
+        "https://github.com/CachyOS/proton-cachyos/releases/download/cachyos-${_dxvktag}-${_build}/${_donor}.tar.xz"
+        'compatibilitytool.vdf.in'
+        'toolmanifest.vdf'
+        'pocknix-proton')
+sha512sums=('54514fc117f2f74cfbc8e9a321a0432513fd44d875ce1c0c48c72af0518d683f3d16ff755d213c0fb42d6e8a1db2a290e9ab883e3505baccc4f43e5e9e692a09'
+            '83fbbc463f43be69d69052bcb6dfac078e597c5cd0da8a669d32bf1cda078031f0618a32fa055d6762dac3af2d149f9863213dd86e8d6dc9dd9daee003f51429'
+            'SKIP'
+            'SKIP'
+            'SKIP')
+
+build() {
+  sed "s|@VER@|${_major}|" compatibilitytool.vdf.in > compatibilitytool.vdf
+}
+
+package() {
+  # Constant STOCK tool dir (not ${pkgname}): selections/symlinks stay valid either way.
+  local tooldir="usr/share/steam/compatibilitytools.d/proton-cachyos"
+  mkdir -p "${pkgdir}/${tooldir}"
+  cp -a "${srcdir}/${_dist}/." "${pkgdir}/${tooldir}/"
+
+  # The one variant delta: the donor's DXVK 2.7 dlls over the current release's DXVK 3.
+  local dxvk="${pkgdir}/${tooldir}/files/lib/wine/dxvk"
+  [ -d "${srcdir}/${_donor}/files/lib/wine/dxvk" ] || return 1
+  rm -rf "${dxvk}"
+  cp -a "${srcdir}/${_donor}/files/lib/wine/dxvk" "${dxvk}"
+
+  install -Dm644 "${srcdir}/compatibilitytool.vdf" "${pkgdir}/${tooldir}/compatibilitytool.vdf"
+  install -Dm644 "${srcdir}/toolmanifest.vdf"      "${pkgdir}/${tooldir}/toolmanifest.vdf"
+  install -Dm755 "${srcdir}/pocknix-proton"        "${pkgdir}/${tooldir}/pocknix-proton"
+
+  local f
+  for f in LICENSE LICENSE.OFL PATENTS.AV1; do
+    if [ -f "${pkgdir}/${tooldir}/${f}" ]; then
+      install -Dm644 "${pkgdir}/${tooldir}/${f}" "${pkgdir}/usr/share/licenses/${pkgname}/${f}"
+      rm -f "${pkgdir}/${tooldir}/${f}"
+    fi
+  done
+}

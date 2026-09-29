@@ -18,6 +18,7 @@ model="$(cat /proc/device-tree/model 2>/dev/null | tr -d '\0')"
 vb=/dev/disk/by-partlabel/vbmeta_system_a
 [ -e "$vb" ] || exit 0                       # no Android alongside: nothing to detect from
 mountpoint -q "$FLASH" || exit 0
+[ -f "$GRUBENV" ] || exit 0                    # qcom-abl card (no GRUB): the ABL menu picks the dtb; never create /flash/boot (the ABL scans \boot\grub\*.dtb first)
 
 content="$(tr -cd '[:print:]' < "$vb" 2>/dev/null)"
 want=""
@@ -29,8 +30,8 @@ esac
 
 booted=""
 case "$model" in
-  "Retroid Pocket 5")     booted=rp5 ;;
-  "Retroid Pocket Flip2") booted=rpflip2 ;;
+  "Retroid Pocket 5"|"Retroid Pocket 5 Visionox")         booted=rp5 ;;
+  "Retroid Pocket Flip2"|"Retroid Pocket Flip2 Visionox") booted=rpflip2 ;;
 esac
 [ "$want" = "$booted" ] && exit 0             # correct dtb already
 

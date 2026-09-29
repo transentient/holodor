@@ -27,6 +27,26 @@ PROTON_DIR="${STEAM}/steamapps/common/Proton 11.0 (ARM64)"
 TOOLDIR="${STEAM}/compatibilitytools.d/proton-11-arm64"
 RES=/usr/share/pocknix-steam
 
+# DXVK-2.7 donor swap (upstream pocknix d3b4743, sm8250/a650): DXVK 3 needs
+# storageBuffer8BitAccess, which turnip exposes only on a7xx+, so on an a6xx board every
+# DXVK-3 Proton fails "No adapters found" - and Valve's account-listed "Proton 11.0 (ARM64)"
+# cannot be hidden from the user. Boards flag POCKNIX_GPU_DXVK3=no in their BSP board conf;
+# on those the dlls under files/lib/wine/dxvk of the DOWNLOADED Valve Proton are replaced
+# by the pocknix-dxvk2-donor package's DXVK 2.7.1 (Valve's own Proton 11 dlls, same wine
+# lineage). Seedless-image note: nothing here depends on a build-time bake - Steam downloads
+# Proton on the device whenever the user first needs it, and apply() runs at every session
+# start plus every --watch tick (pocknix-proton-prep.service), so the swap happens the moment
+# the download lands, whether the client came from a seed or from pocknix-steam-bootstrap.
+# Subshell: device.conf sets many board vars; none may leak into this set -u script.
+DXVK2_DONOR="${RES}/dxvk2-donor"
+GPU_DXVK3="$(
+  set +u
+  for dc in /usr/lib/pocknix/device.conf /etc/pocknix/device.conf; do
+    [ -r "${dc}" ] && . "${dc}"
+  done
+  printf '%s' "${POCKNIX_GPU_DXVK3:-yes}"
+)"
+
 apply() {
   # 1) Registration + our toolmanifest as REAL files, present from before Steam starts. Written once
   #    (guards keep the --watch loop cheap); Steam only ever reads these, never overwrites them.
@@ -63,6 +83,21 @@ apply() {
   #      keeps the --watch loop write-free once in place.
   cmp -s "${RES}/pocknix-proton" "${PROTON_DIR}/pocknix-proton" 2>/dev/null \
     || install -Dm755 "${RES}/pocknix-proton" "${PROTON_DIR}/pocknix-proton"
+
+  # 2a'') DXVK-2.7 donor swap on POCKNIX_GPU_DXVK3=no boards (see the header). One-dll cmp =
+  #       write-free --watch loop (a DXVK bump changes every dll); tmp+mv so a mid-swap game
+  #       launch never sees a half-populated dir. Steam re-verifies the tool on its own updates
+  #       and restores DXVK 3 - the next tick swaps the donor back in.
+  local dxvk="${PROTON_DIR}/files/lib/wine/dxvk" probe
+  if [ "${GPU_DXVK3}" = no ] && [ -d "${DXVK2_DONOR}" ] && [ -d "${dxvk}" ]; then
+    probe="$(cd "${DXVK2_DONOR}" && find . -type f -name '*.dll' | sort | head -1)"
+    if [ -n "${probe}" ] && ! cmp -s "${DXVK2_DONOR}/${probe}" "${dxvk}/${probe}"; then
+      rm -rf "${dxvk}.pocknix-tmp"
+      cp -a "${DXVK2_DONOR}" "${dxvk}.pocknix-tmp" \
+        && rm -rf "${dxvk}" \
+        && mv "${dxvk}.pocknix-tmp" "${dxvk}"
+    fi
+  fi
 
   # 2b) Community-tool path: point the dist at the downloaded binaries (symlinks), then re-assert our
   #     REAL vdfs on top (the glob would symlink Valve's over them). `proton` present => launchable.

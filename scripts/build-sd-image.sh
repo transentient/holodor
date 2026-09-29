@@ -94,7 +94,7 @@ populate_arm_efi_boot() {
 populate_qcom_abl_boot() {
   local mnt="$1" bl="${ROOTFS_DIR}/usr/share/bootloader/rocknix_abl"
   if [ ! -d "${bl}" ]; then
-    [ "${SOC}" = "sm8750" ] && die "qcom-abl: ${bl#${ROOTFS_DIR}} missing from the rootfs — is pocknix-bootloader-${SOC} built and installed? (make packages PKG=pocknix-bootloader-${SOC} + make build)"
+    case "${SOC}" in sm8750|sm8250) die "qcom-abl: ${bl#${ROOTFS_DIR}} missing from the rootfs — is pocknix-bootloader-${SOC} built and installed? (make packages PKG=pocknix-bootloader-${SOC} + make build)";; esac
     warn "no ${bl#${ROOTFS_DIR}} in the rootfs — SD boot FAT ships without the ROCKNIX ABL folder"
     return 0
   fi

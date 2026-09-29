@@ -15,7 +15,10 @@ pocknix-steamos-shim   # steamos-update/branch/BIOS stubs so the Deck UI OOBE do
 pocknix-sdcard-automount
 mangohud               # patched (Adreno sysfs reader + mangoapp pacing)
 pocknix-steam          # the Steam session (launcher + installer)
-proton-cachyos         # CachyOS ARM64 Proton as a system compat tool (constant Steam entry, updates via pacman)
+proton-cachyos         # CachyOS ARM64 Proton as a system compat tool (constant Steam entry, updates via pacman).
+                       #   HOLODOR sm8250: the localrepo carries proton-cachyos-dxvk2 INSTEAD (SOCS-gated,
+                       #   provides/conflicts/replaces proton-cachyos) so this name resolves to the DXVK-2.7
+                       #   variant there - a650 lacks 8-bit storage and DXVK 3 rejects it (upstream a8b8635).
 fex-emu                # x86 emulator (thunks)
 fex-rootfs             # ~1.1 GB Arch x86 squashfs the games' libraries resolve from
 lsfg-vk                # Lossless Scaling frame-gen Vulkan layer (per-game "Frame Insertion";
