@@ -6,9 +6,9 @@
 
 ## Download
 
-**[Download Holodor for AYN Odin 3 (20261002, 3.1 GB)](https://holodor.bonesaw.com/holodor-odin3-20261002-seedless.img.zst)** · [SHA-256 checksum](https://holodor.bonesaw.com/holodor-odin3-20261002-seedless.img.zst.sha256)
+**[Download Holodor for AYN Odin 3 (20261002b, 3.1 GB)](https://holodor.bonesaw.com/holodor-odin3-20261002b-seedless.img.zst)** · [SHA-256 checksum](https://holodor.bonesaw.com/holodor-odin3-20261002b-seedless.img.zst.sha256)
 
-Direct URL: https://holodor.bonesaw.com/holodor-odin3-20261002-seedless.img.zst
+Direct URL: https://holodor.bonesaw.com/holodor-odin3-20261002b-seedless.img.zst
 
 Released 2026-09-27. Before you write the card, read **[INSTALL.md](INSTALL.md)**. It also covers a one-time bootloader step in Android.
 
@@ -73,7 +73,7 @@ I found s.salmon on /r/pixelart. It was a great experience working with them! Th
 
 ## Installation
 
-Read **[INSTALL.md](INSTALL.md)** for the step-by-step guide. The latest image is here: [holodor-odin3-20261002-seedless.img.zst](https://holodor.bonesaw.com/holodor-odin3-20261002-seedless.img.zst) (3.1 GB) ([checksum](https://holodor.bonesaw.com/holodor-odin3-20261002-seedless.img.zst.sha256)).
+Read **[INSTALL.md](INSTALL.md)** for the step-by-step guide. The latest image is here: [holodor-odin3-20261002b-seedless.img.zst](https://holodor.bonesaw.com/holodor-odin3-20261002b-seedless.img.zst) (3.1 GB) ([checksum](https://holodor.bonesaw.com/holodor-odin3-20261002b-seedless.img.zst.sha256)).
 
 **TL;DR:** Grab the image and the ROCKNIX bootloader. Flash them to an SD card, use the new bootloader to set up the boot menu from Android (back up your stock bootloader when it tells you to!). Boot from the SD card to test it out. If you like it, use the Holodor Installer app to flash it to your internal storage alongside Android. The guide also covers how to revert back to stock.
 
