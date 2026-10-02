@@ -1,0 +1,91 @@
+Holodor provenance: OURS (2026-10-02). A delta on top of ROCKNIX's a830 support (20-sm8750/0049,
+kept verbatim) that brings its register lists in line with Qualcomm's own Adreno 830 support in
+msm-next (2c94d177a927, queued for Linux 7.4; reference copy in patches-staged/upstream-2026-10-02).
+Deliberately NOT taken from upstream: the chip id (0x44050001; ours reports 0x44050000 and has to
+move together with the DT compatible and mesa), the speedbin table (needs the 7.4 DT nodes), the
+protect count_max change (15 -> 64; a8xx_set_cp_protect() here writes the last span to
+CP_PROTECT_PIPE(count_max), which must stay 15), and perfmode_bw (ours, 8171875, matches a level
+in our OPP table).
+
+From: transentient <11418311+transentient@users.noreply.github.com>
+Subject: [PATCH] drm/msm/a8xx: a830: sync the register lists with msm-next
+
+- nonctxt: program RB_CCU_DBG_ECO_CNTL = 0x2200 (partial perf clear on, DINT to c/z data
+  forwarding off), and add it to the dynamic power-up list so it survives a GX power cycle.
+- power-up list: restore TPL1_BICUBIC_WEIGHTS_TABLE(0) (entries 1..19 were restored, 0 was not).
+- IFPC list: restore SP_HLSQ_DBG_ECO_CNTL, RBBM_PERFCTR_CNTL and CP_PROTECT_GLOBAL(47..62).
+- clock gating: write RBBM_CGC_0_PC = 0x702 on a830 too, as upstream does (was x285 only).
+---
+--- a/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
+@@ -1815,6 +1815,8 @@
+ 	{ REG_A8XX_RBBM_GBIF_CLIENT_QOS_CNTL, 0x22122212, BIT(PIPE_NONE) },
+ 	/* Enable full concurrent resolve and unresolves */
+ 	{ REG_A7XX_RB_CCU_CNTL, 0x00000068, BIT(PIPE_BR) },
++	/* Partially enable perf clear, Disable DINT to c/z be data forwarding */
++	{ REG_A7XX_RB_CCU_DBG_ECO_CNTL, 0x00002200, BIT(PIPE_BR) },
+ 	{ REG_A8XX_RB_GC_GMEM_PROTECT, 0x0c000000, BIT(PIPE_BR) },
+ 	/* Configure number of outstanding transactions to 32 */
+ 	{ REG_A8XX_RB_RESOLVE_PREFETCH_CNTL, 0x00000007, BIT(PIPE_BR) },
+@@ -1945,6 +1947,7 @@
+ 	REG_A6XX_TPL1_NC_MODE_CNTL,
+ 	REG_A6XX_TPL1_DBG_ECO_CNTL,
+ 	REG_A6XX_TPL1_DBG_ECO_CNTL1,
++	REG_A8XX_TPL1_BICUBIC_WEIGHTS_TABLE(0),
+ 	REG_A8XX_TPL1_BICUBIC_WEIGHTS_TABLE(1),
+ 	REG_A8XX_TPL1_BICUBIC_WEIGHTS_TABLE(2),
+ 	REG_A8XX_TPL1_BICUBIC_WEIGHTS_TABLE(3),
+@@ -1978,6 +1981,9 @@
+ 	REG_A7XX_SP_CHICKEN_BITS_2,
+ 	REG_A7XX_SP_CHICKEN_BITS_3,
+ 	REG_A6XX_SP_PERFCTR_SHADER_MASK,
++	REG_A7XX_SP_HLSQ_DBG_ECO_CNTL,
++	REG_A8XX_CP_INTERRUPT_STATUS_MASK_GLOBAL,
++	REG_A8XX_RBBM_PERFCTR_CNTL,
+ 	REG_A8XX_CP_PROTECT_GLOBAL(0),
+ 	REG_A8XX_CP_PROTECT_GLOBAL(1),
+ 	REG_A8XX_CP_PROTECT_GLOBAL(2),
+@@ -2025,8 +2031,23 @@
+ 	REG_A8XX_CP_PROTECT_GLOBAL(44),
+ 	REG_A8XX_CP_PROTECT_GLOBAL(45),
+ 	REG_A8XX_CP_PROTECT_GLOBAL(46),
++	REG_A8XX_CP_PROTECT_GLOBAL(47),
++	REG_A8XX_CP_PROTECT_GLOBAL(48),
++	REG_A8XX_CP_PROTECT_GLOBAL(49),
++	REG_A8XX_CP_PROTECT_GLOBAL(50),
++	REG_A8XX_CP_PROTECT_GLOBAL(51),
++	REG_A8XX_CP_PROTECT_GLOBAL(52),
++	REG_A8XX_CP_PROTECT_GLOBAL(53),
++	REG_A8XX_CP_PROTECT_GLOBAL(54),
++	REG_A8XX_CP_PROTECT_GLOBAL(55),
++	REG_A8XX_CP_PROTECT_GLOBAL(56),
++	REG_A8XX_CP_PROTECT_GLOBAL(57),
++	REG_A8XX_CP_PROTECT_GLOBAL(58),
++	REG_A8XX_CP_PROTECT_GLOBAL(59),
++	REG_A8XX_CP_PROTECT_GLOBAL(60),
++	REG_A8XX_CP_PROTECT_GLOBAL(61),
++	REG_A8XX_CP_PROTECT_GLOBAL(62),
+ 	REG_A8XX_CP_PROTECT_GLOBAL(63),
+-	REG_A8XX_CP_INTERRUPT_STATUS_MASK_GLOBAL,
+ };
+ DECLARE_ADRENO_REGLIST_LIST(a830_ifpc_reglist);
+ 
+@@ -2043,6 +2064,7 @@
+ 	{ REG_A8XX_GRAS_NC_MODE_CNTL, 0, BIT(PIPE_BV) | BIT(PIPE_BR) },
+ 	{ REG_A8XX_GRAS_DBG_ECO_CNTL, 0, BIT(PIPE_BV) | BIT(PIPE_BR) },
+ 	{ REG_A7XX_RB_CCU_CNTL, 0, BIT(PIPE_BR) },
++	{ REG_A7XX_RB_CCU_DBG_ECO_CNTL, 0, BIT(PIPE_BR) },
+ 	{ REG_A8XX_RB_CCU_NC_MODE_CNTL, 0, BIT(PIPE_BR) },
+ 	{ REG_A8XX_RB_CMP_NC_MODE_CNTL, 0, BIT(PIPE_BR) },
+ 	{ REG_A8XX_RB_RESOLVE_PREFETCH_CNTL, 0, BIT(PIPE_BR) },
+--- a/drivers/gpu/drm/msm/adreno/a8xx_gpu.c
++++ b/drivers/gpu/drm/msm/adreno/a8xx_gpu.c
+@@ -200,7 +200,7 @@
+ 	struct a6xx_gmu *gmu = &a6xx_gpu->gmu;
+ 	u32 val;
+ 
+-	if (adreno_is_x285(adreno_gpu) && state)
++	if ((adreno_is_x285(adreno_gpu) || adreno_is_a830(adreno_gpu)) && state)
+ 		gpu_write(gpu, REG_A8XX_RBBM_CGC_0_PC, 0x00000702);
+ 
+ 	gmu_write(gmu, REG_A6XX_GPU_GMU_AO_GMU_CGC_MODE_CNTL,

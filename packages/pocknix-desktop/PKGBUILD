@@ -20,7 +20,7 @@
 # docs/plasma-mobile-plan.md and the plasma-mobile-compositor memory.
 pkgname=pocknix-desktop
 pkgver=0.1.0
-pkgrel=13  # 13: /etc/xdg/kscreenlockerrc Autolock=false LockOnResume=false (no keyboard/OSK; lock screen unusable, 09-27); 12: scale 1.5 (installer dialogs overflowed 960x540 with tablet mode, 09-18); 11: tablet mode + wallpaper; 10: startplasma-wayland
+pkgrel=14  # 14 (2026-10-02): on-screen keyboard - depends on plasma-keyboard (ours, Holo Core has none), kwinrc InputMethod + VirtualKeyboardEnabled seeded by pocknix-desktop, pocknix-osk + a keyboard button pinned to the panel by firstrun (Cliff: "we need a virtual keyboard and a little icon for it on the bottom bar"); 13: /etc/xdg/kscreenlockerrc Autolock=false LockOnResume=false (no keyboard/OSK; lock screen unusable, 09-27); 12: scale 1.5 (installer dialogs overflowed 960x540 with tablet mode, 09-18); 11: tablet mode + wallpaper; 10: startplasma-wayland
 pkgdesc="Plasma Mobile desktop session for the RP6 + game<->desktop session switch"
 arch=('any')
 url="https://github.com/shuuri-labs/pocknix-os"
@@ -31,15 +31,18 @@ license=('GPL2')
 # depends here — listing plasma-mobile/kscreen would drag the entire KDE/Qt stack into the BUILD
 # chroot at makepkg time for no reason. The launcher + rotate scripts `command -v`-guard their
 # callees (startplasmamobile, kscreen-doctor) and fail gracefully if the stack is absent.
-depends=('bash')
+# 14: + plasma-keyboard (built in our repo; it is small, and its Qt/KF6 deps are what the
+# plasma-keyboard build already pulls into the chroot). An OTA can only bring a NEW package to
+# existing installs through a dependency.
+depends=('bash' 'plasma-keyboard')
 source=('pocknix-desktop' 'pocknix-desktop-rotate'
         'pocknix-desktop-firstrun'
         'pocknix-desktop-firstrun.desktop' 'pocknix-desktop-rotate.desktop'
         'pocknix-desktop-remove-taskpanel' 'pocknix-desktop-remove-taskpanel.desktop'
         'steamos-session-select' 'return-to-gamemode.desktop'
         'pocknix-flathub-setup' 'pocknix-flathub.service' 'ksplashrc' 'pocknix-x11.conf'
-        'powerdevilrc' 'kscreenlockerrc')
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+        'powerdevilrc' 'kscreenlockerrc' 'pocknix-osk' 'pocknix-osk.desktop')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   install -Dm755 "${srcdir}/pocknix-desktop"          "${pkgdir}/usr/bin/pocknix-desktop"
@@ -71,6 +74,9 @@ package() {
   install -Dm644 "${srcdir}/powerdevilrc"             "${pkgdir}/etc/xdg/powerdevilrc"
   # No lock screen on wake/idle: no keyboard, no OSK, and the locker overflows the panel.
   install -Dm644 "${srcdir}/kscreenlockerrc"          "${pkgdir}/etc/xdg/kscreenlockerrc"
+  # On-screen keyboard button (shows/hides plasma-keyboard through KWin); pinned to the panel by firstrun.
+  install -Dm755 "${srcdir}/pocknix-osk"              "${pkgdir}/usr/bin/pocknix-osk"
+  install -Dm644 "${srcdir}/pocknix-osk.desktop"      "${pkgdir}/usr/share/applications/pocknix-osk.desktop"
   # tmpfiles rule to create /tmp/.X11-unix at boot so kwin can start XWayland (X11 apps like Steam
   # in desktop mode). kwin expects the dir to exist; the minimal ALARM base ships no xorg-server
   # to provide it. See pocknix-x11.conf.

@@ -80,6 +80,15 @@ fi
 if command -v kwriteconfig6 >/dev/null 2>&1 && ! grep -qs '^TabletMode=' "${CFG}/kwinrc"; then
   kwriteconfig6 --file kwinrc --group Input --key TabletMode on 2>/dev/null || true
 fi
+# On-screen keyboard (2026-10-02): plasma-keyboard as KWin's input method. KWin starts it with the
+# session and shows it when a text field is touched; the panel's keyboard button (pocknix-osk,
+# pinned by pocknix-desktop-firstrun) shows it on demand. Set only if the user has not chosen an
+# input method; change or turn it off in System Settings > Keyboard > Virtual Keyboard.
+if command -v kwriteconfig6 >/dev/null 2>&1 && [ -e /usr/share/applications/org.kde.plasma.keyboard.desktop ] \
+   && ! grep -qs '^InputMethod' "${CFG}/kwinrc"; then
+  kwriteconfig6 --file kwinrc --group Wayland --key InputMethod /usr/share/applications/org.kde.plasma.keyboard.desktop 2>/dev/null || true
+  kwriteconfig6 --file kwinrc --group Wayland --key VirtualKeyboardEnabled true 2>/dev/null || true
+fi
 # X11 apps under Xwayland follow kdeglobals' scale (harmless on Wayland-native apps).
 if command -v kwriteconfig6 >/dev/null 2>&1; then
   kwriteconfig6 --file kdeglobals --group KScreen --key ScaleFactor "${SCALE}" 2>/dev/null || true

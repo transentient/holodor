@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Keyboard
+GenericName=On-screen keyboard
+Comment=Show or hide the on-screen keyboard
+Exec=pocknix-osk
+Icon=input-keyboard-virtual
+Terminal=false
+StartupNotify=false
+Categories=Utility;

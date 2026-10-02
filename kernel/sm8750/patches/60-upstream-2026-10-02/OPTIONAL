@@ -1,0 +1,23 @@
+This series is OPTIONAL: scripts/build-kernel.sh skips it unless its basename is listed in
+HOLODOR_KERNEL_EXTRA_SERIES, e.g.
+
+  HOLODOR_KERNEL_EXTRA_SERIES="60-upstream-2026-10-02" make kernel
+
+It is the kernel batch from docs/upstream-sweep-2026-10-02.md, kept out of the default build
+until it has been tested on the Odin 3. Build it into its own directories so the release
+kernel's output is not overwritten:
+
+  KERNEL_BUILD_DIR=$PWD/build/kernel/sm8750-k34exp IMAGE_DIR=$PWD/build/image/sm8750-k34exp \
+  HOLODOR_KERNEL_EXTRA_SERIES="60-upstream-2026-10-02" DEVICE=sm8750 scripts/build-kernel.sh
+
+0001  Armada 0619 (PR #574): msm submitqueue priority. A game's Turnip queue no longer outranks
+      Xwayland/Steam on the same ring. Candidate fix for issue #1 (controls dead after the QAM).
+0002  msm-next db6a2e4a: A8x votes DDR perfmode only above the perfmode_bw threshold.
+0003  msm-next 128a0edd: secondary rail vote matched against the chosen primary corner.
+0004  msm-next eab0aff8: RPMH dependency votes built from the GPU's OPP table.
+0005  OURS: a830 register lists synced with msm-next 2c94d177 (see its header for what was
+      left out and why).
+
+Not in the series: the PCIe WAKE# polarity flip (upstream eec036783b, Armada PR #545). Nothing in
+7.1.3's PCI host code reads the root port's wake-gpios, so the edit would change nothing here.
+It belongs with the 7.4 re-pin. THP for GEM and the shrinker modparam stay in patches-staged.

@@ -1,0 +1,37 @@
+# plasma-keyboard — KDE's on-screen keyboard, for the Holo Core userland.
+#
+# HOLODOR (2026-10-02): Desktop Mode had no on-screen keyboard at all (Holo Core ships
+# neither maliit nor plasma-keyboard; verified against the sync dbs), so setting a
+# password or typing a URL needed a USB keyboard. This is KDE's own keyboard: Qt Virtual
+# Keyboard (already in the image) in a window that talks input-method-v1 to KWin. KWin
+# shows it when a text field is touched, and `pocknix-osk` (pocknix-desktop, the panel
+# button) shows it on demand.
+#
+# Version: 0.1.0 is the standalone release from the Plasma 6.5 era (2025-11-06), which is
+# what Holo Core's mash-20251118.3 carries (Plasma 6.5.3, Qt 6.10.0, KF 6.20). The later
+# 6.6/6.7 releases are tied to newer Plasma. Built from source rather than repackaged from
+# Arch Linux ARM: it uses Qt private headers, so it must be built against this exact Qt.
+pkgname=plasma-keyboard
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Virtual keyboard for Plasma (Qt Virtual Keyboard as a Wayland input method)"
+arch=('aarch64')
+url="https://invent.kde.org/plasma/plasma-keyboard"
+license=('GPL-2.0-or-later')
+depends=('qt6-base' 'qt6-declarative' 'qt6-virtualkeyboard' 'qt6-wayland'
+         'kcoreaddons' 'ki18n' 'kcmutils' 'kconfig' 'wayland')
+makedepends=('cmake' 'ninja' 'extra-cmake-modules' 'wayland-protocols')
+source=("https://download.kde.org/unstable/plasma-keyboard/plasma-keyboard-${pkgver}.tar.xz")
+sha256sums=('a6f86f2e92325d80816118cb13b35a3ce512502fcea78da2ca8f79cd869dadd0')
+
+build() {
+  cmake -B build -S "plasma-keyboard-${pkgver}" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DBUILD_TESTING=OFF
+  cmake --build build
+}
+
+package() {
+  DESTDIR="${pkgdir}" cmake --install build
+}

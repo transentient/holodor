@@ -23,9 +23,9 @@ powerdevil           # power / brightness / suspend management
 #kscreen              # kscreen-doctor -> the panel rotation/scale transform (rotated-DSI crux)
 xdg-user-dirs        # ~/Documents,Pictures,Videos,… integration (Dolphin Places, file dialogs)
 
-# On-screen keyboard: provided by plasma-mobile itself (the `plasma-keyboard` component) and works
-# out of the box — pops up when a text field is focused. No standalone maliit-keyboard needed (it's
-# AUR-only anyway).
+# On-screen keyboard (HOLODOR 2026-10-02): Holo Core carries none. KDE's plasma-keyboard 0.1.0 is built in
+# our repo (packages/plasma-keyboard) and pulled in as a dependency of pocknix-desktop, which also
+# seeds KWin's input method and pins the keyboard button to the panel.
 
 # --- desktop apps ---
 # Plasma Mobile ships only the shell; it does NOT pull a terminal/editor/file-manager. Add the

@@ -1,0 +1,14 @@
+#!/bin/sh
+# pocknix-osk — show or hide the on-screen keyboard (the keyboard button on the Desktop Mode panel).
+#
+# KWin shows plasma-keyboard by itself when a text field is touched. This is the "bring it up now"
+# button for everything else (a terminal that already has focus, an X11 app that never asks for a
+# keyboard). Plasma's own tray icon cannot do that: it only hides the keyboard or turns the feature
+# on/off. Talks to KWin's org.kde.kwin.VirtualKeyboard interface.
+KBD="org.kde.KWin /VirtualKeyboard org.kde.kwin.VirtualKeyboard"
+if [ "$(busctl --user get-property ${KBD} visible 2>/dev/null)" = "b true" ]; then
+  busctl --user set-property ${KBD} active b false
+else
+  busctl --user set-property ${KBD} enabled b true
+  busctl --user call ${KBD} forceActivate
+fi

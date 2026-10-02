@@ -12,4 +12,34 @@ if [ ! -e "${STATE}/pocknix-wallpaper-applied" ] && [ -r "${WALL}" ] && command 
     sleep 1
   done
 fi
+#   * keyboard button: pin the on-screen keyboard launcher (pocknix-osk) to the panel's task manager,
+#     through plasmashell's own scripting interface. Once; a user who removes it keeps it removed.
+if [ ! -e "${STATE}/pocknix-osk-launcher-added" ] && [ -e /usr/share/applications/pocknix-osk.desktop ] \
+   && command -v qdbus6 >/dev/null 2>&1; then
+  JS='var ps = panels();
+for (var i = 0; i < ps.length; i++) {
+    var ws = ps[i].widgets();
+    for (var j = 0; j < ws.length; j++) {
+        var w = ws[j];
+        if (w.type != "org.kde.plasma.icontasks" && w.type != "org.kde.plasma.taskmanager") continue;
+        w.currentConfigGroup = ["General"];
+        var arr = String(w.readConfig("launchers", "")).split(",").filter(function (s) {
+            return s.length > 0 && s.indexOf("pocknix-osk.desktop") < 0;
+        });
+        if (arr.length == 0) {
+            arr = ["applications:systemsettings.desktop", "applications:org.kde.discover.desktop", "preferred://filemanager"];
+        }
+        arr.push("applications:pocknix-osk.desktop");
+        w.writeConfig("launchers", arr);
+        w.reloadConfig();
+        print("pinned");
+    }
+}'
+  for _ in $(seq 1 30); do
+    if qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "${JS}" 2>/dev/null | grep -q pinned; then
+      touch "${STATE}/pocknix-osk-launcher-added"; break
+    fi
+    sleep 1
+  done
+fi
 exit 0

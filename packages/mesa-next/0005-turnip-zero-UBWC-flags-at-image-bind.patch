@@ -1,0 +1,187 @@
+Holodor provenance: OURS (2026-10-02). Same cause as upstream mesa MR !19316 (Connor Abbott,
+2022, never merged: "Clear UBWC flags buffer on transition from UNDEFINED", an a650 hang
+"hanging the entire machine"), which no longer applies to today's turnip. This is a smaller
+fix at a different point: zero the flag buffers from the CPU when memory is bound to the image.
+The gallium driver has done the equivalent since 2020 (freedreno_resource.c, needs_ubwc_clear).
+Target: the Retroid Pocket 5 (A650) whole-SoC freeze ~30 s into a DXVK game, which
+TU_DEBUG=noubwc avoids. A/B per launch with TU_UBWC_BIND_CLEAR=0 (off) / 1 (on); default on for
+a6xx only, so a7xx/a8xx behaviour is unchanged.
+
+From: transentient <11418311+transentient@users.noreply.github.com>
+Subject: [PATCH] tu: zero the UBWC flag buffers when memory is bound to an image
+
+--- a/src/freedreno/vulkan/tu_image.cc	2026-08-09 07:54:25.000000000 +0900
++++ b/src/freedreno/vulkan/tu_image.cc	2026-10-02 12:46:15.836310323 +0900
+@@ -1073,6 +1073,57 @@
+    vk_image_destroy(&device->vk, pAllocator, &image->vk);
+ }
+ 
++/* Holodor: zero the UBWC flag buffers of an image when memory is bound to it.
++ *
++ * The memory behind a new image usually held another image before (DXVK
++ * suballocates and recycles its chunks), so the flag buffer starts out as
++ * whatever that image left there. Flags that do not describe the pixel data
++ * next to them make an a650 lock up the whole SoC as soon as the image is
++ * read or blended (seen on the Retroid Pocket 5: hard freeze ~30 s into a
++ * DXVK game, gone with TU_DEBUG=noubwc). The gallium driver clears the flags
++ * of every new resource for the same reason; upstream MR !19316 describes
++ * the turnip case. All-zero flags are valid (every tile reads as
++ * uncompressed), and the image contents are undefined at this point anyway.
++ *
++ * Default: on for a6xx. TU_UBWC_BIND_CLEAR=0/1 overrides it per process.
++ * Skipped for memory that came from elsewhere (swapchain, external handles):
++ * that may already hold a live image.
++ */
++static void
++tu_image_zero_ubwc_flags(struct tu_device *device,
++                         struct tu_image *image,
++                         struct tu_bo *bo,
++                         uint64_t mem_offset)
++{
++   static int enabled = -1;
++   if (enabled < 0) {
++      enabled = debug_get_bool_option(
++         "TU_UBWC_BIND_CLEAR", device->physical_device->info->chip == A6XX);
++   }
++   if (!enabled)
++      return;
++
++   if (image->vk.external_handle_types != 0)
++      return;
++
++   for (uint32_t i = 0; i < tu6_plane_count(image->vk.format); i++) {
++      const struct fdl_layout *layout = &image->layout[i];
++      if (!layout->ubwc || !layout->ubwc_layer_size)
++         continue;
++
++      /* fdl puts the flag buffers of all layers in one block ahead of the
++       * pixel data, starting at level 0.
++       */
++      uint64_t start = mem_offset + layout->ubwc_slices[0].offset;
++      uint64_t size = (uint64_t) layout->ubwc_layer_size *
++                      image->vk.array_layers * image->vk.extent.depth;
++      if (start + size > bo->size)
++         continue;
++
++      tu_bo_zero_range(device, bo, start, size);
++   }
++}
++
+ static VkResult
+ tu_image_bind(struct tu_device *device,
+               const VkBindImageMemoryInfo *bind_info)
+@@ -1082,6 +1133,7 @@
+    VK_FROM_HANDLE(tu_device_memory, mem, bind_info->memory);
+    uint64_t offset = bind_info->memoryOffset;
+    VkResult result;
++   const bool own_memory = mem != NULL;
+ 
+    if (!mem) {
+       VkDeviceMemory mem_handle;
+@@ -1109,6 +1161,9 @@
+    image->mem_offset = offset;
+    image->iova = mem->iova + offset;
+ 
++   if (own_memory && mem->bo && !mem->lazy)
++      tu_image_zero_ubwc_flags(device, image, mem->bo, offset);
++
+    if (image->vk.usage & (VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT |
+                           VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT)) {
+       assert(mem->bo); /* Transient images cannot have these usages */
+--- a/src/freedreno/vulkan/tu_knl.cc	2026-08-09 07:54:25.000000000 +0900
++++ b/src/freedreno/vulkan/tu_knl.cc	2026-10-02 12:46:15.835482873 +0900
+@@ -183,6 +183,20 @@
+    }
+ }
+ 
++/* Zero a range of a BO from the CPU without touching bo->map, so it cannot
++ * race with (or get in the way of) the application's own vkMapMemory.
++ * Backends without an implementation leave the range alone.
++ */
++VkResult
++tu_bo_zero_range(struct tu_device *dev, struct tu_bo *bo,
++                 uint64_t offset, uint64_t size)
++{
++   if (!dev->instance->knl->bo_zero_range)
++      return VK_SUCCESS;
++
++   return dev->instance->knl->bo_zero_range(dev, bo, offset, size);
++}
++
+ void tu_bo_allow_dump(struct tu_device *dev, struct tu_bo *bo)
+ {
+    dev->instance->knl->bo_allow_dump(dev, bo);
+--- a/src/freedreno/vulkan/tu_knl_drm_msm.cc	2026-08-09 07:54:25.000000000 +0900
++++ b/src/freedreno/vulkan/tu_knl_drm_msm.cc	2026-10-02 12:46:15.835881889 +0900
+@@ -12,6 +12,7 @@
+ #include <sys/mman.h>
+ #include <xf86drm.h>
+ 
++#include "util/cache_ops.h"
+ #include "util/hash_table.h"
+ #include "util/libsync.h"
+ #include "util/u_debug.h"
+@@ -1050,6 +1051,33 @@
+    return VK_SUCCESS;
+ }
+ 
++static VkResult
++msm_bo_zero_range(struct tu_device *dev, struct tu_bo *bo,
++                  uint64_t offset, uint64_t size)
++{
++   uint64_t mmap_offset = tu_gem_info(dev, bo->gem_handle, MSM_INFO_GET_OFFSET);
++   if (!mmap_offset)
++      return vk_error(dev, VK_ERROR_OUT_OF_DEVICE_MEMORY);
++
++   /* A private, short-lived mapping. DRM GEM only accepts mmap offsets at
++    * the start of an object, so map from 0 up to the end of the range; only
++    * the pages we write get faulted in.
++    */
++   uint64_t len = offset + size;
++   void *map = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED,
++                    dev->fd, mmap_offset);
++   if (map == MAP_FAILED)
++      return vk_error(dev, VK_ERROR_MEMORY_MAP_FAILED);
++
++   memset((char *) map + offset, 0, size);
++   if (bo->cached_non_coherent)
++      util_flush_range((char *) map + offset, size);
++
++   munmap(map, len);
++
++   return VK_SUCCESS;
++}
++
+ static void
+ msm_bo_allow_dump(struct tu_device *dev, struct tu_bo *bo)
+ {
+@@ -1572,6 +1600,7 @@
+       .bo_export_dmabuf = tu_drm_export_dmabuf,
+       .bo_map = msm_bo_map,
+       .bo_allow_dump = msm_bo_allow_dump,
++      .bo_zero_range = msm_bo_zero_range,
+       .bo_finish = msm_bo_finish,
+       .bo_set_metadata = msm_bo_set_metadata,
+       .bo_get_metadata = msm_bo_get_metadata,
+--- a/src/freedreno/vulkan/tu_knl.h	2026-08-09 07:54:25.000000000 +0900
++++ b/src/freedreno/vulkan/tu_knl.h	2026-10-02 12:46:15.835423857 +0900
+@@ -144,6 +144,8 @@
+    VkResult (*bo_alloc_lazy)(struct tu_device *dev, struct tu_bo *bo);
+    VkResult (*bo_map)(struct tu_device *dev, struct tu_bo *bo, void *placed_addr);
+    void (*bo_allow_dump)(struct tu_device *dev, struct tu_bo *bo);
++   VkResult (*bo_zero_range)(struct tu_device *dev, struct tu_bo *bo,
++                             uint64_t offset, uint64_t size);
+    void (*bo_finish)(struct tu_device *dev, struct tu_bo *bo);
+    void (*bo_set_metadata)(struct tu_device *dev, struct tu_bo *bo,
+                            void *metadata, uint32_t metadata_size);
+@@ -239,6 +241,10 @@
+ 
+ void tu_bo_allow_dump(struct tu_device *dev, struct tu_bo *bo);
+ 
++VkResult
++tu_bo_zero_range(struct tu_device *dev, struct tu_bo *bo,
++                 uint64_t offset, uint64_t size);
++
+ void tu_bo_set_metadata(struct tu_device *dev, struct tu_bo *bo,
+                         void *metadata, uint32_t metadata_size);
+ int tu_bo_get_metadata(struct tu_device *dev, struct tu_bo *bo,
