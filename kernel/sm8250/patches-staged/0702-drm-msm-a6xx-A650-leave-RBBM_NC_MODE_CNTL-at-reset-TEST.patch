@@ -1,0 +1,28 @@
+drm/msm/a6xx: leave RBBM_NC_MODE_CNTL at its reset value on A650 (TEST)
+
+Holodor (2026-10-01), RP5 DXVK whole-SoC freeze investigation. Downstream KGSL
+(msm-4.19 adreno_a6xx.c, kona) never writes RBBM_NC_MODE_CNTL on A650; mainline
+writes the UBWC config's macrotile_mode (1 = 8-channel). Every other UBWC register
+(RB/TPL1/SP_NC_MODE_CNTL, UCHE_MODE_CNTL) is bit-identical to KGSL once HBB is 15
+(0700/0701). Logs the reset value once. TEST patch - keep only if it stops the freeze.
+
+--- a/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
+@@ -873,6 +873,17 @@
+ 	gpu_write(gpu, REG_A6XX_UCHE_MODE_CNTL,
+ 		  min_acc_len_64b << 23 | hbb_lo << 21);
+ 
++	/*
++	 * Downstream KGSL never writes RBBM_NC_MODE_CNTL on A650 and leaves the
++	 * reset value (4-channel macrotiling per its own comment); match it.
++	 */
++	if (adreno_is_a650(adreno_gpu)) {
++		dev_info_once(&gpu->pdev->dev,
++			      "A650: RBBM_NC_MODE_CNTL left at reset value %#x\n",
++			      gpu_read(gpu, REG_A6XX_RBBM_NC_MODE_CNTL));
++		return;
++	}
++
+ 	gpu_write(gpu, REG_A6XX_RBBM_NC_MODE_CNTL,
+ 		  cfg->macrotile_mode);
+ }

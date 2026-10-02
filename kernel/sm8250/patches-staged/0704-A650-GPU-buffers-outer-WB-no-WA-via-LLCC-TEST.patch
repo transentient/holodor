@@ -1,0 +1,202 @@
+iommu/io-pgtable-arm + drm/msm/a6xx: A650 GPU buffers outer-WB RA no-WA via LLCC (MAIR 0xe4) (TEST)
+
+Holodor (2026-10-02), RP5 DXVK whole-SoC freeze investigation (UBWC-triggered).
+Downstream-parity item from the kona KGSL comparison: msm-4.19 KGSL sets
+DOMAIN_ATTR_USE_LLC_NWA on the qsmmu-v500 GPU domain, so every non-IO-coherent
+GPU buffer is mapped MAIR 0xe4 (inner NC, outer write-back, read-allocate,
+no write-allocate) and GPU reads allocate in the LLCC GPU slice. On MMU-500
+targets the SMMU PTE attributes are the only cacheability source ("Attributes
+override through GBIF is not supported with MMU-500", adreno_a6xx.c).
+Mainline maps MSM_BO_WC buffers MAIR 0x44 (plain NC), so the GPU slice that
+a6xx_llc_activate() programs into GBIF_SCACHE_CNTL1 never allocates.
+
+ - io-pgtable-arm: new IO_PGTABLE_QUIRK_ARM_OUTER_WB_NWA. S1 pages that are
+   neither IOMMU_CACHE nor IOMMU_MMIO get AttrIndx 4 = 0xe4 (MAIR1[7:0], only
+   programmed when the quirk is set). IOMMU_CACHE (MSM_BO_CACHED_COHERENT)
+   stays index 1 / 0xff, as downstream IOCOHERENT does. Walker TCR untouched.
+ - a6xx: set it on A650 when the LLCC GPU slice exists; msm.a650_llc_nwa=0
+   on the cmdline gives a stock control run on the same kernel.
+ - VERIFY hunks (drop once proven): adreno-smmu prints the GPU context bank
+   TCR/TCR2/MAIR0/MAIR1/ACTLR when TTBR0 is enabled; msm prints the first
+   normal user PTE and its AttrIndx/SH.
+ - NOT matched here: mainline's sm8250 adreno_smmu is dma-coherent
+   (4cb19bd7c632, v6.6), so the table walker is IO-coherent (TCR SH=IS,
+   inner/outer WBWA) and OUTER_WBWA is never set; downstream walks
+   non-coherent, SH=NS, outer WB no-WA via the GPUHTW slice. Separate test.
+Made against the 0700-0703 build tree; no context overlap with 0703 (applies with or without it).
+TEST patch - keep only if it stops the freeze.
+
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_gpu.c b/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
+index 4bb1f83..c0af1a2 100644
+--- a/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
+@@ -2464,6 +2464,17 @@ static void a6xx_gpu_set_freq(struct msm_gpu *gpu, struct dev_pm_opp *opp,
+ 	mutex_unlock(&a6xx_gpu->gmu.lock);
+ }
+ 
++/*
++ * TEST (holodor 0704): downstream KGSL on sm8250 maps every non-IO-coherent
++ * GPU buffer inner-NC / outer-WB read-allocate no-write-allocate (MAIR 0xe4,
++ * DOMAIN_ATTR_USE_LLC_NWA), so GPU reads allocate in the LLCC GPU slice.
++ * Mainline maps them plain NC (0x44) and the GPU slice never allocates.
++ * Boot with msm.a650_llc_nwa=0 for a stock control run on the same kernel.
++ */
++static bool a650_llc_nwa = true;
++MODULE_PARM_DESC(a650_llc_nwa, "A650: map GPU buffers outer-WB RA no-WA via LLCC like downstream KGSL (default: on) [TEST]");
++module_param(a650_llc_nwa, bool, 0400);
++
+ static struct drm_gpuvm *
+ a6xx_create_vm(struct msm_gpu *gpu, struct platform_device *pdev)
+ {
+@@ -2479,6 +2490,18 @@ a6xx_create_vm(struct msm_gpu *gpu, struct platform_device *pdev)
+ 	    !device_iommu_capable(&pdev->dev, IOMMU_CAP_CACHE_COHERENCY))
+ 		quirks |= IO_PGTABLE_QUIRK_ARM_OUTER_WBWA;
+ 
++	/*
++	 * Set on the GPU domain (TTBR1, kernel VM) before attach; the per-process
++	 * TTBR0 cfg is cloned from it in msm_iommu_pagetable_create(), and the
++	 * context bank's MAIR comes from it, so both page tables agree.
++	 */
++	if (adreno_is_a650(adreno_gpu) && a650_llc_nwa &&
++	    !IS_ERR_OR_NULL(a6xx_gpu->llc_slice)) {
++		quirks |= IO_PGTABLE_QUIRK_ARM_OUTER_WB_NWA;
++		dev_info(&pdev->dev,
++			 "A650: GPU buffers mapped inner-NC/outer-WB RA no-WA (MAIR 0xe4) via LLCC [0704 TEST]\n");
++	}
++
+ 	return adreno_iommu_create_vm(gpu, pdev, quirks);
+ }
+ 
+diff --git a/drivers/gpu/drm/msm/msm_iommu.c b/drivers/gpu/drm/msm/msm_iommu.c
+index 058c71c..a6bc246 100644
+--- a/drivers/gpu/drm/msm/msm_iommu.c
++++ b/drivers/gpu/drm/msm/msm_iommu.c
+@@ -215,6 +215,20 @@ static int msm_iommu_pagetable_map(struct msm_mmu *mmu, u64 iova,
+ 		}
+ 	}
+ 
++	/* VERIFY (holodor 0704): attributes of the first normal user mapping */
++	if (!(prot & (IOMMU_CACHE | IOMMU_MMIO))) {
++		static bool shown;
++		u64 ptes[4] = {};
++
++		if (!READ_ONCE(shown) && !msm_iommu_pagetable_walk(mmu, iova, ptes)) {
++			u64 pte = ptes[3] ? ptes[3] : ptes[2];
++
++			WRITE_ONCE(shown, true);
++			pr_info("msm: first user GPU PTE iova %llx = %016llx (AttrIndx %llu, SH %llu)\n",
++				iova, pte, (pte >> 2) & 7, (pte >> 8) & 3);
++		}
++	}
++
+ 	return 0;
+ }
+ 
+diff --git a/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c b/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
+index bd7a079..dc26cf5 100644
+--- a/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
++++ b/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
+@@ -290,6 +290,28 @@ static int qcom_adreno_smmu_set_ttbr0_cfg(const void *cookie,
+ 
+ 	arm_smmu_write_context_bank(smmu_domain->smmu, cb->cfg->cbndx);
+ 
++	/* VERIFY (holodor 0704): what the GPU context bank holds once TTBR0 is on */
++	if (pgtbl_cfg) {
++		struct arm_smmu_device *smmu = smmu_domain->smmu;
++		int idx = cb->cfg->cbndx;
++
++		if (pm_runtime_get_if_active(smmu->dev) > 0) {
++			dev_info(smmu->dev,
++				 "GPU cb%d hw: TCR %08x TCR2 %08x MAIR0 %08x MAIR1 %08x ACTLR %08x\n",
++				 idx,
++				 arm_smmu_cb_read(smmu, idx, ARM_SMMU_CB_TCR),
++				 arm_smmu_cb_read(smmu, idx, ARM_SMMU_CB_TCR2),
++				 arm_smmu_cb_read(smmu, idx, ARM_SMMU_CB_S1_MAIR0),
++				 arm_smmu_cb_read(smmu, idx, ARM_SMMU_CB_S1_MAIR1),
++				 arm_smmu_cb_read(smmu, idx, ARM_SMMU_CB_ACTLR));
++			pm_runtime_put_autosuspend(smmu->dev);
++		} else {
++			dev_info(smmu->dev,
++				 "GPU cb%d sw (SMMU suspended): TCR %08x MAIR0 %08x MAIR1 %08x\n",
++				 idx, cb->tcr[0], cb->mair[0], cb->mair[1]);
++		}
++	}
++
+ 	return 0;
+ }
+ 
+diff --git a/drivers/iommu/io-pgtable-arm.c b/drivers/iommu/io-pgtable-arm.c
+index 0208e58..8f82d9f 100644
+--- a/drivers/iommu/io-pgtable-arm.c
++++ b/drivers/iommu/io-pgtable-arm.c
+@@ -129,11 +129,13 @@
+ #define ARM_LPAE_MAIR_ATTR_DEVICE	0x04
+ #define ARM_LPAE_MAIR_ATTR_NC		0x44
+ #define ARM_LPAE_MAIR_ATTR_INC_OWBRWA	0xf4
++#define ARM_LPAE_MAIR_ATTR_INC_OWBRA	0xe4	/* inner NC, outer WB RA no-WA */
+ #define ARM_LPAE_MAIR_ATTR_WBRWA	0xff
+ #define ARM_LPAE_MAIR_ATTR_IDX_NC	0
+ #define ARM_LPAE_MAIR_ATTR_IDX_CACHE	1
+ #define ARM_LPAE_MAIR_ATTR_IDX_DEV	2
+ #define ARM_LPAE_MAIR_ATTR_IDX_INC_OCACHE	3
++#define ARM_LPAE_MAIR_ATTR_IDX_INC_OWBRA	4	/* MAIR1[7:0] */
+ 
+ #define ARM_MALI_LPAE_TTBR_ADRMODE_TABLE (3u << 0)
+ #define ARM_MALI_LPAE_TTBR_READ_INNER	BIT(2)
+@@ -521,6 +523,9 @@ static arm_lpae_iopte arm_lpae_prot_to_pte(struct arm_lpae_io_pgtable *data,
+ 		else if (prot & IOMMU_CACHE)
+ 			pte |= (ARM_LPAE_MAIR_ATTR_IDX_CACHE
+ 				<< ARM_LPAE_PTE_ATTRINDX_SHIFT);
++		else if (data->iop.cfg.quirks & IO_PGTABLE_QUIRK_ARM_OUTER_WB_NWA)
++			pte |= (ARM_LPAE_MAIR_ATTR_IDX_INC_OWBRA
++				<< ARM_LPAE_PTE_ATTRINDX_SHIFT);
+ 	}
+ 
+ 	/*
+@@ -966,6 +971,7 @@ arm_64_lpae_alloc_pgtable_s1(struct io_pgtable_cfg *cfg, void *cookie)
+ 	if (cfg->quirks & ~(IO_PGTABLE_QUIRK_ARM_NS |
+ 			    IO_PGTABLE_QUIRK_ARM_TTBR1 |
+ 			    IO_PGTABLE_QUIRK_ARM_OUTER_WBWA |
++			    IO_PGTABLE_QUIRK_ARM_OUTER_WB_NWA |
+ 			    IO_PGTABLE_QUIRK_ARM_HD |
+ 			    IO_PGTABLE_QUIRK_NO_WARN))
+ 		return NULL;
+@@ -1041,6 +1047,11 @@ arm_64_lpae_alloc_pgtable_s1(struct io_pgtable_cfg *cfg, void *cookie)
+ 	      (ARM_LPAE_MAIR_ATTR_INC_OWBRWA
+ 	       << ARM_LPAE_MAIR_ATTR_SHIFT(ARM_LPAE_MAIR_ATTR_IDX_INC_OCACHE));
+ 
++	/* Only when used, so every other context bank keeps MAIR1 == 0 */
++	if (cfg->quirks & IO_PGTABLE_QUIRK_ARM_OUTER_WB_NWA)
++		reg |= (u64)ARM_LPAE_MAIR_ATTR_INC_OWBRA
++		       << ARM_LPAE_MAIR_ATTR_SHIFT(ARM_LPAE_MAIR_ATTR_IDX_INC_OWBRA);
++
+ 	cfg->arm_lpae_s1_cfg.mair = reg;
+ 
+ 	/* Looking good; allocate a pgd */
+diff --git a/include/linux/io-pgtable.h b/include/linux/io-pgtable.h
+index e19872e..2fd32c3 100644
+--- a/include/linux/io-pgtable.h
++++ b/include/linux/io-pgtable.h
+@@ -84,6 +84,14 @@ struct io_pgtable_cfg {
+ 	 * IO_PGTABLE_QUIRK_ARM_OUTER_WBWA: Override the outer-cacheability
+ 	 *	attributes set in the TCR for a non-coherent page-table walker.
+ 	 *
++	 * IO_PGTABLE_QUIRK_ARM_OUTER_WB_NWA: (ARM LPAE stage 1) Map pages that
++	 *	are neither IOMMU_CACHE nor IOMMU_MMIO as Normal, Inner
++	 *	Non-cacheable, Outer Write-Back Read-Allocate no-Write-Allocate
++	 *	(MAIR attribute 0xe4 at index 4) instead of Normal Non-cacheable,
++	 *	so a non-coherent master allocates its reads in a memory-side
++	 *	system cache (Qualcomm LLCC). Same encoding as Qualcomm's
++	 *	downstream IOMMU_USE_LLC_NWA. Does not touch the walker (TCR).
++	 *
+ 	 * IO_PGTABLE_QUIRK_ARM_HD: Enables dirty tracking in stage 1 pagetable.
+ 	 * IO_PGTABLE_QUIRK_ARM_S2FWB: Use the FWB format for the MemAttrs bits
+ 	 *
+@@ -103,6 +111,7 @@ struct io_pgtable_cfg {
+ 	#define IO_PGTABLE_QUIRK_ARM_HD			BIT(7)
+ 	#define IO_PGTABLE_QUIRK_ARM_S2FWB		BIT(8)
+ 	#define IO_PGTABLE_QUIRK_NO_WARN		BIT(9)
++	#define IO_PGTABLE_QUIRK_ARM_OUTER_WB_NWA	BIT(10)
+ 	unsigned long			quirks;
+ 	unsigned long			pgsize_bitmap;
+ 	unsigned int			ias;

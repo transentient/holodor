@@ -26,6 +26,16 @@ pkgbase=mesa
 pkgname=(mesa-next vulkan-freedreno-next)
 epoch=2
 pkgver=26.3.0_devel
+# pkgrel 9 (2026-10-01) = pkgrel 7 + OUR 0004: TU_NO_VM_BIND=1 env opt-out (tu_try_enable_vm_bind
+# returns -ENOTSUP -> legacy kernel-managed VA, no sparse). Default behavior == pkgrel 7. Purpose: per-
+# launch A/B of the RP5 DXVK whole-SoC freeze (VS on Proton+DXVK: 4/4 with 7, 1/1 with 8). pkgrel 8's
+# 0003 (Armada/batocera sparse-sync drop) did NOT fix it (Cliff 09-30 night) -> parked in patches-staged.
+# pkgrel 8 (2026-09-30) = pkgrel 7 + ONE patch: 0003 drops turnip's extra VM_BIND/sparse timeline
+# wait+signal on every GFX submit (msm backend). Verbatim from Armada (armada-os/armada
+# packages/mesa/patches/0001-disable-turnip-sparse-sync.patch @5915c28, which took it from batocera).
+# Reason: the RP5 (A650, kernel 7.1 msm with VM_BIND) hard-freezes the whole SoC ~20-25 s into
+# Vampire Survivors on DXVK (4/4), while WineD3D, an off-screen GL stress and native vkcube all
+# survive; GameNative (Android kgsl) runs the same DXVK fine. One variable, RP5 test first.
 # pkgrel 7 (2026-09-27) = pkgrel 5's pin + ONE patch: a8xx has_64b_image_atomics=False
 # (patches-staged/0002, now applied). Reason: Expedition 33 (UE5/Nanite) black-screens with
 # audio on the DX12 path because turnip advertises 64-bit image atomics that are broken on a830;
@@ -40,7 +50,7 @@ pkgver=26.3.0_devel
 # patches and LOST the 2026-09-06 Cyberpunk A/B by 3.2% (docs/cyberpunk-bench-plan.md);
 # never shipped, patches parked in patches-staged/. Next pin bump: one variable at a
 # time, benched with tools/ab before it enters localrepo.
-pkgrel=7
+pkgrel=9
 _commit=bab34da4a378379e65d212b405525f50255efd31   # mesa main, 2026-08-09
 pkgdesc="Mesa trimmed for the RP6/SM8550: freedreno GL + turnip Vulkan, cortex-x3 tuned (26.1.5)"
 arch=('aarch64')
@@ -59,13 +69,16 @@ makedepends=(glslang
 options=(!lto)
 # One source patch (a8xx 64-bit image atomics off); 0001 stays parked in patches-staged/.
 source=("mesa-${_commit}.tar.gz::https://gitlab.freedesktop.org/mesa/mesa/-/archive/${_commit}/mesa-${_commit}.tar.gz"
-        '0002-freedreno-a8xx-disable-64b-image-atomics.patch')
+        '0002-freedreno-a8xx-disable-64b-image-atomics.patch'
+        '0004-turnip-msm-TU_NO_VM_BIND-opt-out.patch')
 sha256sums=('f12e8fc8b3e93ca107faf6ef6caccd99f523191d4e5cf59ff370b4e1043bcb60'
-            '814bc4f091ed358d0d5621f7954552fbcd1456602273f14883b2ffc6b77e56ea')
+            '814bc4f091ed358d0d5621f7954552fbcd1456602273f14883b2ffc6b77e56ea'
+            'ba7430c9ac266ec9d5f6cdc2c73142975cdad50ef3a522055a2a9e3c6a94aba9')
 
 prepare() {
   cd "mesa-${_commit}"
   patch -Np1 -i "${srcdir}/0002-freedreno-a8xx-disable-64b-image-atomics.patch"
+  patch -Np1 -i "${srcdir}/0004-turnip-msm-TU_NO_VM_BIND-opt-out.patch"
   # (the 25.1.5-era c11-threads C23 patch is upstream in 26.x — dropped)
   # Include the package release in the version string so Chromium/CEF (steamwebhelper!)
   # invalidates its GPU cache across our rebuilds — same trick as Arch's mesa.

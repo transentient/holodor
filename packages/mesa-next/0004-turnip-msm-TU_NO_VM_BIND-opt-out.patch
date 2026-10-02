@@ -1,0 +1,16 @@
+--- a/src/freedreno/vulkan/tu_knl_drm_msm.cc
++++ b/src/freedreno/vulkan/tu_knl_drm_msm.cc
+@@ -156,6 +156,13 @@
+ static int
+ tu_try_enable_vm_bind(int fd)
+ {
++   /* Holodor: TU_NO_VM_BIND=1 keeps the fd in the legacy (kernel-managed VA)
++    * mode, so VM_BIND can be A/B'd per launch without a rebuild. Sparse
++    * binding goes away with it (has_sparse follows has_vm_bind).
++    */
++   if (debug_get_bool_option("TU_NO_VM_BIND", false))
++      return -ENOTSUP;
++
+    return tu_drm_set_param(fd, MSM_PARAM_EN_VM_BIND, 1, 0);
+ }
+ 

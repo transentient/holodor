@@ -1,0 +1,171 @@
+soc: qcom: ubwc: use HBB 15 on LPDDR4X SM8250 when SMEM has no HBB field
+
+Holodor (2026-10-01). sm8250_data hardcodes highest_bank_bit = 16 (LPDDR5) with a
+"TODO: highest_bank_bit = 15 for LP_DDR4". SM8250 shipped with both LPDDR4X and LPDDR5,
+and the upstream "Get HBB from SMEM" change only helps when the bootloader writes the
+newer DDR-info record that carries an HBB field (v4+); otherwise it keeps 16. Older records
+still carry the DDR device type, so: record it in smem_dramc (all record versions), expose
+qcom_smem_dram_is_lpddr4() + a debugfs "ddr_type" file, give qcom_ubwc_cfg_data an optional
+highest_bank_bit_lpddr4, set it to 15 for sm8250, and use it when SMEM has no HBB and
+reports LPDDR4/LPDDR4X.
+
+Why: on the Retroid Pocket 5 (SM8250), any DXVK game (Proton -> Turnip, UBWC surfaces)
+hard-froze the whole SoC ~20-30 s in (5/5), silently; TU_DEBUG=noubwc ran 30+ min clean.
+A wrong HBB puts GPU UBWC accesses on the wrong DDR bank interleave. Upstream candidate.
+
+--- a/drivers/soc/qcom/smem_dramc.c
++++ b/drivers/soc/qcom/smem_dramc.c
+@@ -45,6 +45,7 @@
+ 	unsigned long frequencies[MAX_DDR_FREQ_NUM_V5];
+ 	u32 num_frequencies;
+ 	u8 hbb;
++	u8 type;
+ };
+ 
+ enum ddr_type {
+@@ -210,10 +211,29 @@
+ }
+ EXPORT_SYMBOL_GPL(qcom_smem_dram_get_hbb);
+ 
++/**
++ * qcom_smem_dram_is_lpddr4(): Whether SMEM reports an LPDDR4/LPDDR4X part
++ *
++ * Context: Check qcom_smem_is_available() before calling this function.
++ *
++ * Return: 1 for LPDDR4/LPDDR4X, 0 for any other known type, -ENODATA if
++ * the DDR information couldn't be found/interpreted.
++ */
++int qcom_smem_dram_is_lpddr4(void)
++{
++	if (!__dram || !__dram->type)
++		return -ENODATA;
++
++	return __dram->type == DDR_TYPE_LPDDR4 || __dram->type == DDR_TYPE_LPDDR4X;
++}
++EXPORT_SYMBOL_GPL(qcom_smem_dram_is_lpddr4);
++
+ static void smem_dram_parse_v3_data(struct smem_dram *dram, void *data)
+ {
+ 	struct ddr_details_v3 *details = data;
+ 
++	dram->type = details->device_type;
++
+ 	for (int i = 0; i < MAX_DDR_FREQ_NUM_V3; i++) {
+ 		struct ddr_freq_table *freq_entry = &details->ddr_freq_tbl.ddr_freq[i];
+ 
+@@ -228,6 +248,8 @@
+ {
+ 	struct ddr_details_v3_14freqs *details = data;
+ 
++	dram->type = details->device_type;
++
+ 	for (int i = 0; i < MAX_DDR_FREQ_NUM_V3 + 1; i++) {
+ 		struct ddr_freq_table *freq_entry = &details->ddr_freq_tbl.ddr_freq[i];
+ 
+@@ -240,6 +262,8 @@
+ {
+ 	struct ddr_details_v4 *details = data;
+ 
++	dram->type = details->device_type;
++
+ 	/* Rank 0 channel 0 entry holds the correct value */
+ 	dram->hbb = details->highest_bank_addr_bit[0][0];
+ 
+@@ -258,6 +282,7 @@
+ 	struct ddr_details_v5 *details = data;
+ 	struct ddr_regions_v5 *region = &details->ddr_regions;
+ 
++	dram->type = details->device_type;
+ 	dram->hbb = le32_to_cpu(region[0].highest_bank_addr_bit);
+ 
+ 	for (int i = 0; i < MAX_DDR_FREQ_NUM_V5; i++) {
+@@ -275,6 +300,7 @@
+ 	struct ddr_details_v7 *details = data;
+ 	struct ddr_regions_v5 *region = &details->ddr_regions;
+ 
++	dram->type = details->device_type;
+ 	dram->hbb = le32_to_cpu(region[0].highest_bank_addr_bit);
+ 
+ 	for (int i = 0; i < MAX_DDR_FREQ_NUM_V5; i++) {
+@@ -368,6 +394,16 @@
+ }
+ DEFINE_SHOW_ATTRIBUTE(smem_hbb);
+ 
++static int smem_dram_type_show(struct seq_file *s, void *unused)
++{
++	struct smem_dram *dram = s->private;
++
++	seq_printf(s, "%u\n", dram->type);
++
++	return 0;
++}
++DEFINE_SHOW_ATTRIBUTE(smem_dram_type);
++
+ struct dentry *smem_dram_parse(struct qcom_smem *smem, struct device *dev)
+ {
+ 	struct dentry *debugfs_dir;
+@@ -423,6 +459,7 @@
+ 	debugfs_create_file("dram_frequencies", 0444, debugfs_dir, dram,
+ 			    &smem_dram_frequencies_fops);
+ 	debugfs_create_file("hbb", 0444, debugfs_dir, dram, &smem_hbb_fops);
++	debugfs_create_file("ddr_type", 0444, debugfs_dir, dram, &smem_dram_type_fops);
+ 
+ 	__dram = dram;
+ 
+--- a/drivers/soc/qcom/ubwc_config.c
++++ b/drivers/soc/qcom/ubwc_config.c
+@@ -192,8 +192,8 @@
+ 	.ubwc_swizzle = UBWC_SWIZZLE_ENABLE_LVL2 |
+ 			UBWC_SWIZZLE_ENABLE_LVL3,
+ 	.ubwc_bank_spread = true,
+-	/* TODO: highest_bank_bit = 15 for LP_DDR4 */
+ 	.highest_bank_bit = 16,
++	.highest_bank_bit_lpddr4 = 15,
+ 	.macrotile_mode = true,
+ };
+ 
+@@ -329,8 +329,15 @@
+ 
+ 	hbb = qcom_smem_dram_get_hbb();
+ 	if (hbb == -ENODATA) {
+-		/* Lack of HBB data is OK - it was only introduced later */
+-		return data;
++		/*
++		 * Lack of HBB data is OK - it was only introduced later. Older
++		 * bootloaders still report the DDR type, which is enough for
++		 * platforms that shipped with both LPDDR4X and LPDDR5.
++		 */
++		if (data->highest_bank_bit_lpddr4 && qcom_smem_dram_is_lpddr4() > 0)
++			hbb = data->highest_bank_bit_lpddr4;
++		else
++			return data;
+ 	} else if (hbb < 0) {
+ 		pr_err("Couldn't get HBB data from SMEM: %d\n", hbb);
+ 		return ERR_PTR(hbb);
+--- a/include/linux/soc/qcom/smem.h
++++ b/include/linux/soc/qcom/smem.h
+@@ -18,5 +18,6 @@
+ int qcom_smem_bust_hwspin_lock_by_host(unsigned int host);
+ 
+ int qcom_smem_dram_get_hbb(void);
++int qcom_smem_dram_is_lpddr4(void);
+ 
+ #endif
+--- a/include/linux/soc/qcom/ubwc.h
++++ b/include/linux/soc/qcom/ubwc.h
+@@ -35,6 +35,15 @@
+ 	 * DDR bank.  This should ideally use DRAM type detection.
+ 	 */
+ 	int highest_bank_bit;
++
++	/**
++	 * @highest_bank_bit_lpddr4: Highest Bank Bit on LPDDR4/LPDDR4X parts
++	 *
++	 * For platforms that shipped with both LPDDR4X and LPDDR5 where the
++	 * bootloader predates the SMEM HBB field: used instead of
++	 * @highest_bank_bit when SMEM reports an LPDDR4/LPDDR4X part. 0 = same.
++	 */
++	int highest_bank_bit_lpddr4;
+ 	bool ubwc_bank_spread;
+ 
+ 	/**

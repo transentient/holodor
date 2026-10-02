@@ -6,9 +6,9 @@
 
 ## Download
 
-**[Download Holodor for AYN Odin 3 (20260927d, 3.1 GB)](https://holodor.bonesaw.com/holodor-odin3-20260927d-seedless.img.zst)** · [SHA-256 checksum](https://holodor.bonesaw.com/holodor-odin3-20260927d-seedless.img.zst.sha256)
+**[Download Holodor for AYN Odin 3 (20261002, 3.1 GB)](https://holodor.bonesaw.com/holodor-odin3-20261002-seedless.img.zst)** · [SHA-256 checksum](https://holodor.bonesaw.com/holodor-odin3-20261002-seedless.img.zst.sha256)
 
-Direct URL: https://holodor.bonesaw.com/holodor-odin3-20260927d-seedless.img.zst
+Direct URL: https://holodor.bonesaw.com/holodor-odin3-20261002-seedless.img.zst
 
 Released 2026-09-27. Before you write the card, read **[INSTALL.md](INSTALL.md)**. It also covers a one-time bootloader step in Android.
 
@@ -68,13 +68,12 @@ I found s.salmon on /r/pixelart. It was a great experience working with them! Th
 - Heavy AAA games run around **20-30 fps**. The Snapdragon GPU driver is still young. FSR and frame generation help smooth it out a lot, but don't expect miracles. Indie and 2D games run flawlessly.
 - Kernel-level anti-cheat (EAC, BattlEye) doesn't work. This is an ARM-wide problem that Valve is still figuring out.
 - The Steam overlay glitches out in some heavier games. There's a workaround included; working on a real fix.
-- The headphone jack switches automatically when you plug in, but the output is a little hissy and right-heavy for now. Gain tuning is in progress.
 - Decky Loader may offer you its own update. Decline it. Decky updates arrive through Pocknix Control's Updater with everything else.
 - Unreal Engine 5 games (Expedition 33 and friends) show a black screen with sound. Adding `-dx11` to the game's launch options makes them run, but not at a playable frame rate yet. A driver fix is in progress.
 
 ## Installation
 
-Read **[INSTALL.md](INSTALL.md)** for the step-by-step guide. The latest image is here: [holodor-odin3-20260927d-seedless.img.zst](https://holodor.bonesaw.com/holodor-odin3-20260927d-seedless.img.zst) (3.1 GB) ([checksum](https://holodor.bonesaw.com/holodor-odin3-20260927d-seedless.img.zst.sha256)).
+Read **[INSTALL.md](INSTALL.md)** for the step-by-step guide. The latest image is here: [holodor-odin3-20261002-seedless.img.zst](https://holodor.bonesaw.com/holodor-odin3-20261002-seedless.img.zst) (3.1 GB) ([checksum](https://holodor.bonesaw.com/holodor-odin3-20261002-seedless.img.zst.sha256)).
 
 **TL;DR:** Grab the image and the ROCKNIX bootloader. Flash them to an SD card, use the new bootloader to set up the boot menu from Android (back up your stock bootloader when it tells you to!). Boot from the SD card to test it out. If you like it, use the Holodor Installer app to flash it to your internal storage alongside Android. The guide also covers how to revert back to stock.
 

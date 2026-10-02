@@ -1,0 +1,30 @@
+drm/msm/a6xx: take the A650 UBWC highest bank bit from the UBWC config
+
+Holodor (2026-10-01), companion to 0700. In 7.1.2 a6xx_calc_ubwc_config() forces
+highest_bank_bit = 16 for A650 ("TODO: get ddr type from bootloader and use 15 for
+LPDDR4") and only warns when the shared UBWC config disagrees, while the display (DPU)
+uses the shared config: with 0700 on an LPDDR4X SM8250 that left GPU=16 vs DPU=15
+("Inconclusive highest_bank_bit value: 16 (GPU) vs 15 (UBWC_CFG)", RP5 boot log).
+For A650 take the shared value (SMEM-derived since 0007/0008/0700). Mainline (7.3) has
+since dropped this per-GPU override entirely and uses the shared config as-is.
+Other GPUs are untouched.
+
+--- a/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
+@@ -776,8 +776,14 @@
+ 	if (adreno_is_a623(gpu))
+ 		cfg->highest_bank_bit = 16;
+ 
+-	if (adreno_is_a650(gpu) ||
+-	    adreno_is_a660(gpu) ||
++	/*
++	 * A650 (SM8250) shipped with both LPDDR4X (HBB 15) and LPDDR5 (HBB 16);
++	 * the UBWC config now derives it from SMEM, so take it from there.
++	 */
++	if (adreno_is_a650(gpu))
++		cfg->highest_bank_bit = common_cfg->highest_bank_bit;
++
++	if (adreno_is_a660(gpu) ||
+ 	    adreno_is_a690(gpu) ||
+ 	    adreno_is_a730(gpu) ||
+ 	    adreno_is_a740_family(gpu)) {

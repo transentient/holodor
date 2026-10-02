@@ -1,0 +1,47 @@
+Holodor provenance: OURS (2026-10-02), a fix on top of ROCKNIX's 0073 (kept verbatim).
+Found on the Odin 3 jack with the UCA202 rig: PCM path + compander off = mono.
+
+From: transentient <11418311+transentient@users.noreply.github.com>
+Subject: [PATCH] ASoC: wcd939x: HPH PCM: program the crosstalk coefficients with the compander off
+
+wcd939x_hph_pcm_pre_dac() (added by 0073, HPH PCM/HiFi mode) returned early when the
+compander was off, before writing the RX_TOP_HPHx_PATH_SEC0/2/3 crosstalk
+coefficients. wcd939x_hph_pcm_pre_pa() enables the crosstalk block for both
+channels regardless (RX_TOP_PATH_CFG2 = 0x0f), so with the compander off the
+block ran with zeroed coefficients and folded L and R together: measured on
+the AYN Odin 3 jack, a left-only and a right-only tone came out equally on
+both channels (mono). Android and ROCKNIX both leave SEC0/2/3 at
+0x1f/0x11/0x4f during playback.
+
+Write the coefficients before the compander-off return so both cases get them.
+---
+--- a/sound/soc/codecs/wcd939x.c
++++ b/sound/soc/codecs/wcd939x.c
+@@ -535,6 +535,15 @@
+ 					      WCD939X_REFBUFF_UHQA_CTL_REFBUFN_IOUT_CTL, 1);
+ 	}
+ 
++	/*
++	 * crosstalk coefficients (stock: scale 0x1f, sec2/3 0x11/0x4f);
++	 * pre_pa enables the crosstalk block either way, and left at zero
++	 * it folds L and R together (mono on the jack)
++	 */
++	snd_soc_component_write(component, sec_base + 0, 0x1f);
++	snd_soc_component_write(component, sec_base + 3, 0x4f);
++	snd_soc_component_write(component, sec_base + 2, 0x11);
++
+ 	if (!comp_en) {
+ 		/* compander bypassed, gain from register */
+ 		if (hphr)
+@@ -583,11 +592,6 @@
+ 	else
+ 		snd_soc_component_write_field(component, WCD939X_DIGITAL_CDC_COMP_CTL_0,
+ 					      WCD939X_CDC_COMP_CTL_0_HPHL_COMP_EN, true);
+-
+-	/* crosstalk coefficients (stock: scale 0x1f, sec2/3 0x11/0x4f) */
+-	snd_soc_component_write(component, sec_base + 0, 0x1f);
+-	snd_soc_component_write(component, sec_base + 3, 0x4f);
+-	snd_soc_component_write(component, sec_base + 2, 0x11);
+ }
+ 
+ static void wcd939x_hph_pcm_post_dac(struct snd_soc_component *component)

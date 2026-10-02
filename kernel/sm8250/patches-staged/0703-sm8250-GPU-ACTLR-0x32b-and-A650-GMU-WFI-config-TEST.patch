@@ -1,0 +1,48 @@
+iommu/arm-smmu-qcom + drm/msm/a6xx: SM8250 GPU ACTLR 0x32b and A650 GMU WFI config 2 (TEST)
+
+Holodor (2026-10-02), RP5 DXVK whole-SoC freeze investigation (UBWC-triggered). Two
+downstream-parity one-liners from the kona KGSL/DT comparison:
+ - the RP5's Android DT programs ACTLR 0x32b on every GPU SMMU context bank
+   (qcom,actlr); mainline's client table gives qcom,adreno 0x303. OR in bit 3
+   (implementation defined) and bit 5 (PRR) on sm8250 only.
+ - KGSL a6xx_hwcg_set() writes GMU_CX_GMU_WFI_CONFIG (0x1F802) = 2 on A650 with
+   clock gating; mainline never writes it.
+TEST patch - keep only if it stops the freeze.
+
+--- a/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
++++ b/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
+@@ -335,7 +335,20 @@
+ 		return;
+ 	}
+ 
+-	arm_smmu_cb_write(smmu, cbndx, ARM_SMMU_CB_ACTLR, (unsigned long)match->data);
++	{
++		unsigned long actlr = (unsigned long)match->data;
++
++		/*
++		 * SM8250 downstream (kona qcom,actlr) programs 0x32b on every GPU
++		 * context bank: mainline's 0x303 plus bit 3 (implementation
++		 * defined) and bit 5 (PRR). TEST for the RP5 UBWC freeze.
++		 */
++		if (of_machine_is_compatible("qcom,sm8250") &&
++		    of_device_is_compatible(dev->of_node, "qcom,adreno"))
++			actlr |= BIT(3) | GFX_ACTLR_PRR;
++
++		arm_smmu_cb_write(smmu, cbndx, ARM_SMMU_CB_ACTLR, actlr);
++	}
+ }
+ 
+ static int qcom_adreno_smmu_init_context(struct arm_smmu_domain *smmu_domain,
+--- a/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
+@@ -669,6 +669,10 @@
+ 	gmu_write(&a6xx_gpu->gmu, REG_A6XX_GPU_GMU_AO_GMU_CGC_HYST_CNTL,
+ 			state ? cgc_hyst : 0);
+ 
++	/* Downstream KGSL: GMU_CX_GMU_WFI_CONFIG = 2 on A620/A640/A650 (TEST) */
++	if (adreno_is_a650(adreno_gpu))
++		gmu_write(&a6xx_gpu->gmu, 0x1f802, state ? 0x2 : 0);
++
+ 	if (!adreno_gpu->info->a6xx->hwcg) {
+ 		gpu_write(gpu, REG_A7XX_RBBM_CLOCK_CNTL_GLOBAL, 1);
+ 		gpu_write(gpu, REG_A7XX_RBBM_CGC_GLOBAL_LOAD_CMD, state ? 1 : 0);
