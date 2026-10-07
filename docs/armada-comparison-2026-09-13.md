@@ -66,7 +66,7 @@ cannot run on it.
 Against that: one released device, one maintainer, 23 stars and a few dozen downloads,
 no community of its own, an RP5 release that is still a candidate with a draft install
 guide, and several of the measured wins (RP5 audio, 120 Hz toggle, oomd, Proton fixes
-toggle) are in an unpublished image.
+toggle) are in an unpublished image. But he did see Skinny Puppy live about six times.
 
 Long term, both build on the ROCKNIX kernel work and share most of the graphics stack,
 so they will converge.
