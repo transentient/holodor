@@ -26,9 +26,7 @@ Holodor takes Valve's Holo Core (the official ARM64 SteamOS userland) and mashes
 
 Yeah, [ArmadaOS](https://armadaos.dev/) is great. They have a solid team, support a bunch of devices, and have been shipping for months. If you want the most stable, mature option, go install Armada.
 
-Holodor exists because I wanted to see how close I could get to the real SteamOS, using Valve's actual Holo Core packages on an Arch Linux base instead of rebuilding on Fedora. Honestly? The end user experience isn't massively different. Holodor isn't magically faster. Both use the ROCKNIX kernel and a similar graphics stack. When one project fixes a bug, the other usually ports it over. Open source at work.
-
-We might have better sleep battery drain than ArmadaOS right now. We did a couple weeks ago, anyway. Things move fast. I had to bash my head against the wall to fix Android dual-booting and a full factory restore, so we have those sorted out now. You can read the full breakdown in [docs/armada-comparison-2026-09-13.md](docs/armada-comparison-2026-09-13.md).
+Holodor exists because I wanted to see how close I could get to the real SteamOS, using Valve's actual Holo Core packages on an Arch Linux base instead of rebuilding on Fedora. Honestly? The end user experience isn't massively different. Holodor isn't magically faster. Both use the ROCKNIX kernel and a similar graphics stack. When one project fixes a bug, the other usually ports it over. Open source at work. There is a breakdown of what is different in [docs/armada-comparison-2026-09-13.md](docs/armada-comparison-2026-09-13.md).
 
 ## About the use of generative AI coding tools
 
