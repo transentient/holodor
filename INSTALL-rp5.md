@@ -64,8 +64,14 @@ This flashes the ROCKNIX bootloader for the RP5 (the SM8250 build; it refuses to
 1. Hold **Volume Down** and press **Power**. In the boot menu, set the boot mode to **Linux** and the boot source to **SD card**. **[VERIFY]**
 2. After the boot art the screen goes dark for up to two minutes while the file system prepares the card. Wait.
 3. The device needs an internet connection to download Steam:
-    * Wi-Fi: a Wi-Fi setup screen appears before the download. **[VERIFY: same first-boot flow as the Odin 3?]**
-    * Wired: a USB-C hub with an Ethernet port works. Do not put the RP5 to sleep with the hub attached; unplug it first.
+    * **wifi.txt (Recommended):** Put the SD card back in your PC's card reader. You will see one accessible drive (the one with the `rocknix_abl` folder). Create a simple text file named `wifi.txt` there, and type in:
+      ```text
+      ssid=YourNetworkName
+      password=YourWifiPassword
+      country=US
+      ```
+      *(Note: `country` is your two-letter country code, which is required for 5 GHz networks.)* Two things that trip people up: create the file on the card in the card reader, not through the RP5's USB connection (Windows shows a file there that is never actually written to the card); and make sure the name is exactly `wifi.txt`, not `wifi.txt.txt` (Windows hides file extensions by default). Put the card back into the RP5 and boot. Once it connects successfully, the file renames itself to `wifi.txt.imported`. If something goes wrong, you will find a `wifi-import-error.txt` file explaining why.
+    * **Wired Connection:** Plug in a USB-C hub with an Ethernet cable attached. Leave it plugged in until Steam has started and you have connected to your Wi-Fi via Steam's network settings. It is safe to power the device off with the hub attached, but do not let it go to sleep with the hub attached; the USB port will not wake up properly until you reboot.
 4. The download screen shows progress: a few minutes on a fast card, up to an hour on a slow one.
 5. Sign in to Steam. Steam updates itself right after; the menus stay laggy for a few minutes.
 6. You are in Steam. Controls, sound and rumble work. A short press of the Power button puts the RP5 to sleep.

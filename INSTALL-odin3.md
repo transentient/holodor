@@ -62,13 +62,13 @@ This step flashes the ROCKNIX bootloader, giving you a handy menu at startup to 
 1. Hold **Volume Down** and press **Power**. In the boot menu, set the boot mode to **Linux**. If there is a boot source setting, make sure it is set to **SD card**. Select Start.
 2. Be patient. After the initial boot art, the screen will go dark for up to two minutes while the file system prepares the card. Please do not press the power button during this time. If absolutely nothing happens after three full minutes, hold Power for fifteen seconds to shut down, then try booting again.
 3. The device needs an internet connection to download Steam. You can provide this in one of two ways:
-    * **wifi.txt (Recommended):** Put the SD card back in your PC. You will see one accessible drive (the one with the `rocknix_abl` folder). Create a simple text file named `wifi.txt` there, and type in:
+    * **wifi.txt (Recommended):** Put the SD card back in your PC's card reader. You will see one accessible drive (the one with the `rocknix_abl` folder). Create a simple text file named `wifi.txt` there, and type in:
       ```text
       ssid=YourNetworkName
       password=YourWifiPassword
       country=US
       ```
-      *(Note: `country` is your two-letter country code, which is required for 5 GHz networks.)* Put the card back into the Odin and boot. Once it connects successfully, the file will automatically rename itself to `wifi.txt.imported`. If something goes wrong, you will find a `wifi-import-error.txt` file explaining why.
+      *(Note: `country` is your two-letter country code, which is required for 5 GHz networks.)* Two things that trip people up: create the file on the card in the card reader, not through the Odin's USB connection (Windows shows a file there that is never actually written to the card); and make sure the name is exactly `wifi.txt`, not `wifi.txt.txt` (Windows hides file extensions by default). Put the card back into the Odin and boot. Once it connects successfully, the file will automatically rename itself to `wifi.txt.imported`. If something goes wrong, you will find a `wifi-import-error.txt` file explaining why.
     * **Wired Connection:** Plug in a USB-C hub or dock with an ethernet cable attached. Leave it plugged in until Steam has started and you have connected to your Wi-Fi via Steam's network settings. It is safe to power the device off with the hub attached, but do not let the device go to sleep with it attached; the USB port will not wake up properly until you reboot.
 4. The download screen will show you its progress. This can take just a few minutes on a fast SD card, or up to an hour on a slower one. If you need to power off mid-download, it is perfectly safe; it will just pick up where it left off next time.
 5. Sign in to Steam. Immediately after you sign in, Steam will update itself. The menus will feel laggy and the storage will grind for about 10 to 20 minutes. Just give it some time to finish.
