@@ -6,17 +6,14 @@
 
 ## Download
 
-Holodor supports the **AYN Odin 3** and the **Retroid Pocket 5**. Each device has its own image and its own install guide; pick yours at [holodor.bonesaw.com](https://holodor.bonesaw.com).
+Pick your device at **[holodor.bonesaw.com](https://holodor.bonesaw.com)**. Each one has its own image and install guide:
 
-**[Download Holodor for AYN Odin 3 (20261002b, 3.1 GB)](https://holodor.bonesaw.com/holodor-odin3-20261002b-seedless.img.zst)** · [SHA-256 checksum](https://holodor.bonesaw.com/holodor-odin3-20261002b-seedless.img.zst.sha256)
+| Device | Install guide | What runs well |
+|---|---|---|
+| AYN Odin 3 | [INSTALL-odin3.md](INSTALL-odin3.md) | [games tested](docs/games-odin3.md) |
+| Retroid Pocket 5 | [INSTALL-rp5.md](INSTALL-rp5.md) | [games tested](docs/games-rp5.md) |
 
-Direct URL: https://holodor.bonesaw.com/holodor-odin3-20261002b-seedless.img.zst
-
-Released 2026-09-27. Before you write the card, read the **[Odin 3 install guide](INSTALL-odin3.md)**. It also covers a one-time bootloader step in Android. Retroid Pocket 5: **[RP5 install guide](INSTALL-rp5.md)**.
-
-Holodor takes Valve's Holo Core (the official ARM64 SteamOS userland) and mashes it up with the ROCKNIX mainline kernel so it actually runs on Qualcomm chips. It boots straight into Steam Big Picture, leaving your Android partition intact.
-
-It is built and tested for the **AYN Odin 3** and the **Retroid Pocket 5**, and the build system is set up to add more Snapdragon devices later. The Odin 3 is the faster of the two by a wide margin; see each device's games page for what runs well ([Odin 3](docs/games-odin3.md), [RP5](docs/games-rp5.md)).
+Holodor takes Valve's Holo Core (the official ARM64 SteamOS userland) and mashes it up with the ROCKNIX mainline kernel so it actually runs on Qualcomm chips. It boots straight into Steam Big Picture, leaving your Android partition intact. The build system is set up to add more Snapdragon devices later.
 
 *The name: Holo Core + Odin + that one big guy who held the door.*
 
@@ -52,33 +49,37 @@ I found s.salmon on /r/pixelart. It was a great experience working with them! Th
 
 | Feature | Status |
 |---|---|
-| Steam Big Picture (native ARM64 client) | ✅ Boots directly |
-| x86/x86-64 Windows games (FEX + Proton + DXVK/vkd3d) | ✅ Supported |
+| Steam Big Picture (Valve's native ARM64 client) | ✅ Boots directly |
+| x86/x86-64 Windows games (FEX + Proton + DXVK) | ✅ Supported |
 | Controls (buttons, sticks, paddles, deadzones) | ✅ Configured out of the box |
-| **Rumble / haptics** | ✅ Functional in-game |
-| **Thumbstick RGB** | ✅ Functional (`pocknix-stick-leds`) |
-| Audio (speakers) | ✅ Supported |
+| Rumble / haptics | ✅ Functional in-game |
+| Thumbstick RGB (Odin 3) | ✅ Functional |
+| Audio: speakers and headphone jack | ✅ Supported, levels measured |
 | Wi-Fi (with post-sleep self-healing) | ✅ Supported |
-| **Suspend/resume** | ✅ Works reliably, even in-game; standby drain under 0.5%/hr |
-| Power profiles (Eco/Balanced/Performance) & fan curves | ✅ Available in Quick Access |
+| Suspend/resume | ✅ Works reliably, even in-game; standby drain under 0.5%/hr |
+| Screen refresh (RP5): 60 Hz by default, 120 Hz per game | ✅ Follows the frame limit |
+| Power profiles, fan curves, per-game tweaks | ✅ Pocknix Control in Quick Access |
+| On-screen keyboard in Desktop Mode | ✅ Icon on the panel |
+| Updates | ✅ Through Steam's Settings, or `pacman -Syu` |
 | Battery charge limit setting | Experimental - might still charge to 100% |
-| Auto storage expansion, sleep/wake telemetry | ✅ Supported |
-| Optional install to internal UFS | ✅ Supported (Keeps Android, but factory resets it once) |
+| Optional install to internal storage | ✅ Supported (keeps Android, but factory resets it once) |
 
 ## Current Limitations
 
-- Heavy AAA games run around **20-30 fps**. The Snapdragon GPU driver is still young. FSR and frame generation help smooth it out a lot, but don't expect miracles. Indie and 2D games run flawlessly.
-- Kernel-level anti-cheat (EAC, BattlEye) doesn't work. This is an ARM-wide problem that Valve is still figuring out.
+- Heavy 3D games are slow. Odin 3: AAA titles around **20-30 fps**; indie and 2D games run flawlessly. Retroid Pocket 5: 2D and light 3D run well, heavy 3D runs at 10-30 fps and the device gets hot. The games pages above have numbers per title.
+- DirectX 12 games do not run on the Retroid Pocket 5 (its GPU driver lacks features they need). On the Odin 3, Unreal Engine 5 games need `-dx11` in their launch options and are not yet at a playable frame rate.
+- Native Linux games cannot run: Valve's ARM64 Steam client has no Linux x86 runtime, so every game goes through Proton (this works fine; it just means the Windows build is what you get).
 - Holodor runs Valve's ARM64 Steam client, which Valve builds for its own hardware (the Steam Frame) and does not support anywhere else. Bugs in the client itself, as opposed to in Holodor, may stay unfixed; Valve closes ARM reports on its tracker as unsupported.
+- Kernel-level anti-cheat (EAC, BattlEye) doesn't work. This is an ARM-wide problem that Valve is still figuring out.
 - The Steam overlay glitches out in some heavier games. There's a workaround included; working on a real fix.
 - Decky Loader may offer you its own update. Decline it. Decky updates arrive through Pocknix Control's Updater with everything else.
-- Unreal Engine 5 games (Expedition 33 and friends) show a black screen with sound. Adding `-dx11` to the game's launch options makes them run, but not at a playable frame rate yet. A driver fix is in progress.
+- Steam needs free space to install games; keep a few GB spare on the drive or installs can stall the device.
 
 ## Installation
 
-Read the guide for your device: **[AYN Odin 3](INSTALL-odin3.md)** or **[Retroid Pocket 5](INSTALL-rp5.md)**. The latest image is here: [holodor-odin3-20261002b-seedless.img.zst](https://holodor.bonesaw.com/holodor-odin3-20261002b-seedless.img.zst) (3.1 GB) ([checksum](https://holodor.bonesaw.com/holodor-odin3-20261002b-seedless.img.zst.sha256)).
+Read the guide for your device: **[AYN Odin 3](INSTALL-odin3.md)** or **[Retroid Pocket 5](INSTALL-rp5.md)**.
 
-**TL;DR:** Grab the image and the ROCKNIX bootloader. Flash them to an SD card, use the new bootloader to set up the boot menu from Android (back up your stock bootloader when it tells you to!). Boot from the SD card to test it out. If you like it, use the Holodor Installer app to flash it to your internal storage alongside Android. The guide also covers how to revert back to stock.
+**TL;DR:** Write the image to an SD card. From Android, run the two scripts on the card: one backs up your stock bootloader (keep that backup!), the other installs the ROCKNIX boot menu. Boot from the SD card to try Holodor. If you like it, the Holodor Installer app copies it to internal storage alongside Android. The guide also covers going back to stock.
 
 ## Building from Source
 
@@ -91,21 +92,22 @@ The repo is the build system (forked from `pocknix-os`). Run `make kernel`, `mak
 * Root access (the scripts mount loop devices and chroot).
 * ~50 GB of free space and a lot of patience. The initial package build takes hours.
 
-*(A Dockerfile to make this a one-click build is planned.)*
+*(A Dockerfile to make this a one-click build is on the roadmap; not started.)*
 
 ## Credits
 
 This project stands on the shoulders of giants. Thanks to:
 
-- **[ROCKNIX](https://github.com/ROCKNIX)**: The SM8750 kernel bring-up, device trees, and bootloader.
+- **[ROCKNIX](https://github.com/ROCKNIX)**: The SM8750 and SM8250 kernel bring-up, device trees, bootloader, and the gamescope rotation patches.
 - **[Valve](https://store.steampowered.com) & [Collabora](https://www.collabora.com)**: For Holo Core itself.
 - **[ArmadaOS](https://github.com/armada-os)**: The original Odin SteamOS pioneers. We use their haptics work, suspend fixes, and fan curve editor.
 - **[batocera.pocket](https://github.com/darkplace/batocera.pocket)** (lukemotion/suckbluefrog): The stick-LED driver and Wi-Fi fixes.
 - **[shuuri-labs/pocknix-os](https://github.com/shuuri-labs/pocknix-os)**: The build harness this repo is forked from.
-- **Teguh Sobirin**: Odin 3 audio UCM.
+- **Teguh Sobirin**: Odin 3 and Retroid Pocket audio UCM.
 - The devs behind **FEX-Emu**, **Mesa/Turnip**, and **InputPlumber**.
+- **[CachyOS](https://github.com/CachyOS)**: The ARM64 Proton build Holodor ships.
 - The AYN Odin 3 Linux Discord community for testing and bug reports.
-- AYN Technologies for building a solid handheld with a great ARM chip, even if we are squishing their firmware into a tiny partition.
+- AYN and Retroid for building solid handhelds with great ARM chips, even if we are squishing their firmware into a tiny partition.
 
 ## License
 
