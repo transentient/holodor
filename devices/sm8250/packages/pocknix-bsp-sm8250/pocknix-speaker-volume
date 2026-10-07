@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+# pocknix-speaker-volume — the speaker's volume law and gain structure (sm8250 boards).
+#
+# What it fixes (measured on the Retroid Pocket 5 with a USB mic, 2026-10-05):
+#  * The WSA macro compander (WSA_COMP1/2) pumped the speakers: a loud burst pulled a quiet tone down
+#    4-8 dB and it swelled back ("warble"). It also flattened the slider: 45 % -> 70 % added 1 dB.
+#    Off, the pumping is 0.1 dB.
+#  * PipeWire's volume slider is cubic: 25 % is -36 dB, 10 % is -60 dB, so the bottom third of the
+#    slider was silent on these small speakers.
+#
+# What it does:
+#  1. Once per session: compander off, WSA digital gain = SPEAKER_DIGITAL, written WHILE a second of
+#     silence plays. A gain written while the speaker PCM is closed does not land reliably on this
+#     codec path (levels came out 10-20 dB off); written during playback it is exact, and it then
+#     repeats within 0.3 dB over stream restarts.
+#  2. Volume law: the slider stays the normal PipeWire sink volume (Steam, the rocker and wpctl all
+#     keep working). This daemon watches it and drives a gain stage in the speaker filter chain
+#     (60-pocknix-speaker-loudness.conf, nodes lawL/lawR) so that the TOTAL gain is
+#         0 %  -> mute,   v % -> -RANGE_DB * (1 - v) dB,   100 % -> 0 dB  (the ceiling)
+#     i.e. the same number of dB per slider step all the way down.
+#
+# Ceiling (Cliff, 10-05): a full-scale tone at 100 % sits at about 3 % distortion = digital 114.
+# Limiter makeup +12 dB (the .conf) brings typical game mixes (peaks around -12 dBFS) up to it.
+import math, re, subprocess, sys, time
+
+SINK = "alsa_output.platform-sound.HiFi__Speaker__sink"
+FILTER = "pocknix_speaker_loud"
+RANGE_DB = 30.0            # 100 % .. just above 0 %
+SPEAKER_DIGITAL = 114      # WSA_RX0/1 Digital Volume (1 dB steps, 84 = 0 dB)
+SPEAKER_PA = 8             # SpkrLeft/Right PA Volume; steps above 8 add ~1 dB in total (measured)
+MAX_BOOST = 10 ** (60 / 20.0)
+
+def run(*a, **k):
+    return subprocess.run(a, capture_output=True, text=True, **k).stdout
+
+def node_id(name):
+    out = run("pw-cli", "ls", "Node"); cur = None
+    for line in out.splitlines():
+        m = re.match(r"\s*id (\d+),", line)
+        if m: cur = m.group(1)
+        if 'node.name = "%s"' % name in line: return cur
+    return None
+
+def amixer(name, value):
+    subprocess.run(["amixer", "-q", "-D", "hw:0", "cset", "name=%s" % name, str(value)], capture_output=True)
+
+def plant_hardware():
+    for c in ("WSA_COMP1 Switch", "WSA_COMP2 Switch"): amixer(c, 0)      # read at power-up: set while closed
+    p = subprocess.Popen(["pw-cat", "-p", "--target", SINK, "--rate", "48000", "--channels", "2", "--format", "s16", "-"],
+                         stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        p.stdin.write(bytes(48000 * 4)); p.stdin.flush(); time.sleep(0.7)   # 1 s of silence; write once it runs
+        for v in (SPEAKER_DIGITAL - 1, SPEAKER_DIGITAL):                    # a changed value forces the register write
+            amixer("WSA_RX0 Digital Volume", v); amixer("WSA_RX1 Digital Volume", v)
+        for v in (SPEAKER_PA - 1, SPEAKER_PA):
+            amixer("SpkrLeft PA Volume", v); amixer("SpkrRight PA Volume", v)
+        p.stdin.close(); p.wait(timeout=5)
+    except Exception:
+        p.kill()
+
+def law(v):
+    """slider fraction (what wpctl shows) -> multiplier for the law stage, on top of the sink's own v**3"""
+    if v <= 0.0005: return 0.0
+    if v >= 1.0: return 1.0 / v ** 3                       # no boost past the ceiling
+    return min(10 ** (-RANGE_DB * (1.0 - v) / 20.0) / v ** 3, MAX_BOOST)
+
+state = {"sink": None, "filter": None, "last": None}
+def apply():
+    for attempt in (0, 1):
+        if not state["sink"]: state["sink"] = node_id(SINK)
+        if not state["filter"]: state["filter"] = node_id(FILTER)
+        if not state["sink"] or not state["filter"]: return False
+        out = run("wpctl", "get-volume", state["sink"]); m = re.search(r"Volume:\s*([0-9.]+)", out)
+        if m: break
+        state["sink"] = state["filter"] = None               # ids change when PipeWire restarts
+    else:
+        return False
+    mult = law(float(m.group(1)))
+    if state["last"] is not None and abs(mult - state["last"]) < 1e-6: return True
+    r = subprocess.run(["pw-cli", "set-param", state["filter"], "Props",
+                        '{ params = [ "lawL:Mult" %.6f "lawR:Mult" %.6f ] }' % (mult, mult)], capture_output=True, text=True)
+    if r.returncode != 0 or "Error" in r.stdout + r.stderr:
+        state["sink"] = state["filter"] = None; return False
+    state["last"] = mult; return True
+
+def main():
+    for _ in range(60):                                      # wait for the session's audio to come up
+        if node_id(SINK) and node_id(FILTER): break
+        time.sleep(1)
+    else:
+        sys.exit("pocknix-speaker-volume: speaker sink or filter never appeared")
+    plant_hardware()
+    apply()
+    print("pocknix-speaker-volume: ready (range %.0f dB, digital %d)" % (RANGE_DB, SPEAKER_DIGITAL), flush=True)
+    while True:
+        p = subprocess.Popen(["pactl", "subscribe"], stdout=subprocess.PIPE, text=True)
+        for line in p.stdout:
+            if "sink" in line and "sink-input" not in line:
+                apply()
+        state["sink"] = state["filter"] = state["last"] = None  # pactl died = PipeWire restarted
+        time.sleep(2); apply()
+
+if __name__ == "__main__":
+    main()

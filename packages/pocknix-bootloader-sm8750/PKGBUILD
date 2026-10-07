@@ -32,7 +32,7 @@
 # ELF here to refuse a backup that was taken AFTER the flash.
 pkgname=pocknix-bootloader-sm8750
 pkgver=1.1.8            # the ROCKNIX ABL release vendored here (1.1.7 shipped through image 20260925)
-pkgrel=1
+pkgrel=2   # 2 (2026-10-07): flash_abl.sh refuses to run on a different chip (Android ro.board.platform or DT compatible)
 pkgdesc="SM8750 (AYN Odin 3) ROCKNIX ABL v1.1.8 payload + the Android-side backup/flash/restore scripts"
 arch=('any')
 url="https://github.com/ROCKNIX/abl"

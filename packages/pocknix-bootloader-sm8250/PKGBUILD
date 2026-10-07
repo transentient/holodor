@@ -25,7 +25,7 @@
 # via Retroid's "run script as root". Keep the stock ABL backup (abl_a/abl_b.img).
 pkgname=pocknix-bootloader-sm8250
 pkgver=1.1.9              # ROCKNIX ABL release
-pkgrel=1
+pkgrel=2   # 2 (2026-10-07): flash_abl.sh refuses to run on a different chip (Android ro.board.platform or DT compatible)
 pkgdesc="SM8250 ROCKNIX ABL kit (v${pkgver} ELF + Android-side flash scripts) for the qcom-abl boot contract"
 arch=('any')
 url="https://github.com/ROCKNIX/abl"

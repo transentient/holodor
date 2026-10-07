@@ -39,7 +39,7 @@
 pkgname=gamescope
 epoch=1
 pkgver=3.16.0.rocknix.4286887
-pkgrel=4  # 4 (2026-09-27): 0007 sanitize GAMESCOPE_COLOR_NIGHT_MODE (NaN saturation from Steam painted the output red; no toggle could clear it)
+pkgrel=8  # 8 (2026-10-06): the policy is a runtime convar, dynamic_refresh_default_lowest (gamescopectl), initial value from the env. 7 (2026-10-06): DEFAULT_LOWEST also treats Steam's default "highest rate, no cap" request as no preference; logs app targets. 6 (2026-10-06): 0008 + GAMESCOPE_DYNAMIC_REFRESH_DEFAULT_LOWEST (panel at 60 Hz unless a game targets 120). 5 (2026-10-05): 0008 refresh rates for panels without an EDID (RP5 60/120 Hz in Steam). 4 (2026-09-27): 0007 sanitize GAMESCOPE_COLOR_NIGHT_MODE (NaN saturation from Steam painted the output red; no toggle could clear it)
 _commit=428688779e481681ddf6e2ea346987889527a0b7
 # Grant CAP_SYS_NICE to the installed binary (realtime scheduling) — see gamescope.install.
 install=gamescope.install
@@ -65,9 +65,10 @@ source=("gamescope::git+https://github.com/ValveSoftware/gamescope.git#commit=${
         '0004-DRMBackend-Add-GAMESCOPE_FAKE_OUTPUT_MM-env-to-set-c.patch'
         '0005-feature-add-rotation-shader-for-rotating-output.patch'
         '0006-steamcompmgr-fix-gamepad-cursor-sprite-frozen-via-XTest.patch'
-        '0007-steamcompmgr-sanitize-night-mode-property.patch')
+        '0007-steamcompmgr-sanitize-night-mode-property.patch'
+        '0008-dynamic-refresh-for-panels-without-EDID.patch')
 sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP'
-            'SKIP')
+            'SKIP' 'SKIP')
 
 prepare() {
   cd gamescope
@@ -84,6 +85,8 @@ prepare() {
   patch -p1 < "${srcdir}/0006-steamcompmgr-fix-gamepad-cursor-sprite-frozen-via-XTest.patch"
   # Holodor: NaN guard for Steam's night-mode property (see the patch header).
   patch -p1 < "${srcdir}/0007-steamcompmgr-sanitize-night-mode-property.patch"
+  # Holodor: offer the panel's own refresh rates when it has no EDID (see the patch header).
+  patch -p1 < "${srcdir}/0008-dynamic-refresh-for-panels-without-EDID.patch"
 }
 
 build() {

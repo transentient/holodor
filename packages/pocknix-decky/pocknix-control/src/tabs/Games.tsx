@@ -113,6 +113,18 @@ export function Games({ config, setConfig }: { config: Config; setConfig: Dispat
             <SelectEdit label="FEX Preset" value={fexValue} options={fexOptions} onChange={(id) => patchSettings({ fexProfile: id, fexFlags: {} })} />
             <SelectEdit label="Audio Buffer" value={audioValue} options={audioLatencyOptions} onChange={(id) => patchSettings({ audioLatency: id })} />
             <ToggleField
+              label="120 Hz Screen"
+              description="Run the screen at 120 Hz for this game. Off: 60 Hz, which is smoother unless the game holds 120 fps."
+              checked={values.refresh120 === true}
+              onChange={(on) => patchSettings({ refresh120: on })}
+            />
+            <ToggleField
+              label="Proton Game Fixes"
+              description="Let Proton apply its per-game fixes on launch. Off by default: some fixes never finish on this device."
+              checked={values.protonfixes === true}
+              onChange={(on) => patchSettings({ protonfixes: on })}
+            />
+            <ToggleField
               label="Frame Insertion (LSFG)"
               description="Doubles presented fps by interpolation. Needs Lossless Scaling installed from Steam. Adds a little input latency."
               checked={lsfgEnabled}

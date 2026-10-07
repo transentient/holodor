@@ -9,6 +9,9 @@
 # re-activate the profile. Escalate only if that doesn't take.
 LOG=/var/lib/pocknix/wifi-heal.log
 say() { echo "$(date -Iseconds) $*" >> "$LOG"; }
+wifi_dev() {  # the wifi netdev by type, whatever it is called (wlan0 at boot, wlan1 after a firmware reload)
+  nmcli -t -f DEVICE,TYPE device status 2>/dev/null | awk -F: '$2=="wifi"{print $1; exit}'
+}
 healthy() {
   ip route show default 2>/dev/null | grep -q . || return 1
   c=$(nmcli networking connectivity check 2>/dev/null)
@@ -23,24 +26,33 @@ profile() {  # most recently used wifi profile
   nmcli -t -f NAME,TYPE connection show --order -timestamp 2>/dev/null \
     | awk -F: '$2=="802-11-wireless"{print $1; exit}'
 }
-wait_healthy 12 && { say "ok (no action)"; exit 0; }
+# Patience first: after a long sleep the AP may refuse the first association and iwd retries on
+# its own (RP5 2026-10-03: "PREV_AUTH_NOT_VALID", then connected). Escalating into a PCIe reset
+# inside a minute turned that into a day of dead wifi (the netdev came back as wlan1 and the
+# profile was pinned to wlan0). So: ~1 min of waiting, then the profile, then the radio, and the
+# PCIe reset only after ~2 min, followed by re-activating the profile on whatever the device is
+# now called.
+wait_healthy 30 && { say "ok (no action)"; exit 0; }
 PROF=$(profile)
 if [ -n "$PROF" ]; then
-  say "unhealthy after resume -> nmcli connection up '$PROF'"
+  say "unhealthy after resume -> nmcli connection up '$PROF' (wifi dev: $(wifi_dev))"
   nmcli connection up "$PROF" >/dev/null 2>&1 || true
-  wait_healthy 10 && { say "recovered via connection up"; exit 0; }
+  wait_healthy 15 && { say "recovered via connection up"; exit 0; }
 fi
 say "still unhealthy -> radio cycle"
 nmcli radio wifi off 2>/dev/null; sleep 2; nmcli radio wifi on 2>/dev/null
-wait_healthy 10 && { say "recovered via radio cycle"; exit 0; }
+wait_healthy 15 && { say "recovered via radio cycle"; exit 0; }
 say "still unhealthy -> PCIe reset (full fw reload)"
-PCI=$(basename "$(readlink -f /sys/class/net/wlan0/device 2>/dev/null)" 2>/dev/null)
+DEV=$(wifi_dev)
+PCI=$(basename "$(readlink -f "/sys/class/net/${DEV:-wlan0}/device" 2>/dev/null)" 2>/dev/null)
 if [ -n "$PCI" ] && [ -e "/sys/bus/pci/devices/$PCI/remove" ]; then
   nmcli radio wifi off 2>/dev/null; sleep 1
   echo 1 > "/sys/bus/pci/devices/$PCI/remove"; sleep 2
   echo 1 > /sys/bus/pci/rescan; sleep 4
   nmcli radio wifi on 2>/dev/null
-  wait_healthy 15 && { say "recovered via PCIe reset"; exit 0; }
+  sleep 4
+  [ -n "$PROF" ] && nmcli connection up "$PROF" >/dev/null 2>&1 || true
+  wait_healthy 15 && { say "recovered via PCIe reset (wifi dev now: $(wifi_dev))"; exit 0; }
 fi
-say "UNRECOVERED — manual toggle or reboot needed"
+say "UNRECOVERED — manual toggle or reboot needed (wifi dev: $(wifi_dev))"
 exit 0

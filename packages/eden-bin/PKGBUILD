@@ -30,12 +30,17 @@ prepare() {
   # Native aarch64 AppImage: --appimage-extract runs fine in the build chroot, no FUSE.
   cd "${srcdir}"
   chmod u+x "Eden-${pkgver}.AppImage"
+  # An AppImage has "AI\x02" in its ELF header padding. qemu-user binfmt (cross builds on an
+  # x86 host) does not match that header, so the file will not run. Extract from a copy
+  # with those three bytes cleared; the packaged AppImage is untouched.
+  cp "Eden-${pkgver}.AppImage" extract.AppImage
+  printf '\0\0\0' | dd of=extract.AppImage bs=1 seek=8 conv=notrunc status=none
   rm -rf squashfs-root AppDir
-  "./Eden-${pkgver}.AppImage" --appimage-extract ".DirIcon" >/dev/null 2>&1 || true
+  ./extract.AppImage --appimage-extract ".DirIcon" >/dev/null 2>&1 || true
   local root=squashfs-root; [ -d AppDir ] && root=AppDir
   local tgt; tgt="$(readlink "${root}/.DirIcon" 2>/dev/null || true)"
   while [ -n "${tgt}" ]; do
-    "./Eden-${pkgver}.AppImage" --appimage-extract "${tgt}" >/dev/null 2>&1 || true
+    ./extract.AppImage --appimage-extract "${tgt}" >/dev/null 2>&1 || true
     local nxt; nxt="$(readlink "${root}/${tgt}" 2>/dev/null || true)"
     [ -n "${nxt}" ] || break
     tgt="${nxt}"

@@ -140,6 +140,9 @@ case "${ROTATION}" in
           GS_ROTATE_ARGS="--use-rotation-shader" ;;
 esac
 
+# (2026-10-05: measured on the RP5/SM8250 this is NOT true there: every scheduler put game threads on
+# the A55s and games ran at half speed. Games are now pinned to the fast cores by
+# pocknix-game-affinity.service in pocknix-bsp-common; gamescope and Steam stay unpinned as below.)
 # NO core pin: scx_lavd (latency- + heterogeneity-aware, pocknix-lavd.service) places the bursty
 # game/compositor threads on the big cores itself, AND needs the A510 littles free to offload batch
 # work (e.g. in-game Steam downloads) so the UI stays responsive — a hard taskset would fight it.
@@ -170,9 +173,20 @@ GS_LOG="${HOME}/pocknix-steam.log"
 # them here was a no-op). GAMESCOPE_DISABLE_ASYNC_FLIPS=1 was a 120/3=40fps vsync staircase — dropping
 # it lets frames exceed 40. Now bare, matching ROCKNIX's launch. -noshaders matches ROCKNIX too (stops
 # Steam's fossilize background shader compile stealing CPU during play).
+# POCKNIX_GAMESCOPE_REFRESH (board conf or /etc/pocknix/device.conf): pick the panel mode with this
+# refresh rate instead of the preferred one. Only for a rate the panel really lists (the RP5 Visionox
+# panel lists 120 and 60); gamescope generates a timing for anything else, which wedged the DPU before.
+# POCKNIX_GAMESCOPE_REFRESH_PREFER_LOWEST=1 (board conf): on a panel with several refresh rates, a
+# frame limit picks the lowest rate it divides instead of the highest (gamescope 0008). RP5 Visionox:
+# a 60 fps limit runs the panel at 60 Hz, 120 runs it at 120 Hz.
+# POCKNIX_GAMESCOPE_REFRESH_DEFAULT_LOWEST=1 (board conf): with no frame limit set, the panel runs at
+# its lowest rate (60 Hz on the RP5) and only goes to 120 Hz when a game's limit asks for it. The
+# rotation composite costs up to 4.7 ms per frame, over half of a 120 Hz budget (measured 2026-10-05).
 env -u WAYLAND_DISPLAY \
   GAMESCOPE_FAKE_OUTPUT_MM="${PANEL_MM}" \
-  gamescope -W "${W}" -H "${H}" --xwayland-count 2 --mangoapp --backend drm \
+  ${POCKNIX_GAMESCOPE_REFRESH_PREFER_LOWEST:+GAMESCOPE_DYNAMIC_REFRESH_PREFER_LOWEST=${POCKNIX_GAMESCOPE_REFRESH_PREFER_LOWEST}} \
+  ${POCKNIX_GAMESCOPE_REFRESH_DEFAULT_LOWEST:+GAMESCOPE_DYNAMIC_REFRESH_DEFAULT_LOWEST=${POCKNIX_GAMESCOPE_REFRESH_DEFAULT_LOWEST}} \
+  gamescope -W "${W}" -H "${H}" ${POCKNIX_GAMESCOPE_REFRESH:+-r ${POCKNIX_GAMESCOPE_REFRESH}} --xwayland-count 2 --mangoapp --backend drm \
     --force-orientation "${ORIENT}" ${GS_ROTATE_ARGS} -e -- \
     env LD_LIBRARY_PATH="${LDLP}" "${CLIENT}" -gamepadui -steamos3 -steampal -steamdeck -noverifyfiles -noshaders \
   >"${GS_LOG}" 2>&1

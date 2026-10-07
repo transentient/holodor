@@ -5,7 +5,7 @@
 # devices/<name>/packages/pocknix-bsp-<name>, which depends on this package.
 pkgname=pocknix-bsp-common
 pkgver=0.1.0
-pkgrel=23   # 23 (2026-09-27): pocknix-input-check (boot-time InputPlumber layout self-check, journal tag pocknix-input-check + /run/pocknix/input-check); .install enables it. 22: WP2 resume dead-controls (2026-09-24): READ-ONLY post-resume forensics
+pkgrel=25   # 25 (2026-10-06): pocknix-game-affinity moves dxvk-shader-* threads to all cores every 5 s (they inherited the big-core pin and competed with the render thread).   # 24 (2026-10-05): NEW pocknix-game-affinity.service - pins every Steam-launched game to the fast cores on big.LITTLE SoCs (RP5: 34-44 fps with 5 % of frames over 51-71 ms -> 64-89 fps with 5 % over 15-18 ms, measured with gamescope frame timings inside one run; no-op on the Odin 3). ALSO: pocknix-wifi-heal finds the wifi netdev by type (not wlan0), waits ~1 min before touching anything and ~2 min before the PCIe reset, and re-activates the profile after the reset. RP5 10-03..05: a first-association refusal after a 14 h sleep was escalated into a PCIe reset within 45 s; the chip came back as wlan1, the wlan0-pinned profile could never match again, wifi stayed dead after every wake until a reboot. 23 (2026-09-27): pocknix-input-check (boot-time InputPlumber layout self-check, journal tag pocknix-input-check + /run/pocknix/input-check); .install enables it. 22: WP2 resume dead-controls (2026-09-24): READ-ONLY post-resume forensics
             #     (sleep.d/post/090-input-forensics -> journalctl -t pocknix-input-forensics),
             #     pocknix-resume-recover (manual H1/H2/H3/H4 ladder, never auto-run), and the
             #     InputPlumber #732 udev workaround 99-pocknix-inputplumber-target.rules (belt;
@@ -38,8 +38,9 @@ source=('pocknix-sleep' 'sdam-debug-pre' 'sdam-debug-post'
         '60-pocknix-usb-autosuspend.rules'
         'input-forensics-post' 'pocknix-input-forensics' 'pocknix-resume-recover'
         '99-pocknix-inputplumber-target.rules'
-        'pocknix-input-check' 'pocknix-input-check.service')
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+        'pocknix-input-check' 'pocknix-input-check.service'
+        'pocknix-game-affinity' 'pocknix-game-affinity.service')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   # systemd system-sleep hook that dispatches our sleep.d/{pre,post} scripts
@@ -148,6 +149,12 @@ package() {
   # Post-resume Wi-Fi self-heal (called async by the 000-wifi post hook).
   install -Dm755 "${srcdir}/pocknix-wifi-heal" \
     "${pkgdir}/usr/lib/pocknix/pocknix-wifi-heal"
+  # Games on the fast cores of a big.LITTLE SoC (no-op where every core is fast). See the script header
+  # for the RP5 measurements behind it.
+  install -Dm755 "${srcdir}/pocknix-game-affinity" \
+    "${pkgdir}/usr/lib/pocknix/pocknix-game-affinity"
+  install -Dm644 "${srcdir}/pocknix-game-affinity.service" \
+    "${pkgdir}/usr/lib/systemd/system/pocknix-game-affinity.service"
 
   # Power button: wake-and-stay (HandlePowerKey=ignore) instead of systemd's default
   # poweroff (which made a wake-press shut the device down). Sleep via the Steam menu.

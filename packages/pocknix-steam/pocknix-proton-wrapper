@@ -138,6 +138,144 @@ def apply_audio_latency(settings):
         os.environ["PULSE_LATENCY_MSEC"] = value
 
 
+def apply_audio_driver():
+    # proton-cachyos turns on Wine's PipeWire audio driver for every game. Its streams carry no
+    # channel names, and WirePlumber links them into Steam's per-game audio group crossed: game left
+    # came out of the right speaker (measured 2026-10-05 on the RP5 with a left-only tone played by
+    # a Windows program launched from Steam). The PulseAudio driver names its channels, is what
+    # Valve's Proton uses, and is the one PULSE_LATENCY_MSEC above applies to.
+    # `PROTON_USE_PIPEWIRE=1 %command%` in a game's launch options still wins.
+    os.environ.setdefault("PROTON_USE_PIPEWIRE", "0")
+
+
+def apply_protonfixes(settings):
+    # proton-cachyos ships protonfixes, which on a game's first launch may run winetricks verbs
+    # (vcrun2017 for Dark Souls Remastered, ...). Under our Wine the vc_redist installer never
+    # returned (12 min spinner, 2026-10-06) and killing it left a prefix that could not start
+    # (native ucrtbase in system32, no overrides). Valve's Proton has no protonfixes and the
+    # same games run on the Deck without them, so fixes are OFF unless the game's tweaks say
+    # "protonfixes": true (Pocknix Control) or the launch options set PROTONFIXES_DISABLE.
+    if "PROTONFIXES_DISABLE" in os.environ:
+        return
+    os.environ["PROTONFIXES_DISABLE"] = "0" if settings.get("protonfixes") is True else "1"
+
+
+FIRST_LAUNCH_GRACE = int(os.environ.get("POCKNIX_FIRST_LAUNCH_GRACE", "300"))
+
+
+def game_exe_name(args):
+    # proton <verb> <path to game exe> ... : the game's executable name, for the watchdog
+    for a in args[2:]:
+        if a.lower().endswith(".exe"):
+            return os.path.basename(a)
+    return None
+
+
+def exe_running(name):
+    name = name.lower()
+    for d in os.listdir("/proc"):
+        if not d.isdigit():
+            continue
+        try:
+            with open(f"/proc/{d}/cmdline", "rb") as f:
+                cmd = f.read().split(b"\0")[0].decode("utf-8", "replace").lower()
+        except OSError:
+            continue
+        if cmd.endswith(name) or cmd.endswith(name.replace(".exe", "")):
+            return True
+    return False
+
+
+def process_tree(root):
+    # root and every descendant, children first (read once from /proc; good enough to kill a tree)
+    children = {}
+    for d in os.listdir("/proc"):
+        if not d.isdigit():
+            continue
+        try:
+            with open(f"/proc/{d}/stat") as f:
+                ppid = int(f.read().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            continue
+        children.setdefault(ppid, []).append(int(d))
+    order, stack = [], [root]
+    while stack:
+        pid = stack.pop()
+        order.append(pid)
+        stack.extend(children.get(pid, []))
+    return list(reversed(order))
+
+
+def gamescopectl(*words):
+    import subprocess
+    try:
+        subprocess.run(["gamescopectl", *words], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def wants_120hz(settings):
+    # Pocknix Control per-game toggle "refresh120": run the panel at its highest rate for this
+    # game. Default is gamescope's dynamic_refresh_default_lowest=1 (60 Hz on the RP5), set in
+    # the session; we flip the convar for the game's lifetime and restore it when it exits.
+    return settings.get("refresh120") is True
+
+
+def run_with_first_launch_guard(real_proton, args):
+    # First launch of a game = its Wine prefix does not exist yet. Proton then builds the prefix
+    # and (with protonfixes) may run installers before the game starts. If the game's exe is
+    # still not running FIRST_LAUNCH_GRACE seconds later, something in that setup is stuck:
+    # kill the tree and move the half-built prefix aside so the next launch starts clean.
+    # Later launches exec Proton directly as before.
+    compat = os.environ.get("STEAM_COMPAT_DATA_PATH", "")
+    pfx = pathlib.Path(compat) / "pfx" if compat else None
+    exe = game_exe_name(args)
+    first_launch = bool(pfx and exe and not pfx.exists())
+    if not first_launch and not RESTORE_REFRESH:
+        os.execv(real_proton, args)
+    import signal
+    import shutil
+    import subprocess
+    child = subprocess.Popen(args, executable=real_proton)
+
+    def forward(signum, _frame):
+        try:
+            child.send_signal(signum)
+        except OSError:
+            pass
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, forward)
+
+    deadline = time.monotonic() + FIRST_LAUNCH_GRACE
+    started = not first_launch
+    while child.poll() is None:
+        if not started and exe_running(exe):
+            started = True
+        if not started and time.monotonic() > deadline:
+            print(f"pocknix-proton: {exe} not running {FIRST_LAUNCH_GRACE}s after a first launch; "
+                  f"giving up and discarding the half-built prefix", file=sys.stderr)
+            for pid in process_tree(child.pid):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            child.wait()
+            broken = pfx.parent / f"pfx.broken-{int(time.time())}"
+            try:
+                shutil.move(str(pfx), str(broken))
+                print(f"pocknix-proton: prefix moved to {broken}", file=sys.stderr)
+            except OSError as exc:
+                print(f"pocknix-proton: could not move the prefix: {exc}", file=sys.stderr)
+            sys.exit(1)
+        time.sleep(2)
+    if RESTORE_REFRESH:
+        gamescopectl("dynamic_refresh_default_lowest", "1")
+    sys.exit(child.returncode)
+
+
+RESTORE_REFRESH = False
+
+
 def apply_lsfg(settings):
     # lsfg-vk v2 env contract (LSFGVK_*, not the v1 LSFG_* names). Mobile-tuned
     # defaults per ROCKNIX: 2x, flow_scale 0.30, performance_mode on. The user
@@ -185,13 +323,19 @@ def main():
         apply_audio_latency(settings)
     except Exception as exc:
         print(f"pocknix-proton: failed to apply audio latency: {exc}", file=sys.stderr)
+    apply_audio_driver()
+    apply_protonfixes(settings)
+    if wants_120hz(settings):
+        global RESTORE_REFRESH
+        RESTORE_REFRESH = True
+        gamescopectl("dynamic_refresh_default_lowest", "0")
     try:
         apply_lsfg(settings)
     except Exception as exc:
         print(f"pocknix-proton: failed to apply frame insertion: {exc}", file=sys.stderr)
 
     try:
-        os.execv(real_proton, args)
+        run_with_first_launch_guard(real_proton, args)
     except OSError as exc:
         raise SystemExit(f"pocknix-proton: failed to exec Proton: {exc}")
 

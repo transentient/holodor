@@ -1,0 +1,14 @@
+[Unit]
+Description=pocknix: keep games on the fast cores (big.LITTLE SoCs)
+After=multi-user.target
+
+[Service]
+Type=simple
+User=deck
+ExecStart=/usr/lib/pocknix/pocknix-game-affinity
+Restart=on-failure
+RestartSec=5
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

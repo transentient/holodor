@@ -16,14 +16,14 @@
 #     (pocknix-bootloader-sm8250), not in a boot-image rebuild file.
 pkgname=pocknix-bsp-sm8250
 pkgver=0.1.0
-pkgrel=20   # 20: Speaker = software volume + fixed gains (digital 124, PA 10), chain at unity — the Odin model; 19: slider -> WSA digital volume remap ("Speakers Digital"), heal no longer plants it; 18: Speaker sink = software volume (no PlaybackMixerElem; slider vs PA register mismatch at boot); 17: boards/*.conf POCKNIX_BOOT_STYLE=qcom-abl (the installer read arm-efi and died looking for EFI/BOOT on the SD; RP5 internal install 2026-09-29); 16: deck-uhid target (the "deck" target is USB/IP-backed in InputPlumber 0.81: loads vhci_hcd, two busy kernel threads, and blocks suspend with -EBUSY); 15: kernel-cmdline fbcon=logo-pos:center (boot logo, like sm8750)
+pkgrel=26   # 26 (2026-10-06): rp5.conf POCKNIX_GAMESCOPE_REFRESH_DEFAULT_LOWEST=1 (panel 60 Hz unless a game's limit asks for 120; gamescope 6, pocknix-steam 47).   # 25 (2026-10-06): speaker loudness filter hidden from Steam/Pulse device lists (Audio/Sink/Internal; apps pick Speaker, the smart filter still sits in front).   # 24 (2026-10-06, UCA202-measured): headphone jack warble fixed: RX compander off + class-AB amp mode + digital 122 (the stock sequence ducked everything 18 dB on loud passages).   # 23 (2026-10-05): RP5 120 Hz back: boards/rp5.conf drops the 60 Hz pin for POCKNIX_GAMESCOPE_REFRESH_PREFER_LOWEST=1 (Steam menus 120 Hz, a 60 fps limit switches the panel to 60 Hz live). Needs gamescope >= 5, pocknix-steam >= 46.   # 22 (2026-10-05): boards/rp5.conf POCKNIX_GAMESCOPE_REFRESH=60 - game mode on the panel's 60 Hz mode (at 120 Hz frames slipped a refresh every 65-75 ms with or without Steam's limiter; at 60 Hz 98 % of frames last exactly one refresh). Needs pocknix-steam >= 45.   # 21 (2026-10-05, mic-measured on the RP5): speaker compander off (it pumped 4-8 dB = the "warble", and made 45 % and 70 % the same loudness), ceiling = digital 114 (full-scale tone ~3 % THD), limiter makeup +12, NEW pocknix-speaker-volume (user service): plants the gains during playback and gives the slider an even 30 dB law (90 % -3 dB, 50 % -15, 25 % -22.5, 0 = mute; measured within 0.3 dB); 20: Speaker = software volume + fixed gains (digital 124, PA 10), chain at unity — the Odin model; 19: slider -> WSA digital volume remap ("Speakers Digital"), heal no longer plants it; 18: Speaker sink = software volume (no PlaybackMixerElem; slider vs PA register mismatch at boot); 17: boards/*.conf POCKNIX_BOOT_STYLE=qcom-abl (the installer read arm-efi and died looking for EFI/BOOT on the SD; RP5 internal install 2026-09-29); 16: deck-uhid target (the "deck" target is USB/IP-backed in InputPlumber 0.81: loads vhci_hcd, two busy kernel threads, and blocks suspend with -EBUSY); 15: kernel-cmdline fbcon=logo-pos:center (boot logo, like sm8750)
 pkgdesc="pocknix board support: SM8250 family (RP5, RP Flip 2) — runtime board dispatch, input maps, audio UCM, wake quirks"
 arch=('any')
 url="https://github.com/shuuri-labs/pocknix-os"
 license=('GPL2')
 # swh-plugins: the LADSPA fast lookahead limiter used by the speaker loudness
 # filter-chain (60-pocknix-speaker-loudness.conf).
-depends=('pocknix-bsp-common' 'swh-plugins')
+depends=('pocknix-bsp-common' 'swh-plugins' 'python' 'libpulse' 'alsa-utils')
 # Exactly one device BSP may be installed: every pocknix-bsp-<target> provides and
 # conflicts 'pocknix-bsp', so pacman refuses a second target's BSP (the wrong-device
 # guard for a shared repo).
@@ -40,10 +40,11 @@ source=('device.conf'
         'pocknix-sm8250-audio-heal' 'pocknix-sm8250-audio-heal.service'
         'pocknix-sm8250-board-select' 'pocknix-sm8250-board-select.service'
         '51-pocknix-softmixer.conf' '60-pocknix-speaker-loudness.conf'
+        'pocknix-speaker-volume' 'pocknix-speaker-volume.service'
         '52-pocknix-default-volume.conf' 'kernel-cmdline' '91-pocknix-cmdline.hook')
 sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP'
             'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP'
-            'SKIP' 'SKIP' 'SKIP' 'SKIP')
+            'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   # Runtime device facts: the model dispatcher + per-board files. boards/ is
@@ -111,6 +112,15 @@ package() {
   install -d "${pkgdir}/usr/lib/systemd/system/suspend.target.wants"
   ln -sf ../pocknix-sm8250-audio-resume.service \
     "${pkgdir}/usr/lib/systemd/system/suspend.target.wants/pocknix-sm8250-audio-resume.service"
+
+  # bsp 21: the speaker volume daemon (gain structure + slider law), a per-user service enabled for
+  # every user the way pocknix-proton-prep is.
+  install -Dm755 "${srcdir}/pocknix-speaker-volume" "${pkgdir}/usr/lib/pocknix/pocknix-speaker-volume"
+  install -Dm644 "${srcdir}/pocknix-speaker-volume.service" \
+    "${pkgdir}/usr/lib/systemd/user/pocknix-speaker-volume.service"
+  install -d "${pkgdir}/usr/lib/systemd/user/default.target.wants"
+  ln -sf ../pocknix-speaker-volume.service \
+    "${pkgdir}/usr/lib/systemd/user/default.target.wants/pocknix-speaker-volume.service"
 
   # The RP5 loudness stack (validated by ear 2026-07-16; see each file's header):
   #   * soft-mixer: PipeWire's hardware-volume mapping caps the path at 0dB

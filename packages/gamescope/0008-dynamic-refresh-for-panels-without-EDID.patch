@@ -1,0 +1,183 @@
+From: Holodor <holodor@bonesaw.com>
+Subject: [PATCH] Dynamic refresh for panels without an EDID
+
+DSI panels (Retroid Pocket 5: 1080x1920 at 60 and 120 Hz) have no EDID
+property, so ParseEDID() returned before the code that offers the panel's
+other refresh rates to Steam. gamescope then reported one valid rate and
+Steam had no refresh control.
+
+Offer every refresh rate the connector lists at its preferred resolution
+when there is no EDID, the same as for an unknown display that has one.
+
+GAMESCOPE_DYNAMIC_REFRESH_PREFER_LOWEST=1 makes an app fps target pick the
+lowest matching panel rate instead of the highest. On a 60/120 Hz panel a
+60 fps target then runs the panel at 60 Hz, one frame per refresh, instead
+of every second refresh at 120 Hz.
+
+GAMESCOPE_DYNAMIC_REFRESH_DEFAULT_LOWEST=1 (convar dynamic_refresh_default_lowest,
+changeable with gamescopectl) runs the panel at its lowest rate
+when no app target is set (Steam UI, uncapped games); a target that divides
+a higher rate still switches up.
+---
+--- a/src/Backends/DRMBackend.cpp
++++ b/src/Backends/DRMBackend.cpp
+@@ -506,6 +506,7 @@
+ 
+ 	private:
+ 		void ParseEDID();
++		void AddConnectorModesAsDynamicRefreshRates();
+ 
+ 
+ 		CDRMBackend *m_pBackend = nullptr;
+@@ -2313,14 +2314,42 @@
+ 		}
+ 	}
+ 
+-	void CDRMConnector::ParseEDID()
++	// Panels without an EDID (DSI panels on phones and handhelds) still list
++	// their modes on the connector. Offer every refresh rate the panel has at
++	// its preferred resolution, the same as an unknown display with an EDID.
++	void CDRMConnector::AddConnectorModesAsDynamicRefreshRates()
+ 	{
+-		if ( !GetProperties().EDID )
++		if ( GetScreenType() != GAMESCOPE_SCREEN_TYPE_INTERNAL && !cv_drm_allow_dynamic_modes_for_external_display )
++			return;
++
++		const drmModeModeInfo *pPreferredMode = find_mode( m_pConnector.get(), 0, 0, 0 );
++		if ( !pPreferredMode )
+ 			return;
+ 
+-		uint64_t ulBlobId = GetProperties().EDID->GetCurrentValue();
++		for (int i = 0; i < m_pConnector->count_modes; i++)
++		{
++			const drmModeModeInfo *pMode = &m_pConnector->modes[i];
++
++			if ( pMode->hdisplay != pPreferredMode->hdisplay || pMode->vdisplay != pPreferredMode->vdisplay )
++				continue;
++
++			if ( !Algorithm::Contains( m_Mutable.ValidDynamicRefreshRates, pMode->vrefresh ) )
++			{
++				m_Mutable.ValidDynamicRefreshRates.push_back( pMode->vrefresh );
++			}
++		}
++
++		std::sort( m_Mutable.ValidDynamicRefreshRates.begin(), m_Mutable.ValidDynamicRefreshRates.end() );
++	}
++
++	void CDRMConnector::ParseEDID()
++	{
++		uint64_t ulBlobId = GetProperties().EDID ? GetProperties().EDID->GetCurrentValue() : 0;
+ 		if ( !ulBlobId )
++		{
++			AddConnectorModesAsDynamicRefreshRates();
+ 			return;
++		}
+ 
+ 		drmModePropertyBlobRes *pBlob = drmModeGetPropertyBlob( g_DRM.fd, ulBlobId );
+ 		if ( !pBlob )
+@@ -2479,30 +2508,7 @@
+ 			else
+ 			{
+ 				// Unknown display, see if there are any other refresh rates in the EDID we can get.
+-				if ( GetScreenType() == GAMESCOPE_SCREEN_TYPE_INTERNAL || cv_drm_allow_dynamic_modes_for_external_display )
+-				{
+-					const drmModeModeInfo *pPreferredMode = find_mode( m_pConnector.get(), 0, 0, 0 );
+-
+-					if ( pPreferredMode )
+-					{
+-						// See if the EDID has any modes for us.
+-						for (int i = 0; i < m_pConnector->count_modes; i++)
+-						{
+-							const drmModeModeInfo *pMode = &m_pConnector->modes[i];
+-
+-							if ( pMode->hdisplay != pPreferredMode->hdisplay || pMode->vdisplay != pPreferredMode->vdisplay )
+-								continue;
+-
+-							
+-							if ( !Algorithm::Contains( m_Mutable.ValidDynamicRefreshRates, pMode->vrefresh ) )
+-							{
+-								m_Mutable.ValidDynamicRefreshRates.push_back( pMode->vrefresh );
+-							}
+-						}
+-
+-						std::sort( m_Mutable.ValidDynamicRefreshRates.begin(), m_Mutable.ValidDynamicRefreshRates.end() );
+-					}
+-				}
++				AddConnectorModesAsDynamicRefreshRates();
+ 			}
+ 		}
+ 
+--- a/src/steamcompmgr.cpp
++++ b/src/steamcompmgr.cpp
+@@ -953,6 +953,15 @@
+ // Delay to stop modes flickering back and forth.
+ static const uint64_t g_uDynamicRefreshDelay = 600'000'000; // 600ms
+ 
++// dynamic_refresh_default_lowest: with no app target, or with the default "highest rate" target
++// Steam sends for every game, run the panel at its lowest listed rate. A target for any other
++// rate still switches. Initial value from GAMESCOPE_DYNAMIC_REFRESH_DEFAULT_LOWEST; change it at
++// runtime with `gamescopectl dynamic_refresh_default_lowest 0|1` (a per-game "120 Hz" toggle).
++extern bool env_to_bool(const char *env);
++gamescope::ConVar<bool> cv_dynamic_refresh_default_lowest( "dynamic_refresh_default_lowest",
++	env_to_bool( getenv( "GAMESCOPE_DYNAMIC_REFRESH_DEFAULT_LOWEST" ) ),
++	"Run the panel at its lowest refresh rate unless an app target asks for a specific other rate." );
++
+ static int g_nCombinedAppRefreshCycleOverride[gamescope::GAMESCOPE_SCREEN_TYPE_COUNT] = { 0, 0 };
+ bool g_nCombinedAppRefreshCycleChangeRefresh[gamescope::GAMESCOPE_SCREEN_TYPE_COUNT] = { true, true };
+ bool g_nCombinedAppRefreshCycleChangeFPS[gamescope::GAMESCOPE_SCREEN_TYPE_COUNT] = { true, true };
+@@ -983,6 +992,31 @@
+ 	{
+ 		auto rates = GetBackend()->GetCurrentConnector()->GetValidDynamicRefreshRates();
+ 
++		// GAMESCOPE_DYNAMIC_REFRESH_PREFER_LOWEST=1: take the lowest matching
++		// mode instead, so a 60 fps target on a 60/120 Hz panel runs the
++		// panel at 60 Hz (one frame per refresh) rather than doubling at 120.
++		static const bool s_bPreferLowest = env_to_bool( getenv( "GAMESCOPE_DYNAMIC_REFRESH_PREFER_LOWEST" ) );
++		// Steam's default per-game profile asks for the panel's highest rate (120 fps cap +
++		// refresh switching), the same request as a user picking 120. With the convar on, treat
++		// a highest-rate target as "no preference" and keep the lowest rate.
++		if ( cv_dynamic_refresh_default_lowest && rates.size() > 1 && target_fps == (int)rates[ rates.size() - 1 ] )
++		{
++			g_nDynamicRefreshRate[ type ] = rates[ 0 ];
++			return;
++		}
++
++		if ( s_bPreferLowest )
++		{
++			for ( auto rate = rates.begin(); rate != rates.end(); rate++ )
++			{
++				if (*rate % target_fps == 0)
++				{
++					g_nDynamicRefreshRate[ type ] = *rate;
++					return;
++				}
++			}
++		}
++
+ 		// Find highest mode to do refresh doubling with.
+ 		for ( auto rate = rates.rbegin(); rate != rates.rend(); rate++ )
+ 		{
+@@ -1008,6 +1042,8 @@
+ 	g_nCombinedAppRefreshCycleOverride[ type ] = override_fps;
+ 	g_nCombinedAppRefreshCycleChangeRefresh[ type ] = change_refresh;
+ 	g_nCombinedAppRefreshCycleChangeFPS[ type ] = change_fps_cap;
++	fprintf( stderr, "steamcompmgr: app target refresh cycle: %d fps, change_refresh=%d, change_fps_cap=%d\n",
++		override_fps, (int)change_refresh, (int)change_fps_cap );
+ 	update_app_target_refresh_cycle();
+ }
+ 
+@@ -2785,9 +2821,13 @@
+ 
+ 		int nDynamicRefreshHz = g_nDynamicRefreshRate[GetBackend()->GetScreenType()];
+ 
++		// GAMESCOPE_DYNAMIC_REFRESH_DEFAULT_LOWEST=1: with no app target, run the panel at its
++		// lowest rate instead of its highest. On a 60/120 Hz panel where compositing a frame
++		// costs a large share of the 120 Hz budget, 60 Hz is the safe default and 120 Hz
++		// is used when an app target asks for it.
+ 		int nTargetRefreshHz = nDynamicRefreshHz && steamcompmgr_window_should_refresh_switch( pFocus->focusWindow )
+ 			? nDynamicRefreshHz
+-			: int( rates[ rates.size() - 1 ] );
++			: int( cv_dynamic_refresh_default_lowest ? rates[ 0 ] : rates[ rates.size() - 1 ] );
+ 
+ 		uint64_t now = get_time_in_nanos();
+ 

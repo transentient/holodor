@@ -1,0 +1,13 @@
+[Unit]
+Description=pocknix: speaker gain structure + even volume slider (sm8250)
+After=pipewire.service pipewire-pulse.service wireplumber.service
+Wants=pipewire-pulse.service
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/pocknix/pocknix-speaker-volume
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

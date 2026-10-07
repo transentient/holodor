@@ -4,6 +4,10 @@ export interface GameTweak {
   fexProfile?: string;
   /** Audio buffer in ms (PULSE_LATENCY_MSEC exported by pocknix-proton-wrapper); "" = game default. */
   audioLatency?: string;
+  /** Run the panel at its highest refresh rate (120 Hz) for this game; default is the lowest (60 Hz). */
+  refresh120?: boolean;
+  /** Let Proton's game-specific fixes (protonfixes) run; off by default because their winetricks steps hang here. */
+  protonfixes?: boolean;
   [key: string]: any;
 }
 

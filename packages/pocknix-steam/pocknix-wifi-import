@@ -78,13 +78,15 @@ if [ -n "${COUNTRY}" ]; then
 fi
 
 # --- NetworkManager keyfile (fixed filename: the SSID may contain '/' etc.) ---
+# No interface-name: the wifi netdev is not always wlan0. A firmware reload (the resume heal's PCIe
+# reset) brings it back as wlan1, and a profile pinned to wlan0 then makes NetworkManager cancel
+# every connection iwd starts (RP5, 2026-10-03..05: wifi dead after sleep until a reboot).
 install -d -m 700 "${NM_DIR}"
 NMFILE="${NM_DIR}/wifi-import.nmconnection"
 cat > "${NMFILE}" <<EOF
 [connection]
 id=${SSID}
 type=wifi
-interface-name=wlan0
 autoconnect=true
 autoconnect-retries=0
 

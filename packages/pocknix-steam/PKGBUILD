@@ -4,7 +4,7 @@
 # Steam is experimental (Valve publicbeta linuxarm64).
 pkgname=pocknix-steam
 pkgver=0.1.0
-pkgrel=43   # 43: pocknix-proton-prep swaps the DXVK-2.7 donor into the downloaded Valve ARM Proton on
+pkgrel=48   # 48 (2026-10-06): per-game "refresh120" tweak flips gamescope dynamic_refresh_default_lowest for the game's lifetime (gamescope 8).   # 47 (2026-10-06): first-launch guard (no game exe 5 min after a first launch -> kill + move the half-built prefix aside), protonfixes OFF by default (tweaks "protonfixes": true or PROTONFIXES_DISABLE in launch options override), POCKNIX_GAMESCOPE_REFRESH_DEFAULT_LOWEST -> gamescope 6.   # 46 (2026-10-05): games default to Wine's PulseAudio driver (proton-cachyos' PipeWire driver came out left/right swapped in 2 of 6 launches and silent in 3 of 6, measured on the RP5; 12 of 12 correct after); POCKNIX_GAMESCOPE_REFRESH_PREFER_LOWEST -> gamescope 0008.   # 45 (2026-10-05): POCKNIX_GAMESCOPE_REFRESH (board conf) -> gamescope -r, to run a panel on a listed lower refresh mode (RP5 Visionox: 60).   # 44 (2026-10-05): pocknix-wifi-import no longer pins the profile to interface-name=wlan0 (see bsp-common 24: after a firmware reload the netdev is wlan1 and the pinned profile makes NetworkManager cancel every iwd connection). 43: pocknix-proton-prep swaps the DXVK-2.7 donor into the downloaded Valve ARM Proton on
             #     POCKNIX_GPU_DXVK3=no boards (sm8250/a650; upstream d3b4743). 42: POCKNIX_ROTATION=shader|hw
             #     switch in the launcher (docs/rotation-experiment-2026-09-20.md)
 pkgdesc="Native ARM64 Steam Big Picture (gamescope) for the RP6 — installer + launcher"

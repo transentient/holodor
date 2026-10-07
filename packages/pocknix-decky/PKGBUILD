@@ -10,7 +10,7 @@
 # The plugin frontend (dist/index.js) is prebuilt and committed — no node at package build time.
 pkgname=pocknix-decky
 pkgver=0.1.0
-pkgrel=20  # 20 (2026-09-27): STICKS section: Zero/Reset stick centres (pocknix-input-calibration; per-unit rsinput centre offsets). 19: native decky-loader package (no FEX, no binfmt namespace, no x86 seeding); updater owned by pacman. 18: loader unit waits for Steam + Nice 10 (boot-time CPU to Steam). 17: DOWNLOADS section: stay-awake-for-downloads switch (always/plugged/never). 16: custom fan curves: FAN section with live graph + readout, fullscreen curve editor (touch drag / d-pad), user curves in /etc/pocknix/fan-curves, dynamic curve list. 15: Stick LEDs section
+pkgrel=21  # 21 (2026-10-06): per-game toggles "120 Hz Screen" (refresh120) and "Proton Game Fixes" (protonfixes), read by pocknix-proton-wrapper 48. 20 (2026-09-27): STICKS section: Zero/Reset stick centres (pocknix-input-calibration; per-unit rsinput centre offsets). 19: native decky-loader package (no FEX, no binfmt namespace, no x86 seeding); updater owned by pacman. 18: loader unit waits for Steam + Nice 10 (boot-time CPU to Steam). 17: DOWNLOADS section: stay-awake-for-downloads switch (always/plugged/never). 16: custom fan curves: FAN section with live graph + readout, fullscreen curve editor (touch drag / d-pad), user curves in /etc/pocknix/fan-curves, dynamic curve list. 15: Stick LEDs section
 pkgdesc="Decky Loader service integration + Pocknix Control QAM plugin"
 arch=('any')
 url="https://github.com/shuuri-labs/pocknix-os"

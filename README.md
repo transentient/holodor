@@ -6,15 +6,17 @@
 
 ## Download
 
+Holodor supports the **AYN Odin 3** and the **Retroid Pocket 5**. Each device has its own image and its own install guide; pick yours at [holodor.bonesaw.com](https://holodor.bonesaw.com).
+
 **[Download Holodor for AYN Odin 3 (20261002b, 3.1 GB)](https://holodor.bonesaw.com/holodor-odin3-20261002b-seedless.img.zst)** · [SHA-256 checksum](https://holodor.bonesaw.com/holodor-odin3-20261002b-seedless.img.zst.sha256)
 
 Direct URL: https://holodor.bonesaw.com/holodor-odin3-20261002b-seedless.img.zst
 
-Released 2026-09-27. Before you write the card, read **[INSTALL.md](INSTALL.md)**. It also covers a one-time bootloader step in Android.
+Released 2026-09-27. Before you write the card, read the **[Odin 3 install guide](INSTALL-odin3.md)**. It also covers a one-time bootloader step in Android. Retroid Pocket 5: **[RP5 install guide](INSTALL-rp5.md)**.
 
 Holodor takes Valve's Holo Core (the official ARM64 SteamOS userland) and mashes it up with the ROCKNIX mainline kernel so it actually runs on Qualcomm chips. It boots straight into Steam Big Picture, leaving your Android partition intact.
 
-Right now, it's only built and tested for the **AYN Odin 3**. The Retroid Pocket 5 is on the radar, and the build system is set up to add more Snapdragon devices later. Assume everything below is about the Odin 3.
+It is built and tested for the **AYN Odin 3** and the **Retroid Pocket 5**, and the build system is set up to add more Snapdragon devices later. The Odin 3 is the faster of the two by a wide margin; see each device's games page for what runs well ([Odin 3](docs/games-odin3.md), [RP5](docs/games-rp5.md)).
 
 *The name: Holo Core + Odin + that one big guy who held the door.*
 
@@ -67,13 +69,14 @@ I found s.salmon on /r/pixelart. It was a great experience working with them! Th
 
 - Heavy AAA games run around **20-30 fps**. The Snapdragon GPU driver is still young. FSR and frame generation help smooth it out a lot, but don't expect miracles. Indie and 2D games run flawlessly.
 - Kernel-level anti-cheat (EAC, BattlEye) doesn't work. This is an ARM-wide problem that Valve is still figuring out.
+- Holodor runs Valve's ARM64 Steam client, which Valve builds for its own hardware (the Steam Frame) and does not support anywhere else. Bugs in the client itself, as opposed to in Holodor, may stay unfixed; Valve closes ARM reports on its tracker as unsupported.
 - The Steam overlay glitches out in some heavier games. There's a workaround included; working on a real fix.
 - Decky Loader may offer you its own update. Decline it. Decky updates arrive through Pocknix Control's Updater with everything else.
 - Unreal Engine 5 games (Expedition 33 and friends) show a black screen with sound. Adding `-dx11` to the game's launch options makes them run, but not at a playable frame rate yet. A driver fix is in progress.
 
 ## Installation
 
-Read **[INSTALL.md](INSTALL.md)** for the step-by-step guide. The latest image is here: [holodor-odin3-20261002b-seedless.img.zst](https://holodor.bonesaw.com/holodor-odin3-20261002b-seedless.img.zst) (3.1 GB) ([checksum](https://holodor.bonesaw.com/holodor-odin3-20261002b-seedless.img.zst.sha256)).
+Read the guide for your device: **[AYN Odin 3](INSTALL-odin3.md)** or **[Retroid Pocket 5](INSTALL-rp5.md)**. The latest image is here: [holodor-odin3-20261002b-seedless.img.zst](https://holodor.bonesaw.com/holodor-odin3-20261002b-seedless.img.zst) (3.1 GB) ([checksum](https://holodor.bonesaw.com/holodor-odin3-20261002b-seedless.img.zst.sha256)).
 
 **TL;DR:** Grab the image and the ROCKNIX bootloader. Flash them to an SD card, use the new bootloader to set up the boot menu from Android (back up your stock bootloader when it tells you to!). Boot from the SD card to test it out. If you like it, use the Holodor Installer app to flash it to your internal storage alongside Android. The guide also covers how to revert back to stock.
 

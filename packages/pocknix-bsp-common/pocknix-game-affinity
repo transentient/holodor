@@ -1,0 +1,95 @@
+#!/bin/sh
+# pocknix-game-affinity — keep games on the fast cores of a big.LITTLE SoC.
+#
+# Measured on the Retroid Pocket 5 (SM8250: 4x A55 at capacity 284, 3x A77 at 871, 1x A77 at 1024)
+# with gamescope's own per-frame timings, alternating settings inside one Vampire Survivors run
+# (2026-10-05): the scheduler (scx_lavd in either mode, and the kernel's default one) keeps placing
+# the game's main, render and DXVK threads on the A55s, which are ~3.6x slower.
+#   as shipped (scx_lavd autopilot)      34 fps, 5 % of frames over 71 ms
+#   scx_lavd performance                 41-44 fps, 5 % over 51-57 ms
+#   kernel default scheduler             54-58 fps, 5 % over 25 ms
+#   game pinned to cpus 4-7              64-89 fps, 5 % over 15-18 ms   (lavd mode no longer matters)
+# ROCKNIX exposes the same idea as a per-game "big cores only" choice; here it is the default.
+#
+# How: Steam starts every game (Proton or native) under `reaper SteamLaunch AppId=<id> -- ...`.
+# This loop finds new reapers and sets the CPU affinity of the reaper and everything under it;
+# processes started later inherit it. The Steam client, gamescope and the rest of the system keep
+# all cores. Runs as the session user (same uid as the games), no privileges.
+#
+# Which cores: POCKNIX_GAME_CPUS in /etc/pocknix/device.conf or the board conf.
+#   auto (default)  cores with at least half the capacity of the fastest one; if that is every
+#                   core (Odin 3, x86) the service has nothing to do and exits.
+#   all             off.
+#   a cpu list      e.g. 4-7, passed to taskset -c.
+for _dc in /usr/lib/pocknix/device.conf /etc/pocknix/device.conf; do
+  [ -r "${_dc}" ] && . "${_dc}"
+done
+CPUS="${POCKNIX_GAME_CPUS:-auto}"
+[ "${CPUS}" = all ] && exit 0
+if [ "${CPUS}" = auto ]; then
+  max=0; total=0
+  for f in /sys/devices/system/cpu/cpu[0-9]*/cpu_capacity; do
+    [ -r "$f" ] || continue
+    c=$(cat "$f"); total=$((total + 1)); [ "$c" -gt "$max" ] && max=$c
+  done
+  [ "$total" -gt 0 ] || exit 0
+  CPUS=""; n=0
+  for f in /sys/devices/system/cpu/cpu[0-9]*/cpu_capacity; do
+    c=$(cat "$f"); cpu=${f%/cpu_capacity}; cpu=${cpu##*/cpu}
+    if [ $((c * 2)) -ge "$max" ]; then CPUS="${CPUS:+${CPUS},}${cpu}"; n=$((n + 1)); fi
+  done
+  [ "$n" -lt "$total" ] || exit 0          # every core is fast: nothing to do
+  [ "$n" -ge 2 ] || exit 0                 # never squeeze a game onto a single core
+fi
+command -v taskset >/dev/null 2>&1 || exit 0
+ALL_CPUS="0-$(( $(ls -d /sys/devices/system/cpu/cpu[0-9]* | wc -l) - 1 ))"
+# Threads that are better off NOT on the game's cores: DXVK's background shader compilers
+# (dxvk-shader-*) run flat out when a new scene arrives and would otherwise steal the big cores
+# from the render thread; on the little cores they only cost a longer compile, not a hitch.
+# Thread names are matched on /proc/<pid>/task/<tid>/comm every few seconds (threads inherit the
+# game's affinity when created, so a one-shot at launch cannot catch them).
+SIDE_THREADS="dxvk-shader"
+echo "pocknix-game-affinity: games -> cpus ${CPUS}; ${SIDE_THREADS}* threads -> cpus ${ALL_CPUS}"
+side_threads() {  # threads of the pids under $1 whose comm starts with a SIDE_THREADS name
+  for p in $(descendants "$1"); do
+    for t in /proc/${p}/task/*; do
+      [ -r "${t}/comm" ] || continue
+      case "$(cat "${t}/comm" 2>/dev/null)" in ${SIDE_THREADS}*) echo "${t##*/}" ;; esac
+    done
+  done
+}
+
+descendants() {  # pids under $1, including $1
+  ps -e -o pid=,ppid= | awk -v root="$1" '
+    { kids[$2] = kids[$2] " " $1 }
+    END { n = split(root, q, " "); i = 1
+          while (i <= n) { p = q[i++]; print p; m = split(kids[p], k, " "); for (j = 1; j <= m; j++) q[++n] = k[j] } }'
+}
+seen=""
+while :; do
+  for pid in $(pgrep -x reaper 2>/dev/null); do
+    case " ${seen} " in *" ${pid} "*) continue ;; esac
+    case "$(tr '\0' ' ' < /proc/${pid}/cmdline 2>/dev/null)" in
+      *"SteamLaunch AppId="*) ;;
+      *) continue ;;
+    esac
+    for p in $(descendants "${pid}"); do taskset -a -c -p "${CPUS}" "${p}" >/dev/null 2>&1; done
+    sleep 1                                 # the launch chain forks fast: catch what raced the first pass
+    for p in $(descendants "${pid}"); do taskset -a -c -p "${CPUS}" "${p}" >/dev/null 2>&1; done
+    seen="${seen} ${pid}"
+    echo "pocknix-game-affinity: pinned $(tr '\0' ' ' < /proc/${pid}/cmdline 2>/dev/null | grep -o 'AppId=[0-9]*') (reaper ${pid}) to cpus ${CPUS}"
+  done
+  # forget reapers that are gone, so the list stays short
+  keep=""; for pid in ${seen}; do [ -d "/proc/${pid}" ] && keep="${keep} ${pid}"; done; seen="${keep}"
+  tick=$(( ${tick:-0} + 1 ))
+  if [ $(( tick % 5 )) = 0 ]; then
+    for pid in ${seen}; do
+      for tid in $(side_threads "${pid}"); do
+        case " ${widened} " in *" ${tid} "*) continue ;; esac
+        taskset -c -p "${ALL_CPUS}" "${tid}" >/dev/null 2>&1 && widened="${widened} ${tid}"
+      done
+    done
+    [ ${#widened} -gt 4000 ] && widened=""   # forget old tids now and then; a re-set is harmless
+  fi
+  sleep 1
+done
