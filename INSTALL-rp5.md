@@ -4,6 +4,14 @@
 
 > DRAFT. Steps marked **[VERIFY]** were written from the Odin 3 guide and the RP5 bring-up notes and have not been walked through on a stock RP5 yet.
 
+You have two options for running Holodor:
+* **From the SD card:** Perfect for trying it out. Your Android setup remains completely untouched.
+* **On internal storage, alongside Android:** This is much faster. Android will still be bootable from the menu, but please note that the installation process will factory reset Android once.
+
+Both methods require the one-time boot menu setup found in Part II. To get started, complete Part I, then Part II, and finally Part III. Part IV is completely optional. If you are already running ArmadaOS or ROCKNIX, just do Part I and then skip straight to the "Coming from ArmadaOS or ROCKNIX" section.
+
+A quick heads-up about your first boot: Holodor will download Steam and let it update in the background. While this is happening (usually about 30 to 45 minutes), the menus will lag and your storage will work hard. This only happens once! Note that this is a little different from the ArmadaOS experience, as they ship with a client pre-installed.
+
 ---
 
 ## What you need
@@ -73,6 +81,21 @@ This flashes the ROCKNIX bootloader for the RP5 (the SM8250 build; it refuses to
 5. Confirm and wait 20 to 30 minutes. Do not power off.
 6. When it finishes, power off completely, remove the SD card, and power on. Holodor boots from internal storage.
 7. **[VERIFY: does the RP5's factory reset re-enable updates / remove the rocknix_abl folder, as on the Odin 3?]**
+
+---
+
+## Coming from ArmadaOS or ROCKNIX
+
+Since you already have the custom boot menu installed, you get to skip almost all of Part II.
+
+1. Complete Part I to write the image to your SD card.
+2. Copy your stock bootloader backup to the new Holodor card. Grab `abl_a.img` and `abl_b.img` from the `rocknix_abl/SM8250` folder on your old Armada/ROCKNIX card (or from your PC backup) and drop them into the `rocknix_abl` folder on the Holodor card. **[VERIFY the folder name on the RP5 kit]**
+3. Complete Part III. In the boot menu, set the boot source to **SD card**, otherwise your old internal Armada or ROCKNIX system will boot instead.
+4. To install Holodor to your internal storage in place of Armada/ROCKNIX, proceed to Part IV. The installer detects your old setup and offers a **Replace with Holodor** option. **[VERIFY on the RP5]**
+
+*Side-by-Side:* keep a separate SD card for each system and use the boot menu to pick the card as the boot source.
+
+*Going back to ArmadaOS:* open the boot menu and select **UNINSTALL CFW & EXPAND USERDATA** (removes Holodor and factory resets Android), then install Armada from its SD card as usual. **[VERIFY the menu entry on the RP5 bootloader]**
 
 ---
 
