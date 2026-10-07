@@ -34,11 +34,11 @@ We might have better sleep battery drain than ArmadaOS right now. We did a coupl
 
 I made extensive use of Claude and Gemini to get this project done. There are a lot of people with very ill opinions of LLM tools and if that's you, I completely get it, go in peace. 
 
-I apologize for subjecting you to a manifesto, but there are three points I would like to make:
+If you want to know my thoughts on generative AI, here you go:
 
-- Nobody asked for AI, but it's here to stay. Very much so in software development and systems configuration. It's good at this stuff. Moreover, it has terrifying capabilities in terms of cybersecurity and there will always, forevermore, be an arms race between white and black hat actors to keep systems and networks safe. 
-- People should not use AI as a replacement for creativity or thought. I tend to think that people will develop an aversion to slop when it intrudes in areas of life where they want to experience connection with other humans such as music, literature, art, journalism, etc. We're all already tired of seeing the sloptoks and AI clickbait on youtube. But people should stop doing this.
-- Nobody asked for AI. I think it was probably inevitable (e.g. decades of people clicking I Accept on unread EULAs that signed the rights of their data away) and it is simply not going away. Here's a terrifying truth: it's a wealth reactor that doesn't need paying subscribers to keep running. Voting with your dollars is pointless. If you want change, get active. Vote. Choose candidates who are willing to reign in the industry and it's economic and ecological impacts. Getting organized and getting active is vastly more effective than trying to vote with your dollars. 
+- Nobody asked for AI, but it's here to stay. Very much so in software development and systems configuration. It's good at this stuff. Moreover, it has terrifying capabilities in terms of cybersecurity and there will always, forevermore, be an arms race between white and black hat actors to keep systems and networks safe. Therefore - we all need to deal with the fact that we live in a world where Pandora's Box has been opened.
+- People should not use AI as a replacement for creativity or thought. I tend to think that people will develop an aversion to slop when it intrudes in areas of life where they want to experience connection with other humans such as music, literature, art, journalism, etc. We're all already tired of seeing the sloptoks and AI clickbait on youtube. But really, people should stop making the choice to use generative AI in fields where it has no business.
+- To repeat myself, nobody asked for AI. But, I think it was probably inevitable (e.g. decades of people clicking I Accept on unread EULAs that signed the rights of their data away, billionaires being the kind of people they are, etc) and it is simply not going away. Here's a terrifying truth: it's a wealth reactor that doesn't need paying subscribers to keep running. Voting with your dollars is pointless. If you want change, get active. Vote. Choose candidates who are willing to reign in the industry and it's economic and ecological impacts. Getting organized and getting active is vastly more effective than trying to vote with your dollars. 
 
 I have extensively dogfooded and iterated through Holodor with my own devices. I have gone over and re-written most of this documentation, though the code is festooned with comments in Claudish. I hired a human artist to do the pixel art, the very reliable and talented SSalmon. I sincerely hope this is okay with you.
 
@@ -82,7 +82,7 @@ I found s.salmon on /r/pixelart. It was a great experience working with them! Th
 
 Read the guide for your device: **[AYN Odin 3](INSTALL-odin3.md)** or **[Retroid Pocket 5](INSTALL-rp5.md)**.
 
-**TL;DR:** Write the image to an SD card. From Android, run the two scripts on the card: one backs up your stock bootloader (keep that backup!), the other installs the ROCKNIX boot menu. Boot from the SD card to try Holodor. If you like it, the Holodor Installer app copies it to internal storage alongside Android. The guide also covers going back to stock.
+**TL;DR:** Write the image to an SD card. From Android, run the two scripts on the card: one backs up your stock bootloader (keep that backup!), the other installs the ROCKNIX boot menu. Boot from the SD card to try Holodor. If you like it, run the Holodor Installer app in desktop mode, and this will deploy Holodor to internal storage alongside Android. The guide also covers going back to stock.
 
 ## Building from Source
 
