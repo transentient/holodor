@@ -1,0 +1,21 @@
+#!/bin/sh
+# NetworkManager dispatcher hook: run the wifi heal whenever NM's own connectivity check
+# says the box is online but cannot reach the internet ("limited").
+# RP5 2026-10-08: a few minutes after a cold boot the router stopped answering this client's
+# IP traffic (ARP fine, every other LAN host fine, only the gateway silent; NM went
+# CONNECTED_GLOBAL -> CONNECTED_SITE at 334 s). Re-activating the profile fixed it at once,
+# but the boot-time heal had already passed at 15 s. NM re-checks connectivity every
+# `interval` seconds (30-pocknix-connectivity.conf) and fires this on every change, so the
+# heal now runs whenever the problem shows up, not just after boot or resume.
+# Always a transient unit: the heal may take minutes and dispatcher scripts are killed at 3 s.
+[ "$2" = "connectivity-change" ] || exit 0
+case "$CONNECTIVITY_STATE" in
+  LIMITED|PORTAL) ;;
+  *) exit 0 ;;
+esac
+# one at a time
+systemctl list-units --plain --no-legend --state=active 'pocknix-wifi-heal-*' 2>/dev/null | grep -q . && exit 0
+systemd-run -q --collect --unit="pocknix-wifi-heal-$(date +%s)" \
+  -E POCKNIX_WIFI_HEAL_WAIT=10 \
+  /usr/lib/pocknix/pocknix-wifi-heal connectivity 2>/dev/null || true
+exit 0

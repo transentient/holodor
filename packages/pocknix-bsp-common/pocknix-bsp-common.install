@@ -4,5 +4,6 @@ _enable() {
   systemctl enable pocknix-input-check.service >/dev/null 2>&1 || true
   # enable + (re)start: an OTA should pin the next game launched, without a reboot
   systemctl enable pocknix-game-affinity.service >/dev/null 2>&1 || true
+  systemctl enable pocknix-wifi-heal-boot.service >/dev/null 2>&1 || true
   systemctl restart pocknix-game-affinity.service >/dev/null 2>&1 || true
 }

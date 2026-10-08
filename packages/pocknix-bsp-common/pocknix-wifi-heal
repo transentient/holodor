@@ -15,7 +15,11 @@ wifi_dev() {  # the wifi netdev by type, whatever it is called (wlan0 at boot, w
 healthy() {
   ip route show default 2>/dev/null | grep -q . || return 1
   c=$(nmcli networking connectivity check 2>/dev/null)
-  [ "$c" = "full" ] || [ "$c" = "limited" ]
+  # "limited" = associated with an address but nothing beyond the LAN. Seen after a cold boot
+  # on the RP5 (2026-10-06): a wifi toggle fixed it. It counts as unhealthy here so the
+  # connection gets bounced; a network that truly has no internet just gets the (harmless)
+  # recovery attempts once.
+  [ "$c" = "full" ]
 }
 wait_healthy() {
   i=0
@@ -32,10 +36,10 @@ profile() {  # most recently used wifi profile
 # profile was pinned to wlan0). So: ~1 min of waiting, then the profile, then the radio, and the
 # PCIe reset only after ~2 min, followed by re-activating the profile on whatever the device is
 # now called.
-wait_healthy 30 && { say "ok (no action)"; exit 0; }
+wait_healthy "${POCKNIX_WIFI_HEAL_WAIT:-30}" && { say "ok (no action)"; exit 0; }
 PROF=$(profile)
 if [ -n "$PROF" ]; then
-  say "unhealthy after resume -> nmcli connection up '$PROF' (wifi dev: $(wifi_dev))"
+  say "unhealthy (${1:-resume}) -> nmcli connection up '$PROF' (wifi dev: $(wifi_dev))"
   nmcli connection up "$PROF" >/dev/null 2>&1 || true
   wait_healthy 15 && { say "recovered via connection up"; exit 0; }
 fi

@@ -225,6 +225,8 @@ EOF
   # systemd-oomd: kill the worst cgroup under the user session when memory pressure stays high,
   # instead of letting zram swap the whole device into a stall (overlay user@.service.d + oomd.conf).
   chroot "${root}" systemctl enable systemd-oomd.service 2>/dev/null || true
+  # wifi-heal once at boot (cold boot sometimes comes up "limited": LAN, no internet)
+  chroot "${root}" systemctl enable pocknix-wifi-heal-boot.service 2>/dev/null || true
   # thumbstick LED animator (reads the mode file Pocknix Control writes) + the boot-time
   # InputPlumber self-check (RC 20260927: nothing enabled the animator; upstream config stole the pad)
   chroot "${root}" systemctl enable pocknix-stick-leds.service pocknix-input-check.service pocknix-input-calibration.service 2>/dev/null || true

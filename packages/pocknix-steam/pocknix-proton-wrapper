@@ -155,9 +155,12 @@ def apply_protonfixes(settings):
     # (native ucrtbase in system32, no overrides). Valve's Proton has no protonfixes and the
     # same games run on the Deck without them, so fixes are OFF unless the game's tweaks say
     # "protonfixes": true (Pocknix Control) or the launch options set PROTONFIXES_DISABLE.
+    # protonfixes disables itself when the variable EXISTS, whatever its value, so "enabled"
+    # means the variable is absent. A launch option PROTONFIXES_DISABLE=... always wins.
     if "PROTONFIXES_DISABLE" in os.environ:
         return
-    os.environ["PROTONFIXES_DISABLE"] = "0" if settings.get("protonfixes") is True else "1"
+    if settings.get("protonfixes") is not True:
+        os.environ["PROTONFIXES_DISABLE"] = "1"
 
 
 FIRST_LAUNCH_GRACE = int(os.environ.get("POCKNIX_FIRST_LAUNCH_GRACE", "300"))
@@ -172,6 +175,9 @@ def game_exe_name(args):
 
 
 def exe_running(name):
+    # The game itself, running under Wine: argv[0] is the Windows path of the exe
+    # ("S:\\common\\Game\\Game.exe" or "C:\\..."). Proton's own python/steam.exe wrappers also
+    # carry the exe path in their argv, as a Unix path, and must not count.
     name = name.lower()
     for d in os.listdir("/proc"):
         if not d.isdigit():
@@ -181,7 +187,7 @@ def exe_running(name):
                 cmd = f.read().split(b"\0")[0].decode("utf-8", "replace").lower()
         except OSError:
             continue
-        if cmd.endswith(name) or cmd.endswith(name.replace(".exe", "")):
+        if cmd.endswith(name) and len(cmd) > 2 and cmd[1] == ":" and "\\" in cmd:
             return True
     return False
 
@@ -222,15 +228,19 @@ def wants_120hz(settings):
 
 
 def run_with_first_launch_guard(real_proton, args):
-    # First launch of a game = its Wine prefix does not exist yet. Proton then builds the prefix
-    # and (with protonfixes) may run installers before the game starts. If the game's exe is
-    # still not running FIRST_LAUNCH_GRACE seconds later, something in that setup is stuck:
-    # kill the tree and move the half-built prefix aside so the next launch starts clean.
-    # Later launches exec Proton directly as before.
+    # Until a game has been seen running once (marker file in its compatdata), Proton is run
+    # under a watchdog: it builds the prefix and (with protonfixes) may run installers before the
+    # game starts. If the game's exe is still not running FIRST_LAUNCH_GRACE seconds later,
+    # something in that setup is stuck: kill the tree and move the half-built prefix aside so
+    # the next launch starts clean. Once the marker exists, launches exec Proton directly.
     compat = os.environ.get("STEAM_COMPAT_DATA_PATH", "")
     pfx = pathlib.Path(compat) / "pfx" if compat else None
     exe = game_exe_name(args)
-    first_launch = bool(pfx and exe and not pfx.exists())
+    # "First launch" = this game has never been seen running. The prefix alone is not a sign:
+    # Steam runs Proton for install scripts before the first real launch, so the prefix exists
+    # by then and the hang (protonfixes' winetricks) happens with it in place.
+    marker = pathlib.Path(compat) / "pocknix-first-run-ok" if compat else None
+    first_launch = bool(pfx and exe and marker and not marker.exists())
     if not first_launch and not RESTORE_REFRESH:
         os.execv(real_proton, args)
     import signal
@@ -248,9 +258,23 @@ def run_with_first_launch_guard(real_proton, args):
 
     deadline = time.monotonic() + FIRST_LAUNCH_GRACE
     started = not first_launch
+    seen_since = None
     while child.poll() is None:
-        if not started and exe_running(exe):
-            started = True
+        if not started:
+            # "Running" = the game's Wine process has been alive for 20 s straight. Steam's
+            # install-script pass and Proton's setup show the exe for a moment and then
+            # leave; a game that lives 20 s has launched.
+            if exe_running(exe):
+                seen_since = seen_since or time.monotonic()
+                if time.monotonic() - seen_since >= 20:
+                    started = True
+                    if first_launch:
+                        try:
+                            marker.write_text("")
+                        except OSError:
+                            pass
+            else:
+                seen_since = None
         if not started and time.monotonic() > deadline:
             print(f"pocknix-proton: {exe} not running {FIRST_LAUNCH_GRACE}s after a first launch; "
                   f"giving up and discarding the half-built prefix", file=sys.stderr)
@@ -305,6 +329,76 @@ def apply_lsfg(settings):
     os.environ["LSFGVK_PERFORMANCE_MODE"] = "0" if lsfg.get("performanceMode") is False else "1"
 
 
+GAME_FIXES = "/usr/share/pocknix-steam/game-fixes.json"
+
+
+def apply_game_fixes(game_id, args):
+    # Known per-game fixes (see game-fixes.json): an ini key the engine needs, extra command-line
+    # arguments, an environment variable. Idempotent, every launch. POCKNIX_GAME_FIXES=0 skips.
+    if os.environ.get("POCKNIX_GAME_FIXES", "1") == "0" or not game_id:
+        return args
+    try:
+        with open(GAME_FIXES) as f:
+            fixes = json.load(f).get(str(game_id))
+    except (OSError, ValueError):
+        return args
+    if not fixes:
+        return args
+    pfx = pathlib.Path(os.environ.get("STEAM_COMPAT_DATA_PATH", "")) / "pfx"
+    for ini in fixes.get("ini", []):
+        path = pfx / ini["path"]
+        try:
+            text = path.read_text() if path.exists() else ""
+            section, key, value = ini["section"], ini["key"], ini["value"]
+            lines = text.splitlines()
+            out, in_section, done, seen_section = [], False, False, False
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith("[") and stripped.endswith("]"):
+                    if in_section and not done:
+                        out.append(f"{key}={value}"); done = True
+                    in_section = stripped[1:-1].strip().lower() == section.lower()
+                    seen_section = seen_section or in_section
+                elif in_section and stripped.split("=", 1)[0].strip().lower() == key.lower():
+                    if done:
+                        continue
+                    line, done = f"{key}={value}", True
+                out.append(line)
+            if in_section and not done:
+                out.append(f"{key}={value}"); done = True
+            if not done:
+                if out and out[-1].strip():
+                    out.append("")
+                out += [f"[{section}]", f"{key}={value}"]
+            new = "\n".join(out) + "\n"
+            if new != text:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(new)
+                print(f"pocknix-proton: game fix: {ini['path']} [{section}] {key}={value}", file=sys.stderr)
+        except OSError as exc:
+            print(f"pocknix-proton: game fix failed for {path}: {exc}", file=sys.stderr)
+    for name, value in fixes.get("env", {}).items():
+        os.environ.setdefault(name, value)
+    # exe: {"from": "launcher.exe", "to": "game.exe"}: run a different executable from the same
+    # directory (anti-cheat launchers that cannot start here; the game itself runs offline)
+    sub = fixes.get("exe")
+    if sub:
+        new_args = []
+        for a in args:
+            if a.endswith(sub["from"]):
+                a = a[: -len(sub["from"])] + sub["to"]
+                print(f"pocknix-proton: game fix: {sub['from']} -> {sub['to']}", file=sys.stderr)
+            new_args.append(a)
+        args = new_args
+    extra = fixes.get("args", [])
+    if extra and extra[0] in args:
+        extra = []
+    if extra:
+        print(f"pocknix-proton: game fix: args {extra}", file=sys.stderr)
+        args = [*args, *extra]
+    return args
+
+
 def main():
     if len(sys.argv) < 2:
         raise SystemExit("usage: pocknix-proton-wrapper PROTON_ENTRYPOINT [ARGS...]")
@@ -325,6 +419,7 @@ def main():
         print(f"pocknix-proton: failed to apply audio latency: {exc}", file=sys.stderr)
     apply_audio_driver()
     apply_protonfixes(settings)
+    args = apply_game_fixes(game_id, args)
     if wants_120hz(settings):
         global RESTORE_REFRESH
         RESTORE_REFRESH = True

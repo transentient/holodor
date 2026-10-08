@@ -1,0 +1,61 @@
+# pocknix-proton-medialibs — the shared libraries Proton's bundled GStreamer plugins were linked
+# against but Arch does not ship under those sonames.
+#
+# WHY: proton-cachyos (built on CachyOS/x86-style library versions) bundles gstreamer-1.0 plugins
+# in files/lib/aarch64-linux-gnu/gstreamer-1.0/. libgstlibav.so (the H.264/AAC decoders, via the
+# bundled libavcodec) and libgstvpx.so need libvpx.so.9; libgstjpeg.so needs libjpeg.so.62;
+# libgsttheora.so needs libtheoradec/enc.so.1. Arch ARM ships libvpx.so.11 and libjpeg.so.8 and
+# has libtheora as a separate package, so on Holodor those plugins never loaded and every in-game
+# H.264 or VP9 video stayed black (Hollow Knight intro, 2026-10-07; the game's log said "could
+# not find supported video track"). This package builds libvpx 1.14 (soname 9) and libjpeg-turbo
+# with the classic libjpeg 6.2 ABI (soname 62) and drops them into Proton's library directory,
+# which Proton puts first on LD_LIBRARY_PATH; libtheora comes from Arch as a dependency.
+pkgname=pocknix-proton-medialibs
+pkgver=1.14.1
+pkgrel=3
+pkgdesc="libvpx.so.9 + libjpeg.so.62 + libtheora*.so.1 for Proton's bundled GStreamer decoders"
+arch=('aarch64')
+url="https://github.com/webmproject/libvpx"
+license=('BSD')
+depends=('libogg' 'proton-cachyos')
+makedepends=('cmake' 'ninja')
+_jpeg=3.0.4
+_theora=1.1.1   # Arch's libtheora 1.2 moved to soname .2; Proton's plugin wants .1
+source=("libvpx-${pkgver}.tar.gz::https://github.com/webmproject/libvpx/archive/refs/tags/v${pkgver}.tar.gz"
+        "libjpeg-turbo-${_jpeg}.tar.gz::https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/${_jpeg}/libjpeg-turbo-${_jpeg}.tar.gz"
+        "https://downloads.xiph.org/releases/theora/libtheora-${_theora}.tar.xz")
+sha256sums=('SKIP' 'SKIP' 'SKIP')
+
+build() {
+  cd "${srcdir}/libvpx-${pkgver}"
+  ./configure --prefix=/usr --enable-shared --disable-static --disable-examples --disable-tools \
+    --disable-docs --disable-unit-tests --enable-vp8 --enable-vp9 \
+    --enable-runtime-cpu-detect --target=arm64-linux-gcc
+  make -j"$(nproc)"
+  cd "${srcdir}/libjpeg-turbo-${_jpeg}"
+  cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=lib \
+    -DENABLE_STATIC=OFF -DWITH_JPEG8=OFF -DWITH_TURBOJPEG=OFF -DWITH_SIMD=ON
+  cmake --build build
+  cd "${srcdir}/libtheora-${_theora}"
+  # 2009-era configure: no aarch64 in its config.sub, and the examples need libpng
+  cp /usr/share/automake-*/config.sub /usr/share/automake-*/config.guess . 2>/dev/null || true
+  ./configure --prefix=/usr --enable-shared --disable-static --disable-examples --disable-spec --disable-doc
+  make -j"$(nproc)"
+}
+
+package() {
+  local lib="${pkgdir}/usr/share/steam/compatibilitytools.d/proton-cachyos/files/lib/aarch64-linux-gnu"
+  install -d "${lib}"
+  # make install into a staging dir, then take only the shared objects + their soname links
+  local st="${srcdir}/stage"
+  rm -rf "${st}"; mkdir -p "${st}"
+  make -C "${srcdir}/libvpx-${pkgver}" DESTDIR="${st}" install >/dev/null
+  DESTDIR="${st}" cmake --install "${srcdir}/libjpeg-turbo-${_jpeg}/build" >/dev/null
+  make -C "${srcdir}/libtheora-${_theora}" DESTDIR="${st}" install >/dev/null
+  cp -a "${st}"/usr/lib/libvpx.so.9* "${st}"/usr/lib/libjpeg.so.62* \
+        "${st}"/usr/lib/libtheora.so.0* "${st}"/usr/lib/libtheoradec.so.1* "${st}"/usr/lib/libtheoraenc.so.1* "${lib}/"
+  rm -f "${lib}"/*.la
+  install -Dm644 "${srcdir}/libvpx-${pkgver}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE.libvpx"
+  install -Dm644 "${srcdir}/libjpeg-turbo-${_jpeg}/LICENSE.md" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE.libjpeg-turbo"
+  install -Dm644 "${srcdir}/libtheora-${_theora}/COPYING" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE.libtheora"
+}

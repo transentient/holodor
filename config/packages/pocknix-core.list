@@ -19,6 +19,8 @@ proton-cachyos         # CachyOS ARM64 Proton as a system compat tool (constant 
                        #   HOLODOR sm8250: the localrepo carries proton-cachyos-dxvk2 INSTEAD (SOCS-gated,
                        #   provides/conflicts/replaces proton-cachyos) so this name resolves to the DXVK-2.7
                        #   variant there - a650 lacks 8-bit storage and DXVK 3 rejects it (upstream a8b8635).
+pocknix-proton-medialibs  # libvpx.so.9 + libjpeg.so.62 next to Proton: its bundled gstreamer decoders
+                          #   (H.264 via libav, VP8/9, JPEG, Theora via Arch libtheora) never loaded on Arch sonames
 fex-emu                # x86 emulator (thunks)
 fex-rootfs             # ~1.1 GB Arch x86 squashfs the games' libraries resolve from
 lsfg-vk                # Lossless Scaling frame-gen Vulkan layer (per-game "Frame Insertion";

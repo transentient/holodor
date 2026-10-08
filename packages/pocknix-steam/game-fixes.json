@@ -1,0 +1,39 @@
+{
+  "_comment": "Per-game fixes applied by pocknix-proton-wrapper on every launch (idempotent). Keys are Steam app ids. ini: ensure key=value under [section] in a file relative to the prefix (created if missing). args: appended to the game's command line. env: set unless already set. exe: run `to` instead of `from` (same directory). A launch option POCKNIX_GAME_FIXES=0 skips them.",
+  "514900": {
+    "name": "Observer",
+    "ini": [
+      {
+        "path": "drive_c/users/steamuser/AppData/Local/TheObserver/Saved/Config/WindowsNoEditor/Engine.ini",
+        "section": "HTTP",
+        "key": "bEnableHttp",
+        "value": "false",
+        "why": "UE4 HttpManagerThread raises an exception Wine cannot dispatch (frame outside the stack) ~2 min in; the process dies back to the launcher. Both devices, 2026-10-08."
+      }
+    ]
+  },
+  "1245620": {
+    "name": "ELDEN RING",
+    "exe": {
+      "from": "start_protected_game.exe",
+      "to": "eldenring.exe"
+    },
+    "why": "Easy Anti-Cheat's launcher fails ('Failed to load the anti-cheat module'); eldenring.exe itself runs and starts in offline mode. 2026-10-08."
+  },
+  "379720": {
+    "name": "DOOM (2016)",
+    "args": [
+      "+r_renderAPI",
+      "1"
+    ],
+    "why": "The default OpenGL renderer runs at about 1 fps on Turnip/Zink; Vulkan is 30x faster. 2026-10-08."
+  },
+  "782330": {
+    "name": "DOOM Eternal",
+    "exe": {
+      "from": "launcher/idTechLauncher.exe",
+      "to": "DOOMEternalx64vk.exe"
+    },
+    "why": "The Chromium-based 'DOOM Eternal Launcher' sits at 'Compiling shaders...' and never starts the game; the game executable itself runs (title, Bethesda.net login). Mods need the launcher; plain play does not. 2026-10-08."
+  }
+}

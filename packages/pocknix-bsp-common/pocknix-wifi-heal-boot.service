@@ -1,0 +1,14 @@
+[Unit]
+Description=pocknix: check wifi reaches the internet after boot, bounce it if not
+# A cold boot sometimes comes up associated but with no route past the LAN (NetworkManager
+# "limited"); Steam then says it is offline. Same heal as after resume, run once at boot.
+After=NetworkManager.service network.target
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+Environment=POCKNIX_WIFI_HEAL_WAIT=45
+ExecStart=/usr/lib/pocknix/pocknix-wifi-heal boot
+
+[Install]
+WantedBy=multi-user.target

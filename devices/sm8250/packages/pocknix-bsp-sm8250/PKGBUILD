@@ -16,7 +16,7 @@
 #     (pocknix-bootloader-sm8250), not in a boot-image rebuild file.
 pkgname=pocknix-bsp-sm8250
 pkgver=0.1.0
-pkgrel=26   # 26 (2026-10-06): rp5.conf POCKNIX_GAMESCOPE_REFRESH_DEFAULT_LOWEST=1 (panel 60 Hz unless a game's limit asks for 120; gamescope 6, pocknix-steam 47).   # 25 (2026-10-06): speaker loudness filter hidden from Steam/Pulse device lists (Audio/Sink/Internal; apps pick Speaker, the smart filter still sits in front).   # 24 (2026-10-06, UCA202-measured): headphone jack warble fixed: RX compander off + class-AB amp mode + digital 122 (the stock sequence ducked everything 18 dB on loud passages).   # 23 (2026-10-05): RP5 120 Hz back: boards/rp5.conf drops the 60 Hz pin for POCKNIX_GAMESCOPE_REFRESH_PREFER_LOWEST=1 (Steam menus 120 Hz, a 60 fps limit switches the panel to 60 Hz live). Needs gamescope >= 5, pocknix-steam >= 46.   # 22 (2026-10-05): boards/rp5.conf POCKNIX_GAMESCOPE_REFRESH=60 - game mode on the panel's 60 Hz mode (at 120 Hz frames slipped a refresh every 65-75 ms with or without Steam's limiter; at 60 Hz 98 % of frames last exactly one refresh). Needs pocknix-steam >= 45.   # 21 (2026-10-05, mic-measured on the RP5): speaker compander off (it pumped 4-8 dB = the "warble", and made 45 % and 70 % the same loudness), ceiling = digital 114 (full-scale tone ~3 % THD), limiter makeup +12, NEW pocknix-speaker-volume (user service): plants the gains during playback and gives the slider an even 30 dB law (90 % -3 dB, 50 % -15, 25 % -22.5, 0 = mute; measured within 0.3 dB); 20: Speaker = software volume + fixed gains (digital 124, PA 10), chain at unity — the Odin model; 19: slider -> WSA digital volume remap ("Speakers Digital"), heal no longer plants it; 18: Speaker sink = software volume (no PlaybackMixerElem; slider vs PA register mismatch at boot); 17: boards/*.conf POCKNIX_BOOT_STYLE=qcom-abl (the installer read arm-efi and died looking for EFI/BOOT on the SD; RP5 internal install 2026-09-29); 16: deck-uhid target (the "deck" target is USB/IP-backed in InputPlumber 0.81: loads vhci_hcd, two busy kernel threads, and blocks suspend with -EBUSY); 15: kernel-cmdline fbcon=logo-pos:center (boot logo, like sm8750)
+pkgrel=28   # 28 (2026-10-09): HiFi-RP.conf DisplayPort device REMOVED (and its verb-level DISPLAY_PORT_RX route): with no dock the hdmi-audio-codec rejects hw_params (-22) and WirePlumber ACP drops the WHOLE HiFi profile = auto_null, no sound on every undocked boot (fresh-card boot of 20261008, Cliff). 27 only ever booted docked. Dock audio returns with a conditional device later. 27 (2026-10-07): DisplayPort audio over a USB-C dock: UCM DisplayPort device (hw:0,3, DP0 Jack, route at verb level) + WirePlumber rule (S16, no mmap) so the DSP port starts.   # 26 (2026-10-06): rp5.conf POCKNIX_GAMESCOPE_REFRESH_DEFAULT_LOWEST=1 (panel 60 Hz unless a game's limit asks for 120; gamescope 6, pocknix-steam 47).   # 25 (2026-10-06): speaker loudness filter hidden from Steam/Pulse device lists (Audio/Sink/Internal; apps pick Speaker, the smart filter still sits in front).   # 24 (2026-10-06, UCA202-measured): headphone jack warble fixed: RX compander off + class-AB amp mode + digital 122 (the stock sequence ducked everything 18 dB on loud passages).   # 23 (2026-10-05): RP5 120 Hz back: boards/rp5.conf drops the 60 Hz pin for POCKNIX_GAMESCOPE_REFRESH_PREFER_LOWEST=1 (Steam menus 120 Hz, a 60 fps limit switches the panel to 60 Hz live). Needs gamescope >= 5, pocknix-steam >= 46.   # 22 (2026-10-05): boards/rp5.conf POCKNIX_GAMESCOPE_REFRESH=60 - game mode on the panel's 60 Hz mode (at 120 Hz frames slipped a refresh every 65-75 ms with or without Steam's limiter; at 60 Hz 98 % of frames last exactly one refresh). Needs pocknix-steam >= 45.   # 21 (2026-10-05, mic-measured on the RP5): speaker compander off (it pumped 4-8 dB = the "warble", and made 45 % and 70 % the same loudness), ceiling = digital 114 (full-scale tone ~3 % THD), limiter makeup +12, NEW pocknix-speaker-volume (user service): plants the gains during playback and gives the slider an even 30 dB law (90 % -3 dB, 50 % -15, 25 % -22.5, 0 = mute; measured within 0.3 dB); 20: Speaker = software volume + fixed gains (digital 124, PA 10), chain at unity — the Odin model; 19: slider -> WSA digital volume remap ("Speakers Digital"), heal no longer plants it; 18: Speaker sink = software volume (no PlaybackMixerElem; slider vs PA register mismatch at boot); 17: boards/*.conf POCKNIX_BOOT_STYLE=qcom-abl (the installer read arm-efi and died looking for EFI/BOOT on the SD; RP5 internal install 2026-09-29); 16: deck-uhid target (the "deck" target is USB/IP-backed in InputPlumber 0.81: loads vhci_hcd, two busy kernel threads, and blocks suspend with -EBUSY); 15: kernel-cmdline fbcon=logo-pos:center (boot logo, like sm8750)
 pkgdesc="pocknix board support: SM8250 family (RP5, RP Flip 2) — runtime board dispatch, input maps, audio UCM, wake quirks"
 arch=('any')
 url="https://github.com/shuuri-labs/pocknix-os"
@@ -39,12 +39,12 @@ source=('device.conf'
         'pocknix-sm8250-audio-resume' 'pocknix-sm8250-audio-resume.service'
         'pocknix-sm8250-audio-heal' 'pocknix-sm8250-audio-heal.service'
         'pocknix-sm8250-board-select' 'pocknix-sm8250-board-select.service'
-        '51-pocknix-softmixer.conf' '60-pocknix-speaker-loudness.conf'
+        '51-pocknix-softmixer.conf' '53-pocknix-displayport.conf' '60-pocknix-speaker-loudness.conf'
         'pocknix-speaker-volume' 'pocknix-speaker-volume.service'
         '52-pocknix-default-volume.conf' 'kernel-cmdline' '91-pocknix-cmdline.hook')
 sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP'
             'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP'
-            'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+            'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   # Runtime device facts: the model dispatcher + per-board files. boards/ is
@@ -136,6 +136,8 @@ package() {
   #     PipeWire never writes the mixer).
   install -Dm644 "${srcdir}/51-pocknix-softmixer.conf" \
     "${pkgdir}/usr/share/wireplumber/wireplumber.conf.d/51-pocknix-softmixer.conf"
+  install -Dm644 "${srcdir}/53-pocknix-displayport.conf" \
+    "${pkgdir}/usr/share/wireplumber/wireplumber.conf.d/53-pocknix-displayport.conf"
   install -Dm644 "${srcdir}/60-pocknix-speaker-loudness.conf" \
     "${pkgdir}/usr/share/pipewire/pipewire.conf.d/60-pocknix-speaker-loudness.conf"
 

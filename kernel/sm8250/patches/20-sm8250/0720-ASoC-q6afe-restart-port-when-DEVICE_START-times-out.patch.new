@@ -1,0 +1,55 @@
+From: Holodor <holodor@bonesaw.com>
+Subject: [PATCH] ASoC: q6afe: restart the port when DEVICE_START times out
+
+On the Retroid Pocket 5 (SM8250) the DisplayPort AFE port (0x6020, HDMI
+over DP) often gets no answer to its first DEVICE_START after boot or
+after the PCM has been idle. The prepare then fails and the stream the
+user started is silent. Afterwards the DSP reports the port as already
+started (status 9) but still passes no audio; the next stream, which
+stops and starts the port, plays normally.
+
+So when DEVICE_START times out, stop the port and start it again inside
+the same prepare instead of failing it. Measured 2026-10-07 through a
+USB-C dock and an HDMI capture: accepting the "already started" answer
+alone left the stream silent; the stop/start cycle is what makes it play.
+---
+--- a/sound/soc/qcom/qdsp6/q6afe.c	2026-10-07 22:27:30.028695742 +0900
++++ b/sound/soc/qcom/qdsp6/q6afe.c	2026-10-07 23:15:29.903774450 +0900
+@@ -369,6 +369,7 @@
+ #define AFE_API_VERSION_CODEC_DMA_CONFIG	1
+ 
+ #define TIMEOUT_MS 3000
++#define ADSP_EALREADY 0x9
+ #define AFE_CMD_RESP_AVAIL	0
+ #define AFE_CMD_RESP_NONE	1
+ #define AFE_CLK_TOKEN		1024
+@@ -1713,6 +1714,29 @@
+ 	start->port_id = port_id;
+ 
+ 	ret = afe_apr_send_pkt(afe, pkt, port, AFE_PORT_CMD_DEVICE_START);
++	if (ret == -ETIMEDOUT) {
++		/*
++		 * The DSP sometimes does not answer the first DEVICE_START
++		 * (seen on the HDMI-over-DP port after boot or after the port
++		 * has been idle). It reports the port as started afterwards,
++		 * but no audio comes out of it; a stop/start cycle does make it
++		 * play. Do that cycle here instead of failing the prepare.
++		 */
++		dev_warn(afe->dev, "AFE start for port 0x%x timed out, restarting it\n",
++			 port_id);
++		/* an immediate STOP is refused (EFAILED); the DSP needs a moment */
++		msleep(1000);
++		q6afe_port_stop(port);
++		msleep(200);
++		ret = afe_apr_send_pkt(afe, pkt, port, AFE_PORT_CMD_DEVICE_START);
++		if (ret == -EINVAL && port->result.status == ADSP_EALREADY) {
++			/* second START after a successful STOP still says "already": retry once more */
++			msleep(1000);
++			q6afe_port_stop(port);
++			msleep(200);
++			ret = afe_apr_send_pkt(afe, pkt, port, AFE_PORT_CMD_DEVICE_START);
++		}
++	}
+ 	if (ret)
+ 		dev_err(afe->dev, "AFE enable for port 0x%x failed %d\n",
+ 			port_id, ret);

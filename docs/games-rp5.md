@@ -1,6 +1,6 @@
 # Games tested on the Retroid Pocket 5
 
-Measured on Holodor with the frame-timing tools in `tools/rp5-bench`, screen at 1080p unless noted. "fps" is the average over 30 to 60 seconds of the scene named. All games ran through Proton (the ARM Steam client cannot run native Linux x86 games; see notes).
+Measured on Holodor with the frame-timing tools in `tools/rp5-bench`, **every number is at the screen's full 1920x1080** unless the row says otherwise. That is the hardest case: 1080p is 2.25 times the pixels of 720p, and for the games where the GPU is the limit, a lower resolution in Steam's per-game settings (Properties > Resolution) gains more than any in-game setting. "fps" is the average over 30 to 60 seconds of the scene named. All games ran through Proton (the ARM Steam client cannot run native Linux x86 games; see notes).
 
 | Game | Engine / API | Scene | fps | Notes |
 |---|---|---|---|---|
@@ -25,3 +25,8 @@ Notes:
 - DirectX 12 games do not run on this GPU (Jusant, Deep Rock Galactic's DX12 mode).
 - Native Linux games: the ARM Steam client has no Linux runtime, so every x86 game runs through Proton.
 - Heavy 3D games reach about 90 C after 10 to 15 minutes and throttle a little.
+
+Docked (USB-C dock, HDMI 1080p 60 Hz external screen, measured through a capture card):
+- Hades, menu: 60, locked.
+- Dark Souls Remastered, Undead Asylum cell: 34, even (29 ms frames; standing still).
+- Dock after Steam is up; the external screen takes over at 1920x1080. Audio goes to the dock; if the first sound does not play, stop and start the game once.

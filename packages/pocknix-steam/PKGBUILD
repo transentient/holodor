@@ -4,7 +4,7 @@
 # Steam is experimental (Valve publicbeta linuxarm64).
 pkgname=pocknix-steam
 pkgver=0.1.0
-pkgrel=48   # 48 (2026-10-06): per-game "refresh120" tweak flips gamescope dynamic_refresh_default_lowest for the game's lifetime (gamescope 8).   # 47 (2026-10-06): first-launch guard (no game exe 5 min after a first launch -> kill + move the half-built prefix aside), protonfixes OFF by default (tweaks "protonfixes": true or PROTONFIXES_DISABLE in launch options override), POCKNIX_GAMESCOPE_REFRESH_DEFAULT_LOWEST -> gamescope 6.   # 46 (2026-10-05): games default to Wine's PulseAudio driver (proton-cachyos' PipeWire driver came out left/right swapped in 2 of 6 launches and silent in 3 of 6, measured on the RP5; 12 of 12 correct after); POCKNIX_GAMESCOPE_REFRESH_PREFER_LOWEST -> gamescope 0008.   # 45 (2026-10-05): POCKNIX_GAMESCOPE_REFRESH (board conf) -> gamescope -r, to run a panel on a listed lower refresh mode (RP5 Visionox: 60).   # 44 (2026-10-05): pocknix-wifi-import no longer pins the profile to interface-name=wlan0 (see bsp-common 24: after a firmware reload the netdev is wlan1 and the pinned profile makes NetworkManager cancel every iwd connection). 43: pocknix-proton-prep swaps the DXVK-2.7 donor into the downloaded Valve ARM Proton on
+pkgrel=52   # 52 (2026-10-08): DOOM Eternal runs DOOMEternalx64vk.exe (its Chromium launcher never starts the game). 51 (2026-10-08): game-fixes "exe" kind; ELDEN RING runs eldenring.exe (offline) instead of the EAC launcher. 50 (2026-10-08): per-game fixes table (game-fixes.json: ini keys, args, env; POCKNIX_GAME_FIXES=0 skips): Observer UE4 HTTP off (HttpManagerThread SEH crash), DOOM 2016 +r_renderAPI 1 (GL path ~1 fps). 49 (2026-10-07): first-launch guard keyed on a seen-running marker (compatdata/pocknix-first-run-ok, written after the game's Wine process lives 20 s), not on the prefix (Steam's install-script pass creates it first); protonfixes toggle fixed (the variable's presence disables, so "on" = absent). Verified: winetricks hang killed at 150 s + prefix moved aside; Celeste untouched.   # 48 (2026-10-06): per-game "refresh120" tweak flips gamescope dynamic_refresh_default_lowest for the game's lifetime (gamescope 8).   # 47 (2026-10-06): first-launch guard (no game exe 5 min after a first launch -> kill + move the half-built prefix aside), protonfixes OFF by default (tweaks "protonfixes": true or PROTONFIXES_DISABLE in launch options override), POCKNIX_GAMESCOPE_REFRESH_DEFAULT_LOWEST -> gamescope 6.   # 46 (2026-10-05): games default to Wine's PulseAudio driver (proton-cachyos' PipeWire driver came out left/right swapped in 2 of 6 launches and silent in 3 of 6, measured on the RP5; 12 of 12 correct after); POCKNIX_GAMESCOPE_REFRESH_PREFER_LOWEST -> gamescope 0008.   # 45 (2026-10-05): POCKNIX_GAMESCOPE_REFRESH (board conf) -> gamescope -r, to run a panel on a listed lower refresh mode (RP5 Visionox: 60).   # 44 (2026-10-05): pocknix-wifi-import no longer pins the profile to interface-name=wlan0 (see bsp-common 24: after a firmware reload the netdev is wlan1 and the pinned profile makes NetworkManager cancel every iwd connection). 43: pocknix-proton-prep swaps the DXVK-2.7 donor into the downloaded Valve ARM Proton on
             #     POCKNIX_GPU_DXVK3=no boards (sm8250/a650; upstream d3b4743). 42: POCKNIX_ROTATION=shader|hw
             #     switch in the launcher (docs/rotation-experiment-2026-09-20.md)
 pkgdesc="Native ARM64 Steam Big Picture (gamescope) for the RP6 — installer + launcher"
@@ -47,9 +47,9 @@ source=('pocknix-steam-install' 'pocknix-steam' 'steam' 'steam.desktop'
         'proton-toolmanifest.vdf' 'proton-compatibilitytool.vdf'
         'pocknix-proton-prep' 'pocknix-proton-prep.service'
         'pocknix-steam-seed-default-compat'
-        'pocknix-proton' 'pocknix-proton-wrapper' 'fex-profiles.json'
+        'pocknix-proton' 'pocknix-proton-wrapper' 'fex-profiles.json' 'game-fixes.json'
         'pocknix-steam-bootstrap' 'pocknix-wifi-import' 'pocknix-wifi-import.service')
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP'
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP'
             'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
@@ -90,6 +90,7 @@ package() {
   # wrapper applies the chosen profile via FEX_APP_CONFIG at game launch). The pocknix-proton
   # shim is the toolmanifest's commandline entrypoint; prep installs it into the tool dirs.
   install -Dm755 "${srcdir}/pocknix-proton-wrapper"        "${pkgdir}/usr/lib/pocknix/pocknix-proton-wrapper"
+  install -Dm644 "${srcdir}/game-fixes.json"                "${pkgdir}/usr/share/pocknix-steam/game-fixes.json"
   install -Dm755 "${srcdir}/pocknix-proton"                "${pkgdir}/usr/share/pocknix-steam/pocknix-proton"
   install -Dm644 "${srcdir}/fex-profiles.json"             "${pkgdir}/usr/share/pocknix/fex-profiles.json"
 }

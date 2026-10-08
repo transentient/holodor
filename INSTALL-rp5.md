@@ -2,8 +2,6 @@
 
 > **This guide is for the Retroid Pocket 5 only.** The steps, the image and the bootloader files are specific to this device. AYN Odin 3 owners: use the [Odin 3 guide](INSTALL-odin3.md) instead.
 
-> DRAFT. Steps marked **[VERIFY]** were written from the Odin 3 guide and the RP5 bring-up notes and have not been walked through on a stock RP5 yet.
-
 You have two options for running Holodor:
 * **From the SD card:** Perfect for trying it out. Your Android setup remains completely untouched.
 * **On internal storage, alongside Android:** This is much faster. Android will still be bootable from the menu, but please note that the installation process will factory reset Android once.
@@ -46,14 +44,13 @@ This flashes the ROCKNIX bootloader for the RP5 (the SM8250 build; it refuses to
 2. If Android offers a system update, decline it.
 3. Insert the prepared SD card into the RP5 while Android is running. If asked how to use the card, choose portable storage.
 4. Open the Android **Files** app, go to the SD card, and copy the whole `rocknix_abl` folder to the top level of **Internal storage**.
-5. Back up your bootloader: **Settings** > **Handheld Settings** > **Advanced** > **Run script as Root** > `Internal storage/rocknix_abl/backup_abl.sh`. **[VERIFY the menu path]**
+5. Back up your bootloader: **Settings** > **Handheld Settings** > **Advanced** > **Run script as Root** > `Internal storage/rocknix_abl/backup_abl.sh`.
     * The script runner reports success even when it failed. Check: the `rocknix_abl` folder on the SD card must now contain `abl_a.img` and `abl_b.img` (about 1 MB each).
     * Copy those two files to your PC. There is nowhere to download a stock RP5 bootloader.
 6. Flash the new bootloader: **Run script as Root** > `flash_abl.sh`. The script checks that it is running on an SM8250 device and stops with a message if it is not.
-7. Power off the RP5 (hold Power, choose Power off, wait ten seconds). Hold **Volume Down** and press **Power**. **[VERIFY the key combination on the RP5]** A text boot menu appears. If Android boots instead, repeat step 6.
+7. Power off the RP5 (hold Power, choose Power off, wait ten seconds). Hold **Volume Down** and press **Power**. A text boot menu appears. If Android boots instead, repeat step 6.
 8. In the boot menu, open **System Stats**. If it lists your SD card, the card works. If it says no card is inserted, repeat Part I with a different card.
-9. In the boot menu, find the **device model** setting and pick the entry that matches your screen: **Retroid Pocket 5** or **Retroid Pocket 5 Visionox**. **[VERIFY the entry names]** If the screen stays black after the boot logo in Part III, you picked the other one; come back and switch.
-10. Turn off Android updates. **[VERIFY: the RP5 kit does not ship an update-disable script yet; describe Retroid's own setting, or drop this step]**
+9. In the boot menu, find the **device model** setting and pick the entry that matches your screen: **Retroid Pocket 5** or **Retroid Pocket 5 Visionox**. If the screen stays black after the boot logo in Part III, you picked the other one; come back and switch.
 
 *To boot Android later: open the boot menu, set the boot mode to Android, and start.*
 
@@ -61,7 +58,7 @@ This flashes the ROCKNIX bootloader for the RP5 (the SM8250 build; it refuses to
 
 ## Part III - First boot of the Retroid Pocket 5 from the SD card
 
-1. Hold **Volume Down** and press **Power**. In the boot menu, set the boot mode to **Linux** and the boot source to **SD card**. **[VERIFY]**
+1. Hold **Volume Down** and press **Power**. In the boot menu, set the boot mode to **Linux** and the boot source to **SD card**.
 2. After the boot art the screen goes dark for up to two minutes while the file system prepares the card. Wait.
 3. The device needs an internet connection to download Steam:
     * **wifi.txt (Recommended):** Put the SD card back in your PC's card reader. You will see one accessible drive (the one with the `rocknix_abl` folder). Create a simple text file named `wifi.txt` there, and type in:
@@ -86,7 +83,6 @@ This flashes the ROCKNIX bootloader for the RP5 (the SM8250 build; it refuses to
 4. Select **Install Holodor to internal storage**. You are asked how much space to leave for Android (32 GB is a sensible minimum).
 5. Confirm and wait 20 to 30 minutes. Do not power off.
 6. When it finishes, power off completely, remove the SD card, and power on. Holodor boots from internal storage.
-7. **[VERIFY: does the RP5's factory reset re-enable updates / remove the rocknix_abl folder, as on the Odin 3?]**
 
 ---
 
@@ -95,13 +91,13 @@ This flashes the ROCKNIX bootloader for the RP5 (the SM8250 build; it refuses to
 Since you already have the custom boot menu installed, you get to skip almost all of Part II.
 
 1. Complete Part I to write the image to your SD card.
-2. Copy your stock bootloader backup to the new Holodor card. Grab `abl_a.img` and `abl_b.img` from the `rocknix_abl/SM8250` folder on your old Armada/ROCKNIX card (or from your PC backup) and drop them into the `rocknix_abl` folder on the Holodor card. **[VERIFY the folder name on the RP5 kit]**
+2. Copy your stock bootloader backup to the new Holodor card. Grab `abl_a.img` and `abl_b.img` from the `rocknix_abl/SM8250` folder on your old Armada/ROCKNIX card (or from your PC backup) and drop them into the `rocknix_abl` folder on the Holodor card.
 3. Complete Part III. In the boot menu, set the boot source to **SD card**, otherwise your old internal Armada or ROCKNIX system will boot instead.
-4. To install Holodor to your internal storage in place of Armada/ROCKNIX, proceed to Part IV. The installer detects your old setup and offers a **Replace with Holodor** option. **[VERIFY on the RP5]**
+4. To install Holodor to your internal storage in place of Armada/ROCKNIX, proceed to Part IV. The installer detects your old setup and offers a **Replace with Holodor** option.
 
 *Side-by-Side:* keep a separate SD card for each system and use the boot menu to pick the card as the boot source.
 
-*Going back to ArmadaOS:* open the boot menu and select **UNINSTALL CFW & EXPAND USERDATA** (removes Holodor and factory resets Android), then install Armada from its SD card as usual. **[VERIFY the menu entry on the RP5 bootloader]**
+*Going back to ArmadaOS:* open the boot menu and select **UNINSTALL CFW & EXPAND USERDATA** (removes Holodor and factory resets Android), then install Armada from its SD card as usual.
 
 ---
 
@@ -109,7 +105,7 @@ Since you already have the custom boot menu installed, you get to skip almost al
 
 1. **Boot Android:** open the boot menu and set the boot mode to Android. Holodor stays on the device.
 2. **Remove Holodor:** boot from the SD card, open the Holodor Installer in Desktop Mode, and choose **Remove Holodor**.
-3. **Restore the stock bootloader:** after step 2, boot from the SD card once more and run `restore_backup_abl.sh` from **Run script as Root** in Android, with your `abl_a.img` and `abl_b.img` back in `rocknix_abl` on the card. **[VERIFY]**
+3. **Restore the stock bootloader:** after step 2, boot from the SD card once more and run `restore_backup_abl.sh` from **Run script as Root** in Android, with your `abl_a.img` and `abl_b.img` back in `rocknix_abl` on the card.
 
 ---
 
@@ -118,6 +114,8 @@ Since you already have the custom boot menu installed, you get to skip almost al
 * **Black screen after the boot logo:** wrong screen model selected in the boot menu (Part II, step 9).
 * **No Wi-Fi networks listed on first boot:** wait a minute and try again; if it persists, boot with a wired hub.
 * **Steam says it cannot reach the internet after sleep:** toggle Wi-Fi off and on in the Steam settings.
+* **Stuck on the boot logo with a USB-C dock plugged in:** unplug the dock, hold the power button until the device turns off, boot, then plug the dock in once Steam is up.
+* **No sound from the TV through a dock:** stop and start the game or video once; the first sound after plugging in sometimes does not play.
 
 ## Appendices
 

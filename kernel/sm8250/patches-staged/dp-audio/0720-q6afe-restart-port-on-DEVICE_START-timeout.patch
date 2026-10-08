@@ -1,0 +1,37 @@
+From: Holodor <holodor@bonesaw.com>
+Subject: [PATCH] ASoC: q6afe: restart the port when DEVICE_START times out
+
+On the Retroid Pocket 5 (SM8250) the DisplayPort AFE port (0x6020, HDMI
+over DP) often gets no answer to its first DEVICE_START after boot or
+after the PCM has been idle. The prepare then fails and the stream the
+user started is silent. Afterwards the DSP reports the port as already
+started (status 9) but still passes no audio; the next stream, which
+stops and starts the port, plays normally.
+
+So when DEVICE_START times out, stop the port and start it again inside
+the same prepare instead of failing it. Measured 2026-10-07 through a
+USB-C dock and an HDMI capture: accepting the "already started" answer
+alone left the stream silent; the stop/start cycle is what makes it play.
+---
+--- a/sound/soc/qcom/qdsp6/q6afe.c	2026-10-07 22:27:30.028695742 +0900
++++ b/sound/soc/qcom/qdsp6/q6afe.c	2026-10-07 22:58:13.179995657 +0900
+@@ -1713,6 +1713,19 @@
+ 	start->port_id = port_id;
+ 
+ 	ret = afe_apr_send_pkt(afe, pkt, port, AFE_PORT_CMD_DEVICE_START);
++	if (ret == -ETIMEDOUT) {
++		/*
++		 * The DSP sometimes does not answer the first DEVICE_START
++		 * (seen on the HDMI-over-DP port after boot or after the port
++		 * has been idle). It reports the port as started afterwards,
++		 * but no audio comes out of it; a stop/start cycle does make it
++		 * play. Do that cycle here instead of failing the prepare.
++		 */
++		dev_warn(afe->dev, "AFE start for port 0x%x timed out, restarting it\n",
++			 port_id);
++		q6afe_port_stop(port);
++		ret = afe_apr_send_pkt(afe, pkt, port, AFE_PORT_CMD_DEVICE_START);
++	}
+ 	if (ret)
+ 		dev_err(afe->dev, "AFE enable for port 0x%x failed %d\n",
+ 			port_id, ret);
