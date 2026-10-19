@@ -49,6 +49,36 @@ trap cleanup EXIT
 
 # Make sure the rootfs carries the pocknix kernel modules + drops the generic
 # ALARM kernel, in case `make build` ran before the kernel existed (idempotent).
+# 2026-10-10 (inquisitor): the FAT /KERNEL comes from ${IMAGE_DIR} (the last `make kernel`) and the
+# modules from ${KOUT}; the rootfs's kernel PACKAGE can be a different build (the 20261010 images
+# booted kernel 15 while `pacman -Q` said 14, and the bsp's cmdline hook would later have rebuilt
+# /flash/KERNEL from the package's /boot/Image = a silent kernel swap on the user's device). Refuse to
+# build an image whose boot file and installed package disagree.
+check_kernel_matches_rootfs() {
+  local fat_sha pkg_sha
+  fat_sha=$(python3 - "${KERNEL_IMG}" <<'PY'
+import struct, zlib, hashlib, sys
+d=open(sys.argv[1],'rb').read()
+if d[:8]!=b'ANDROID!': print('not-a-bootimg'); sys.exit(0)
+ksz=struct.unpack('<I',d[8:12])[0]; psz=struct.unpack('<I',d[36:40])[0]
+k=d[psz:psz+ksz]
+img=zlib.decompressobj(16+zlib.MAX_WBITS).decompress(k) if k[:2]==b'\x1f\x8b' else k
+print(hashlib.sha256(img).hexdigest())
+PY
+)
+  pkg_sha=$(sha256sum "${ROOTFS_DIR}/boot/Image" 2>/dev/null | cut -d' ' -f1)
+  if [ "${fat_sha}" = "not-a-bootimg" ] || [ -z "${pkg_sha}" ]; then
+    warn "kernel check skipped (boot file not an Android boot image, or no /boot/Image in the rootfs)"; return 0
+  fi
+  if [ "${fat_sha}" != "${pkg_sha}" ]; then
+    log "boot file Image sha256 ${fat_sha:0:16} != rootfs /boot/Image ${pkg_sha:0:16} ($(chroot "${ROOTFS_DIR}" pacman -Q "${KERNEL_PKG:-linux-pocknix-${SOC}}" 2>/dev/null))"
+    [ "${HOLODOR_ALLOW_KERNEL_MISMATCH:-0}" = "1" ] || die "the image would boot a different kernel than its package says — run 'make kernel' for the installed package, or install the package the boot file was built from (HOLODOR_ALLOW_KERNEL_MISMATCH=1 overrides)"
+    warn "HOLODOR_ALLOW_KERNEL_MISMATCH=1: building anyway"
+  else
+    log "kernel check: boot file and rootfs package agree (${fat_sha:0:16}, $(chroot "${ROOTFS_DIR}" pacman -Q "${KERNEL_PKG:-linux-pocknix-${SOC}}" 2>/dev/null))"
+  fi
+}
+
 ensure_kernel_in_rootfs() {
   # SoC marker sanity (kernel outputs are per-SoC dirs now, so this should never
   # fire — kept as cheap insurance against manual copies/renames)
@@ -380,6 +410,9 @@ EOF
   #   starts (keyboard-free Wi-Fi for the seedless first boot; ConditionPathExists-gated,
   #   so boots without the file skip it silently). Enabled on ALL images — it's just as
   #   useful for rescuing a dev image whose preseed went stale.
+  # pocknix-expand-root moved from multi-user to sysinit (2026-10-10); a resumed rootfs may still
+  # carry the old wants symlink, and a unit wanted twice is harmless but confusing.
+  rm -f "${root}/etc/systemd/system/multi-user.target.wants/pocknix-expand-root.service"
   chroot "${root}" systemctl enable iwd NetworkManager systemd-resolved seatd inputplumber \
         bluetooth upower udisks2 \
         pocknix-diag.service pocknix-expand-root.service \
@@ -401,6 +434,7 @@ EOF
 
 main() {
   ensure_kernel_in_rootfs
+  check_kernel_matches_rootfs
   # firmware is now installed into the rootfs by build-image.sh (make build)
 
   local root_mib img_mib boot_end

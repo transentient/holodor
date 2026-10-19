@@ -182,6 +182,33 @@ GS_LOG="${HOME}/pocknix-steam.log"
 # POCKNIX_GAMESCOPE_REFRESH_DEFAULT_LOWEST=1 (board conf): with no frame limit set, the panel runs at
 # its lowest rate (60 Hz on the RP5) and only goes to 120 Hz when a game's limit asks for it. The
 # rotation composite costs up to 4.7 ms per frame, over half of a 120 Hz budget (measured 2026-10-05).
+# Wait for the session's PipeWire-Pulse server before Steam starts (2026-10-10, pocknix-steam 53).
+# The autologin session launches us ~2 s before the user manager has started pipewire-pulse
+# (RP5 setup boot: getty@tty1 at 11.2 s, pipewire-pulse at 13.2 s). Steam's Chromium audio
+# service connects to Pulse once, at startup, and never reconnects: a session that starts
+# first has NO UI sounds for its whole life (the first-run setup was silent, nav clicks never
+# played; a Steam restart fixed it, measured on the mic). Same race on every device.
+# pactl has no connect timeout: a wedged server behind a listening socket would block forever and
+# Steam would never start (inquisitor 2026-10-10) - every probe is bounded and so is the whole wait.
+_pulse_t0=$(date +%s)
+while ! timeout 2 pactl info >/dev/null 2>&1; do
+  [ $(( $(date +%s) - _pulse_t0 )) -ge 15 ] && { echo "pocknix-steam: pipewire-pulse not answering after 15 s, starting Steam anyway" >&2; break; }
+  sleep 0.2
+done
+# pocknix-steam 55 (2026-10-11, audit): pipewire-pulse answers before the sound card exists
+# (module-always-sink gives it auto_null; the sm8250 card arrives 15-40 s into the boot via the
+# LPASS heal). A Steam that connects while only auto_null exists has been seen deaf for its whole
+# session (the 31 s auto_null window of bsp 29-33 on dock unplug). Also wait, bounded, for a
+# default sink that is not auto_null; start anyway after 20 s more.
+_sink_t0=$(date +%s)
+while :; do
+  _def=$(timeout 2 pactl get-default-sink 2>/dev/null)
+  [ -n "${_def}" ] && [ "${_def}" != "auto_null" ] && break
+  [ $(( $(date +%s) - _sink_t0 )) -ge 20 ] && { echo "pocknix-steam: no real default sink after 20 s (have '${_def:-none}'), starting Steam anyway" >&2; break; }
+  sleep 0.5
+done
+_pulse_wait=$(( $(date +%s) - _pulse_t0 ))
+[ "${_pulse_wait}" -gt 0 ] && echo "pocknix-steam: waited ${_pulse_wait} s for pipewire-pulse + a real default sink" >&2
 env -u WAYLAND_DISPLAY \
   GAMESCOPE_FAKE_OUTPUT_MM="${PANEL_MM}" \
   ${POCKNIX_GAMESCOPE_REFRESH_PREFER_LOWEST:+GAMESCOPE_DYNAMIC_REFRESH_PREFER_LOWEST=${POCKNIX_GAMESCOPE_REFRESH_PREFER_LOWEST}} \

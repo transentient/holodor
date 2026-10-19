@@ -198,6 +198,16 @@ configure() {
   #    target as a virtual USB device via vhci-hcd; without it InputPlumber hides the
   #    physical gamepad but fails to create the virtual one, so Steam sees no controller
   #    ("modprobe: FATAL: Module vhci-hcd not found"). =m so InputPlumber modprobes it.
+  #  - MODVERSIONS + MODULE_ALLOW_BTF_MISMATCH (2026-10-11): a kernel Image swapped on /flash
+  #    without its modules (the RP5 05:12 test kernel: same source, same config, one built-in
+  #    driver patched) had every module whose BTF no longer matched the vmlinux REFUSED with
+  #    'failed to validate module [ath11k] BTF: -22' (DEBUG_INFO_BTF_MODULES is strict by
+  #    default): no wifi, no bluetooth, no zram (lz4_compress), no DP alt mode
+  #    (typec_displayport), audio macros gone, 90 s device timeouts on the splash, on every
+  #    boot of that card. vermagic + no MODVERSIONS meant nothing else checked the ABI. Now the
+  #    proper check is on (per-symbol CRCs: a same-ABI rebuild loads, a real ABI change is
+  #    refused with 'disagrees about version of symbol') and a stale module BTF is tolerated
+  #    (the module loads, only its BTF is skipped; nothing on Holodor uses module BTF).
   #  - sched_ext (SCHED_CLASS_EXT) + BTF (DEBUG_INFO_BTF): the pluggable BPF scheduler
   #    class, so scx_lavd (the gaming/latency-aware, big.LITTLE-aware scheduler from the
   #    ALARM scx-scheds package, run --autopilot by pocknix-lavd.service) can load. BPF
@@ -287,6 +297,8 @@ configure() {
     --enable DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT \
     --disable DEBUG_INFO_REDUCED \
     --enable DEBUG_INFO_BTF \
+    --enable MODVERSIONS \
+    --enable MODULE_ALLOW_BTF_MISMATCH \
     --enable SCHED_CLASS_EXT \
     --enable FTRACE \
     --enable FUNCTION_TRACER \
@@ -339,7 +351,7 @@ configure() {
   # shows up on-device as pocknix-lavd's ConditionPathExists quietly skipping.
   local sym
   for sym in FUNCTION_TRACER DYNAMIC_FTRACE DYNAMIC_FTRACE_WITH_DIRECT_CALLS \
-             DEBUG_INFO_BTF SCHED_CLASS_EXT KALLSYMS_ALL; do
+             DEBUG_INFO_BTF MODVERSIONS MODULE_ALLOW_BTF_MISMATCH SCHED_CLASS_EXT KALLSYMS_ALL; do
     grep -q "^CONFIG_${sym}=y" "${KSRC}/.config" \
       || die "kernel config: CONFIG_${sym} did not resolve to =y (scx_lavd would not run — check the dependency olddefconfig dropped it for)"
   done

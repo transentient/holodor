@@ -1,0 +1,59 @@
+From: Holodor <holodor@bonesaw.com>
+Subject: [PATCH] ASoC: qcom: q6asm-dai: front ends offer S16_LE only
+
+Measured on the Retroid Pocket 5 (SM8250, ADSP firmware as shipped by the
+vendor), kernel 7.1.2 with the back ends at S16_LE as upstream sm8250.c
+forces them: the same -73 dBFS tone through the speaker front end
+(MultiMedia2) comes out of the amplifiers 9.0 dB lower when the front end
+is opened at S24_LE than at S16_LE (raw ALSA, hardware gains unchanged,
+2026-10-15). The ASM MULTICHANNEL_PCM_V2 format block this driver sends
+carries bits_per_sample 24 and no sample word size; the vendor's HAL
+drives 24-bit through the V3 block with sample_word_size 32. Until the
+24-bit format block is proven level-accurate, do not advertise it: a
+front end that is 9 dB quieter in one of its formats makes every userspace
+mixer pick the wrong default (PipeWire chose S24_LE) and leaves raw ALSA
+and PipeWire disagreeing by 9 dB (the "PipeWire is much quieter" reports
+on these handhelds). 16 bits is plenty for these outputs.
+---
+--- a/sound/soc/qcom/qdsp6/q6asm-dai.c	2026-10-15 12:48:54.411357121 +0900
++++ b/sound/soc/qcom/qdsp6/q6asm-dai.c	2026-10-15 12:51:43.746810717 +0900
+@@ -89,8 +89,7 @@
+ 				SNDRV_PCM_INFO_MMAP_VALID |
+ 				SNDRV_PCM_INFO_INTERLEAVED |
+ 				SNDRV_PCM_INFO_PAUSE | SNDRV_PCM_INFO_RESUME),
+-	.formats =              (SNDRV_PCM_FMTBIT_S16_LE |
+-				SNDRV_PCM_FMTBIT_S24_LE),
++	.formats =              (SNDRV_PCM_FMTBIT_S16_LE),
+ 	.rates =                SNDRV_PCM_RATE_8000_48000,
+ 	.rate_min =             8000,
+ 	.rate_max =             48000,
+@@ -112,8 +111,7 @@
+ 				SNDRV_PCM_INFO_NO_REWINDS | SNDRV_PCM_INFO_SYNC_APPLPTR |
+ 				SNDRV_PCM_INFO_INTERLEAVED |
+ 				SNDRV_PCM_INFO_PAUSE | SNDRV_PCM_INFO_RESUME),
+-	.formats =              (SNDRV_PCM_FMTBIT_S16_LE |
+-				SNDRV_PCM_FMTBIT_S24_LE),
++	.formats =              (SNDRV_PCM_FMTBIT_S16_LE),
+ 	.rates =                SNDRV_PCM_RATE_8000_192000,
+ 	.rate_min =             8000,
+ 	.rate_max =             192000,
+@@ -138,8 +136,7 @@
+ 				  SNDRV_PCM_RATE_96000 |		\
+ 				  SNDRV_PCM_RATE_176400 |		\
+ 				  SNDRV_PCM_RATE_192000),		\
+-			.formats = (SNDRV_PCM_FMTBIT_S16_LE |		\
+-					SNDRV_PCM_FMTBIT_S24_LE),	\
++			.formats = (SNDRV_PCM_FMTBIT_S16_LE),	\
+ 			.channels_min = 1,				\
+ 			.channels_max = 8,				\
+ 			.rate_min =     8000,				\
+@@ -150,8 +147,7 @@
+ 			.rates = (SNDRV_PCM_RATE_8000_48000 |		\
+ 				  SNDRV_PCM_RATE_12000 |		\
+ 				  SNDRV_PCM_RATE_24000),		\
+-			.formats = (SNDRV_PCM_FMTBIT_S16_LE |		\
+-				    SNDRV_PCM_FMTBIT_S24_LE),		\
++			.formats = (SNDRV_PCM_FMTBIT_S16_LE),		\
+ 			.channels_min = 1,				\
+ 			.channels_max = 4,				\
+ 			.rate_min =     8000,				\

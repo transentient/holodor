@@ -1,0 +1,80 @@
+From: Holodor <holodor@bonesaw.com>
+Subject: [PATCH] ASoC: qcom: q6afe: route the DSP error reply to a core hw vote and retry it
+
+On the Retroid Pocket 5 (SM8250, vendor ADSP firmware) the first
+AFE_CMD_REMOTE_LPASS_CORE_HW_VOTE_REQUEST, sent 3 ms after the audio
+protection domain reports up, is answered with a basic result carrying
+status 0x16. q6afe_callback() has no case for that opcode, logs "Unknown
+cmd 0x100f4" and wakes nobody, so afe_apr_send_pkt() waits the full 3 s
+and lpass-va-macro's clock prepare fails with -ETIMEDOUT; the macro
+probe fails for good, every macro and the sound card defer forever, and
+the device boots without a sound card. The same request a few seconds
+later is accepted (verified by reloading the macro driver on every boot
+for weeks). Route the basic result to the waiter under the response
+opcode it expects, and retry the vote with a 50 ms back-off (up to 1 s).
+---
+--- a/sound/soc/qcom/qdsp6/q6afe.c	2026-10-15 15:13:21.167857204 +0900
++++ b/sound/soc/qcom/qdsp6/q6afe.c	2026-10-15 15:13:21.180055560 +0900
+@@ -980,6 +980,24 @@
+ 				res->opcode, res->status);
+ 		}
+ 		switch (res->opcode) {
++		case AFE_CMD_REMOTE_LPASS_CORE_HW_VOTE_REQUEST:
++		case AFE_CMD_REMOTE_LPASS_CORE_HW_DEVOTE_REQUEST:
++			/*
++			 * The DSP answered a core hw vote/devote with a basic result
++			 * (an error), not with the dedicated response. Wake the
++			 * waiter with the response opcode it expects so the caller
++			 * sees the status at once instead of a 3 s timeout
++			 * (Retroid Pocket 5: "cmd = 0x100f4 returned error = 0x16"
++			 * 3 ms after the audio PD came up, then "AFE failed to
++			 * vote", lpass-va-macro probe -ETIMEDOUT, no sound card).
++			 */
++			afe->result.opcode = res->opcode ==
++				AFE_CMD_REMOTE_LPASS_CORE_HW_VOTE_REQUEST ?
++				AFE_CMD_RSP_REMOTE_LPASS_CORE_HW_VOTE_REQUEST :
++				res->opcode;
++			afe->result.status = res->status;
++			wake_up(&afe->wait);
++			break;
+ 		case AFE_PORT_CMD_SET_PARAM_V2:
+ 		case AFE_PORT_CMD_DEVICE_STOP:
+ 		case AFE_PORT_CMD_DEVICE_START:
+@@ -1873,7 +1891,7 @@
+ 	struct q6afe *afe = dev_get_drvdata(dev->parent);
+ 	struct afe_cmd_remote_lpass_core_hw_vote_request *vote_cfg;
+ 	struct apr_pkt *pkt;
+-	int ret = 0;
++	int ret = 0, i;
+ 	int pkt_size = APR_HDR_SIZE + sizeof(*vote_cfg);
+ 
+ 	void *p __free(kfree) = kzalloc(pkt_size, GFP_KERNEL);
+@@ -1895,10 +1913,26 @@
+ 	strscpy(vote_cfg->client_name, client_name,
+ 			sizeof(vote_cfg->client_name));
+ 
+-	ret = afe_apr_send_pkt(afe, pkt, NULL,
+-			       AFE_CMD_RSP_REMOTE_LPASS_CORE_HW_VOTE_REQUEST);
++	/*
++	 * Right after the ADSP's audio protection domain reports up, the AFE
++	 * service refuses this request (basic result, status 0x16) for a short
++	 * while; the same request a moment later is accepted (Retroid Pocket 5,
++	 * SM8250, 2026-10-15: refused 3 ms after PD up on every boot, accepted on
++	 * a driver reload seconds later). Retry with a short back-off instead of
++	 * failing the clock prepare, which fails the macro probes for good.
++	 */
++	for (i = 0; i < 20; i++) {
++		ret = afe_apr_send_pkt(afe, pkt, NULL,
++				       AFE_CMD_RSP_REMOTE_LPASS_CORE_HW_VOTE_REQUEST);
++		if (ret != -EINVAL)
++			break;
++		msleep(50);
++	}
+ 	if (ret)
+ 		dev_err(afe->dev, "AFE failed to vote (%d)\n", hw_block_id);
++	else if (i)
++		dev_info(afe->dev, "AFE vote (%d) accepted after %d retries\n",
++			 hw_block_id, i);
+ 
+ 	return ret;
+ }

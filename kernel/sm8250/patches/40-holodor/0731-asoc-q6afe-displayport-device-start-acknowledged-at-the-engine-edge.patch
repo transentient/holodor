@@ -1,0 +1,75 @@
+From: Holodor <holodor@bonesaw.com>
+Subject: [PATCH] ASoC: qcom: q6afe: the DisplayPort DEVICE_START is acknowledged at the DP audio engine's edge
+
+Traced on the Retroid Pocket 5 (SM8250, vendor ADSP firmware; ftrace +
+kprobes on afe_apr_send_pkt, q6afe_callback, apr_callback,
+qcom_glink_native_rx and msm_dp_audio_enable, 2026-10-15): the DSP
+acknowledges AFE_PORT_CMD_DEVICE_START for DISPLAY_PORT_RX only after the
+DP audio engine's rising edge. ROCKNIX's "drm/display: add hw_params
+callback to hdmi audio ops" made the engine come up at hw_params, before
+this start; the DSP then missed the edge in ~40 % of the starts, held the
+acknowledgement until the next engine transition, and the stream (or
+PipeWire's one-time card probe, which marks the profile unsupported) was
+lost after a 3 s timeout. Toggling the engine afterwards or stopping and
+restarting the port (EFAILED / EALREADY) does not recover it.
+
+Without that patch upstream's hdmi-codec enables the engine in its
+prepare, which runs after this DAI's prepare, so the acknowledgement
+cannot arrive while q6afe waits. Wait 150 ms for that one command, report
+the port started, and let the codec prepare raise the engine; the
+acknowledgement follows at once. Measured: every start acknowledged at
+the edge, 6/6 streams and the card probe play (docked boot, kernel 39).
+---
+--- a/sound/soc/qcom/qdsp6/q6afe.c	2026-10-15 15:13:21.192723344 +0900
++++ b/sound/soc/qcom/qdsp6/q6afe.c	2026-10-15 16:02:42.294781545 +0900
+@@ -1046,6 +1046,28 @@
+ }
+ EXPORT_SYMBOL_GPL(q6afe_get_port_id);
+ 
++/*
++ * HOLODOR: the DSP acknowledges DEVICE_START for the DisplayPort port only
++ * after the DP audio engine's rising edge. With the engine switched on by the
++ * hdmi-codec's prepare (after this DAI's prepare, as upstream orders it) the
++ * acknowledgement cannot arrive while we wait here, so do not wait 3 s and
++ * fail: wait briefly, report the port started, and let the codec prepare
++ * raise the engine; the acknowledgement follows at once and the callback
++ * stores it. Retroid Pocket 5 (SM8250), ftrace + kprobes 2026-10-15: with the
++ * engine already on at START the acknowledgement was held in ~40 % of the
++ * starts (the DSP had missed the edge) and the stream was lost; with this
++ * order every start is held exactly until the edge and every stream plays.
++ */
++#define DP_START_TIMEOUT_MS 150
++
++static unsigned int afe_cmd_timeout_ms(struct q6afe_port *port, uint32_t rsp_opcode)
++{
++	if (port && port->id == AFE_PORT_ID_HDMI_OVER_DP_RX &&
++	    rsp_opcode == AFE_PORT_CMD_DEVICE_START)
++		return DP_START_TIMEOUT_MS;
++	return TIMEOUT_MS;
++}
++
+ static int afe_apr_send_pkt(struct q6afe *afe, struct apr_pkt *pkt,
+ 			    struct q6afe_port *port, uint32_t rsp_opcode)
+ {
+@@ -1073,7 +1095,7 @@
+ 	}
+ 
+ 	ret = wait_event_timeout(*wait, (result->opcode == rsp_opcode),
+-				 msecs_to_jiffies(TIMEOUT_MS));
++				 msecs_to_jiffies(afe_cmd_timeout_ms(port, rsp_opcode)));
+ 	if (!ret) {
+ 		ret = -ETIMEDOUT;
+ 	} else if (result->status > 0) {
+@@ -1731,7 +1753,11 @@
+ 	start->port_id = port_id;
+ 
+ 	ret = afe_apr_send_pkt(afe, pkt, port, AFE_PORT_CMD_DEVICE_START);
+-	if (ret)
++	if (ret == -ETIMEDOUT && port_id == AFE_PORT_ID_HDMI_OVER_DP_RX) {
++		/* see afe_cmd_timeout_ms(): started, acknowledged at the engine edge */
++		dev_dbg(afe->dev, "DisplayPort DEVICE_START ack held by the DSP, continuing\n");
++		ret = 0;
++	} else if (ret)
+ 		dev_err(afe->dev, "AFE enable for port 0x%x failed %d\n",
+ 			port_id, ret);
+ 

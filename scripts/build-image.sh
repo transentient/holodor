@@ -122,7 +122,10 @@ install_local_packages() {
   # Kernel: swap ALARM's generic linux-aarch64 for our SoC kernel package (Image + modules,
   # built by `make kernel` -> staged into the package). Its own step (not bundled above) so a
   # missing kernel build errors clearly, and the replace is deterministic. `provides=linux`.
-  if chroot "${root}" pacman -Si "pocknix/${KERNEL_PKG}" >/dev/null 2>&1; then
+  if [[ ",${HOLODOR_IGNORE_PKGS:-}," == *",${KERNEL_PKG},"* ]] && chroot "${root}" pacman -Q "${KERNEL_PKG}" >/dev/null 2>&1; then
+    # the explicit -S below would override pacman --ignore; a pinned, already-installed kernel stays
+    log "kernel pinned (HOLODOR_IGNORE_PKGS): keeping $(chroot "${root}" pacman -Q "${KERNEL_PKG}")"
+  elif chroot "${root}" pacman -Si "pocknix/${KERNEL_PKG}" >/dev/null 2>&1; then
     chroot "${root}" pacman -Rdd --noconfirm linux-aarch64 2>/dev/null || true
     rm -rf "${root}/boot/initramfs-linux"*.img 2>/dev/null || true
     chroot "${root}" pacman -S --noconfirm "pocknix/${KERNEL_PKG}"
@@ -173,6 +176,9 @@ install_local_packages() {
   # --needed skips same-version, uninstalled ones (optional emulators) stay absent.
   _stale=()
   while read -r _p; do
+    # a pinned package (HOLODOR_IGNORE_PKGS) keeps its installed build here too: this explicit
+    # -S would override pacman --ignore (the kernel slipped to 15 past the pin, 2026-10-10)
+    [[ ",${HOLODOR_IGNORE_PKGS:-}," == *",${_p},"* ]] && { log "  pinned, not re-synced: ${_p}"; continue; }
     # pacman -Q resolves provides (asking for `mesa` answers `mesa-next`), so gate on the
     # EXACT installed name — else this loop re-adds the plain package its -next replacement
     # conflicts with and the transaction dies (bitten by the mesa-next driver swap).
@@ -273,7 +279,12 @@ install_packages() {
   # -Syy (force DB refresh): a reused rootfs keeps a stale sync DB, and plain -Sy won't
   # re-download a DB pacman thinks is current -> valid extra pkgs (vulkan-tools, alsa-utils,
   # alsa-ucm-conf) show up as "target not found". Safe here: this is a fresh-image -Su anyway.
-  chroot "${root}" pacman -Syyu --noconfirm --needed "${pkgs[@]}"
+  # HOLODOR_IGNORE_PKGS="a,b": keep the rootfs's installed version of those packages (pacman
+  # --ignore) so a respin can carry one fix without pulling every newer build in the local repo
+  # (2026-10-10: bsp-sm8250 30 audio fix with the tested kernel 14, not the untested 15).
+  local -a _ignore=()
+  [ -n "${HOLODOR_IGNORE_PKGS:-}" ] && { _ignore=(--ignore "${HOLODOR_IGNORE_PKGS}"); log "pinning (pacman --ignore): ${HOLODOR_IGNORE_PKGS}"; }
+  chroot "${root}" pacman -Syyu --noconfirm --needed "${_ignore[@]}" "${pkgs[@]}"
 }
 
 # Install the SoC device firmware (ath12k wifi board data, adsp/cdsp, vpu, ...)

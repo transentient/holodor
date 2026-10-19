@@ -1,0 +1,87 @@
+From: Holodor <holodor@bonesaw.com>
+Subject: [PATCH] ASoC: qcom: q6asm: close the DSP stream when prepare fails after the open, refuse 7 channels
+
+q6asm_dai_prepare() opens the DSP stream (q6asm_open_write/read), routes it
+and then sends the media format block. When that block fails, the function
+returned the error with the stream still open in the DSP and prtd->state
+still STOPPED, so q6asm_dai_close() never sent CMD_CLOSE and the next
+prepare on the same stream id got ADSP_EALREADY from the DSP ("cmd =
+0x10db3 returned error = 0x9", "q6asm_open_write failed") for the rest of
+the boot. PipeWire's ACP probes every PCM of the "pro-audio" profile at
+card creation with the maximum channel count the front end advertises;
+the front end said 8 and the probe picked 7, which q6dsp_map_channels()
+refuses, so on the Retroid Pocket 5 (SM8250) the speaker PCM was dead
+from boot (2026-10-15, kernel 7.1.2).
+
+Close and unmap on that path like the other error paths, free the packet
+that q6asm_media_format_block_multi_ch_pcm() leaked on a map failure, and
+constrain the front ends to the channel counts the channel map supports
+(1-6 and 8).
+---
+--- a/sound/soc/qcom/qdsp6/q6asm.c	2026-10-15 13:24:31.264490624 +0900
++++ b/sound/soc/qcom/qdsp6/q6asm.c	2026-10-15 13:24:31.277738821 +0900
+@@ -1113,6 +1113,7 @@
+ 	} else {
+ 		if (q6dsp_map_channels(channel_mapping, channels)) {
+ 			dev_err(ac->dev, " map channels failed %d\n", channels);
++			kfree(pkt);
+ 			return -EINVAL;
+ 		}
+ 	}
+--- a/sound/soc/qcom/qdsp6/q6asm-dai.c	2026-10-15 13:24:31.266004625 +0900
++++ b/sound/soc/qcom/qdsp6/q6asm-dai.c	2026-10-15 13:24:31.277959962 +0900
+@@ -290,12 +290,23 @@
+ 			q6asm_read(prtd->audio_client, prtd->stream_id);
+ 
+ 	}
+-	if (ret < 0)
+-		dev_info(dev, "%s: CMD Format block failed\n", __func__);
+-	else
+-		prtd->state = Q6ASM_STREAM_RUNNING;
++	if (ret < 0) {
++		/*
++		 * The DSP stream is open and routed at this point. Leaving it
++		 * open with prtd->state still STOPPED means close() never sends
++		 * CMD_CLOSE and every later open of this stream id gets
++		 * ADSP_EALREADY (Retroid Pocket 5, 2026-10-15: PipeWire's
++		 * pro-audio probe opened the speaker PCM with 7 channels, the
++		 * channel map failed, and the speaker stayed silent for the
++		 * whole boot).
++		 */
++		dev_err(dev, "%s: CMD Format block failed (%d)\n", __func__, ret);
++		q6routing_stream_close(soc_prtd->dai_link->id, substream->stream);
++		goto routing_err;
++	}
++	prtd->state = Q6ASM_STREAM_RUNNING;
+ 
+-	return ret;
++	return 0;
+ 
+ routing_err:
+ 	q6asm_cmd(prtd->audio_client, prtd->stream_id,  CMD_CLOSE);
+@@ -359,6 +370,13 @@
+ 	return ret;
+ }
+ 
++/* q6dsp_map_channels() knows 1-6 and 8 channels; 7 is refused by the DSP format block */
++static const unsigned int q6asm_dai_channels[] = { 1, 2, 3, 4, 5, 6, 8 };
++static const struct snd_pcm_hw_constraint_list q6asm_dai_channels_list = {
++	.count = ARRAY_SIZE(q6asm_dai_channels),
++	.list = q6asm_dai_channels,
++};
++
+ static int q6asm_dai_open(struct snd_soc_component *component,
+ 			  struct snd_pcm_substream *substream)
+ {
+@@ -403,6 +421,11 @@
+ 		runtime->hw = q6asm_dai_hardware_capture;
+ 
+ 	/* Ensure that buffer size is a multiple of period size */
++	ret = snd_pcm_hw_constraint_list(runtime, 0, SNDRV_PCM_HW_PARAM_CHANNELS,
++					 &q6asm_dai_channels_list);
++	if (ret < 0)
++		dev_info(dev, "channels constraint failed\n");
++
+ 	ret = snd_pcm_hw_constraint_integer(runtime,
+ 					    SNDRV_PCM_HW_PARAM_PERIODS);
+ 	if (ret < 0)

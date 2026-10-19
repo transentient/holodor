@@ -59,19 +59,19 @@ This flashes the ROCKNIX bootloader for the RP5 (the SM8250 build; it refuses to
 ## Part III - First boot of the Retroid Pocket 5 from the SD card
 
 1. Hold **Volume Down** and press **Power**. In the boot menu, set the boot mode to **Linux** and the boot source to **SD card**.
-2. After the boot art the screen goes dark for up to two minutes while the file system prepares the card. Wait.
-3. The device needs an internet connection to download Steam:
-    * **wifi.txt (Recommended):** Put the SD card back in your PC's card reader. You will see one accessible drive (the one with the `rocknix_abl` folder). Create a simple text file named `wifi.txt` there, and type in:
+2. After the boot logo, the screen goes dark for up to two minutes while Holodor expands the file system on the card. Let it finish.
+3. The device needs an internet connection on first boot to download Steam:
+    * **wifi.txt (Recommended):** Put the SD card back in your PC's card reader. Open the small visible drive (the one with the `rocknix_abl` folder) and create a plain text file named `wifi.txt` containing:
       ```text
       ssid=YourNetworkName
       password=YourWifiPassword
       country=US
       ```
-      *(Note: `country` is your two-letter country code, which is required for 5 GHz networks.)* Two things that trip people up: create the file on the card in the card reader, not through the RP5's USB connection (Windows shows a file there that is never actually written to the card); and make sure the name is exactly `wifi.txt`, not `wifi.txt.txt` (Windows hides file extensions by default). Put the card back into the RP5 and boot. Once it connects successfully, the file renames itself to `wifi.txt.imported`. If something goes wrong, you will find a `wifi-import-error.txt` file explaining why.
-    * **Wired Connection:** Plug in a USB-C hub with an Ethernet cable attached. Leave it plugged in until Steam has started and you have connected to your Wi-Fi via Steam's network settings. It is safe to power the device off with the hub attached, but do not let it go to sleep with the hub attached; the USB port will not wake up properly until you reboot.
-4. The download screen shows progress: a few minutes on a fast card, up to an hour on a slow one.
-5. Sign in to Steam. Steam updates itself right after; the menus stay laggy for a few minutes.
-6. You are in Steam. Controls, sound and rumble work. A short press of the Power button puts the RP5 to sleep.
+      *(Note: `country` is your two-letter country code, which is required for 5 GHz networks.)* Two common pitfalls: create the file with the card in your PC's card reader rather than over a USB cable to the RP5, and make sure the file is named `wifi.txt` and not `wifi.txt.txt` (Windows hides file extensions by default). Put the card back into the RP5 and boot. Once it connects, the file renames itself to `wifi.txt.imported`. If something goes wrong, check `wifi-import-error.txt` on the card for the reason.
+    * **Wired Connection:** Plug in a USB-C hub or dock with an Ethernet cable attached. Leave it plugged in until Steam starts and you have connected to your Wi-Fi in Steam's network settings.
+4. The download screen shows progress. It takes a few minutes on a fast card, or up to an hour on a slow one.
+5. Sign in to Steam. Steam updates itself right after, so the menus will feel sluggish for a few minutes while it finishes unpacking in the background.
+6. You are in Steam. Controls, sound, headphone jack detection, and rumble all work out of the box. A short press of the Power button puts the RP5 to sleep.
 
 ---
 
@@ -80,42 +80,41 @@ This flashes the ROCKNIX bootloader for the RP5 (the SM8250 build; it refuses to
 1. Boot Holodor from the SD card with Wi-Fi or a wired hub connected.
 2. Switch to Desktop Mode: **Steam menu** > **Power** > **Switch to Desktop**.
 3. Open the Holodor Installer: **Application menu** (bottom left) > **System** > **Holodor Installer**.
-4. Select **Install Holodor to internal storage**. You are asked how much space to leave for Android (32 GB is a sensible minimum).
-5. Confirm and wait 20 to 30 minutes. Do not power off.
-6. When it finishes, power off completely, remove the SD card, and power on. Holodor boots from internal storage.
+4. Select **Install Holodor to internal storage**. You will be asked how much space to leave for Android (32 GB is a good minimum).
+5. Confirm and wait 20 to 30 minutes while it copies the system over. Do not power off the device during the install.
+6. When it finishes, power off completely, remove the SD card, and turn the RP5 back on. Holodor will boot straight from internal storage.
 
 ---
 
 ## Coming from ArmadaOS or ROCKNIX
 
-Since you already have the custom boot menu installed, you get to skip almost all of Part II.
+Since you already have the custom boot menu installed, you can skip almost all of Part II.
 
 1. Complete Part I to write the image to your SD card.
-2. Copy your stock bootloader backup to the new Holodor card. Grab `abl_a.img` and `abl_b.img` from the `rocknix_abl/SM8250` folder on your old Armada/ROCKNIX card (or from your PC backup) and drop them into the `rocknix_abl` folder on the Holodor card.
-3. Complete Part III. In the boot menu, set the boot source to **SD card**, otherwise your old internal Armada or ROCKNIX system will boot instead.
-4. To install Holodor to your internal storage in place of Armada/ROCKNIX, proceed to Part IV. The installer detects your old setup and offers a **Replace with Holodor** option.
+2. Copy your stock bootloader backup to the new Holodor card. Grab `abl_a.img` and `abl_b.img` from the `rocknix_abl/SM8250` folder on your old Armada or ROCKNIX card (or from your PC backup) and drop them into the `rocknix_abl` folder on the Holodor card.
+3. Complete Part III. Make sure to set the boot source to **SD card** in the boot menu, otherwise your existing internal Armada or ROCKNIX install will boot instead.
+4. To install Holodor to internal storage in place of Armada or ROCKNIX, follow Part IV. The installer will detect your existing Linux partitions and offer a **Replace with Holodor** option that leaves Android alone.
 
-*Side-by-Side:* keep a separate SD card for each system and use the boot menu to pick the card as the boot source.
+*Running both from SD cards:* keep a separate SD card for each distro and set the boot source to **SD card** in the boot menu.
 
-*Going back to ArmadaOS:* open the boot menu and select **UNINSTALL CFW & EXPAND USERDATA** (removes Holodor and factory resets Android), then install Armada from its SD card as usual.
+*Going back to ArmadaOS:* open the boot menu and select **UNINSTALL CFW & EXPAND USERDATA** (this removes Holodor and factory resets Android), then install Armada from its SD card as usual.
 
 ---
 
 ## Part V - Retroid Pocket 5: going back to Android, or to a completely stock device
 
-1. **Boot Android:** open the boot menu and set the boot mode to Android. Holodor stays on the device.
+1. **Boot Android:** open the boot menu and set the boot mode to Android. Holodor stays untouched on the device.
 2. **Remove Holodor:** boot from the SD card, open the Holodor Installer in Desktop Mode, and choose **Remove Holodor**.
-3. **Restore the stock bootloader:** after step 2, boot from the SD card once more and run `restore_backup_abl.sh` from **Run script as Root** in Android, with your `abl_a.img` and `abl_b.img` back in `rocknix_abl` on the card.
+3. **Restore the stock bootloader:** after step 2, boot Android, copy your `abl_a.img` and `abl_b.img` backups into `Internal storage/rocknix_abl`, and run `restore_backup_abl.sh` from **Run script as Root**.
 
 ---
 
 ## Troubleshooting
 
-* **Black screen after the boot logo:** wrong screen model selected in the boot menu (Part II, step 9).
-* **No Wi-Fi networks listed on first boot:** wait a minute and try again; if it persists, boot with a wired hub.
-* **Steam says it cannot reach the internet after sleep:** toggle Wi-Fi off and on in the Steam settings.
-* **Stuck on the boot logo with a USB-C dock plugged in:** unplug the dock, hold the power button until the device turns off, boot, then plug the dock in once Steam is up.
-* **No sound from the TV through a dock:** stop and start the game or video once; the first sound after plugging in sometimes does not play.
+* **Black screen after the boot logo:** wrong screen revision selected in the boot menu (Part II, step 9). Reboot into the boot menu and switch between **Retroid Pocket 5** and **Retroid Pocket 5 Visionox**.
+* **No Wi-Fi networks listed on first boot:** wait a minute and check again; if none appear, make sure your two-letter `country=` code is set or connect with a wired USB-C hub.
+* **Steam says it cannot reach the internet after waking from sleep:** give Wi-Fi a few seconds to reconnect, or toggle Wi-Fi off and back on in Steam's network settings.
+* **External monitor comes up at 640x480 with no audio on a USB-C dock:** some HDMI dongles occasionally fail to report their display modes on plug-in. Unplug the dock from the RP5 and plug it back in.
 
 ## Appendices
 
@@ -123,5 +122,5 @@ Since you already have the custom boot menu installed, you get to skip almost al
 
 1. Switch to Desktop Mode and open Konsole.
 2. Set a password for the `deck` user: `passwd` (press Enter at the "current password" prompt).
-3. `systemctl enable --now sshd`
-4. From your PC: `ssh deck@<the RP5's IP address>`. The address is under Desktop Mode's network settings.
+3. Run `systemctl enable --now sshd`.
+4. From your PC, run `ssh deck@<the RP5's IP address>`. You can find the IP address in Desktop Mode's network settings or in Steam under **Settings** > **Internet**.

@@ -1,0 +1,35 @@
+#!/bin/sh
+# 002-audio-quiesce (post) — restore ASoC/SoundWire autosuspend timers, un-suspend
+# the hardware ALSA sinks, and unload the temporary null sink created by
+# 002-audio-quiesce (pre) so active streams return to the hardware sink without
+# re-running UCM EnableSequence/DisableSequence.
+
+state=/run/pocknix-audio-quiesce-state
+[ -f "${state}" ] || exit 0
+
+mod_id=$(cat "${state}" 2>/dev/null)
+rm -f "${state}"
+
+for f in /sys/devices/platform/sound/*/pmdown_time; do
+  [ -w "${f}" ] && echo 5000 > "${f}" 2>/dev/null || true
+done
+[ -w /sys/devices/platform/audio-codec/power/autosuspend_delay_ms ] && \
+  echo 1000 > /sys/devices/platform/audio-codec/power/autosuspend_delay_ms 2>/dev/null || true
+for d in /sys/bus/soundwire/devices/*/power/autosuspend_delay_ms \
+         /sys/devices/platform/soc@0/3*.soundwire/power/autosuspend_delay_ms; do
+  [ -w "${d}" ] && echo 3000 > "${d}" 2>/dev/null || true
+done
+
+if [ -S /run/user/1001/pulse/native ]; then
+  for s in $(runuser -u deck -- env XDG_RUNTIME_DIR=/run/user/1001 \
+    timeout 2 pactl list sinks short 2>/dev/null | awk '/alsa_output\.platform-sound/{print $2}'); do
+    runuser -u deck -- env XDG_RUNTIME_DIR=/run/user/1001 \
+      timeout 2 pactl suspend-sink "${s}" 0 2>/dev/null || true
+  done
+  if [ -n "${mod_id}" ]; then
+    runuser -u deck -- env XDG_RUNTIME_DIR=/run/user/1001 \
+      timeout 2 pactl unload-module "${mod_id}" 2>/dev/null || true
+  fi
+  echo "002-audio-quiesce: restored sinks (mod=${mod_id:-none})" >/dev/kmsg 2>/dev/null || true
+fi
+exit 0

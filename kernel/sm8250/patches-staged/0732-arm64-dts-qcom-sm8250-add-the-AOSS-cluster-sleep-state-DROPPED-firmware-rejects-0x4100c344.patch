@@ -1,0 +1,46 @@
+From: Holodor <holodor@bonesaw.com>
+Date: Thu, 16 Oct 2026 12:00:00 +0900
+Subject: [PATCH] arm64: dts: qcom: sm8250: add the AOSS cluster sleep state
+
+sm8250.dtsi describes one cluster idle state, cluster-sleep-0 (PSCI
+parameter 0x4100c244).  sm8350, sm8450 and sm8550 additionally describe
+cluster-sleep-1 with parameter 0x4100c344, the state in which the AOSS is
+asked to put the SoC to sleep (CX collapse, DDR self-refresh).  Without a
+state that requests it, suspend-to-idle on the Retroid Pocket 5 (SM8250)
+never reaches it: /sys/kernel/debug/qcom_stats shows aosd, cxsd and ddr
+counts of 0 across a 6.4 h suspend, while the CPUs power-collapse and the
+cluster domain enters cluster-sleep-0 once per suspend; the device drains
+~2.5 %/h asleep (measured 2026-10-16).  Add the deeper state as the last
+entry of the cluster domain so s2idle picks it.
+
+Latencies are copied from cluster-sleep-0 pending measurement.
+---
+ arch/arm64/boot/dts/qcom/sm8250.dtsi | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+--- a/arch/arm64/boot/dts/qcom/sm8250.dtsi
++++ b/arch/arm64/boot/dts/qcom/sm8250.dtsi
+@@ -368,6 +368,14 @@
+ 				exit-latency-us = <6562>;
+ 				min-residency-us = <9987>;
+ 			};
++
++			cluster_sleep_1: cluster-sleep-1 {
++				compatible = "domain-idle-state";
++				arm,psci-suspend-param = <0x4100c344>;
++				entry-latency-us = <3264>;
++				exit-latency-us = <6562>;
++				min-residency-us = <9987>;
++			};
+ 		};
+ 	};
+ 
+@@ -745,7 +753,7 @@
+ 
+ 		cluster_pd: power-domain-cpu-cluster0 {
+ 			#power-domain-cells = <0>;
+-			domain-idle-states = <&cluster_sleep_0>;
++			domain-idle-states = <&cluster_sleep_0>, <&cluster_sleep_1>;
+ 		};
+ 	};
+ 

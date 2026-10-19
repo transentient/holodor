@@ -14,6 +14,13 @@
 #   max:         uncapped + GPU min pinned to max + CPU governor performance
 #                (bench/AAA mode: devfreq can never downclock mid-frame; hot+loud)
 MODE_FILE=/var/lib/pocknix/power-mode
+# Board floor for the GPU clock (POCKNIX_GPU_MIN_FREQ in Hz, from the device BSP): balanced/performance keep the
+# GPU at or above it instead of the hardware minimum; eco and max are unchanged. RP5 2026-10-16: Steam's library
+# grid (CEF, GPU-composited) at the 305 MHz floor "slides then snaps"; 490 MHz = smooth (Cliff's eye, A/B on the
+# device). Costs nothing at idle: the msm GPU runtime-suspends (powered off) whenever nothing renders, and games
+# sit at 587-925 MHz anyway; the floor only lifts light rendering (menus, 2D).
+for _dc in /usr/lib/pocknix/device.conf /etc/pocknix/device.conf; do [ -r "${_dc}" ] && . "${_dc}"; done
+GPU_FLOOR="${POCKNIX_GPU_MIN_FREQ:-}"
 MODE="${1:-$(cat "$MODE_FILE" 2>/dev/null || echo performance)}"
 # `max` is session-only: it pins the GPU and the CPU governor (95C, -20..-34%/h) and once
 # survived a reboot from a bench into a full day of play (2026-08-17). With no argument
@@ -58,9 +65,16 @@ if [ -n "$G" ]; then
     echo "$gmax" > "$G/max_freq" 2>/dev/null
     echo "$gmax" > "$G/min_freq" 2>/dev/null
   else
+    floor="$gmin"
+    if [ -n "$GPU_FLOOR" ] && [ "$MODE" != eco ] && [ -n "$best" ] && [ "$GPU_FLOOR" -le "$best" ] 2>/dev/null; then
+      floor=$(tr ' ' '\n' < "$G/available_frequencies" | sort -n | awk -v t="$GPU_FLOOR" '$1>=t{print; exit}')
+      [ -n "$floor" ] || floor="$gmin"
+    fi
+    # order matters: lower min before max when going down, raise max before min when going up
     echo "$gmin" > "$G/min_freq" 2>/dev/null
     [ -n "$best" ] && echo "$best" > "$G/max_freq" 2>/dev/null
+    echo "$floor" > "$G/min_freq" 2>/dev/null
   fi
 fi
 mkdir -p "$(dirname "$MODE_FILE")"; echo "$MODE" > "$MODE_FILE"
-echo "power mode: $MODE (cpu ${CPU_PCT}%, gpu ${GPU_PCT}%)"
+echo "power mode: $MODE (cpu ${CPU_PCT}%, gpu ${GPU_PCT}%$( [ -n "$G" ] && printf ", gpu floor %s MHz" $(( $(cat "$G/min_freq") / 1000000 )) ))"

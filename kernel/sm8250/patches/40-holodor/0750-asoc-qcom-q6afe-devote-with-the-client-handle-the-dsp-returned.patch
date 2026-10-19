@@ -1,0 +1,110 @@
+From: Holodor <holodor@bonesaw.com>
+Date: Fri, 16 Oct 2026 16:05:00 +0900
+Subject: [PATCH] ASoC: qcom: q6afe: devote LPASS core hw blocks with the client
+ handle the DSP returned
+
+q6afe_vote_lpass_core_hw() takes a client_handle pointer but never fills
+it: the AFE_CMD_RSP_REMOTE_LPASS_CORE_HW_VOTE_REQUEST response carries
+the handle as its only payload word, and the callback read a status word
+past the end of that payload instead. Every devote therefore went out
+with the handle the clock driver started with (0), the DSP refused it
+(basic result 0x1) and the vote stayed held.
+
+This did not matter while the LPASS macros held their core votes from
+probe to removal. Since the macros moved their vote clocks to the PM
+clock framework (runtime suspend unprepares them), every idle period
+leaks one HW_MACRO and one HW_DCODEC vote in the DSP, so the LPASS core
+never powers down and the ADSP never sleeps.
+
+Observed on the Retroid Pocket 5 (SM8250) with kprobes on
+q6afe_callback / q6afe_[un]vote_lpass_core_hw: vote responses returned
+handles 0x75, 0x76, then 0x81, 0x82; every devote named handle 0 and
+was answered with status 0x1.
+
+Store the handle per block id (the response echoes the block id in the
+token, as the vendor techpack q6afe.c relies on) and hand it back to the
+caller, so the devote names the vote it releases. The response has no
+status word: report success once it arrives.
+
+---
+--- a/sound/soc/qcom/qdsp6/q6afe.c
++++ b/sound/soc/qcom/qdsp6/q6afe.c
+@@ -50,6 +50,8 @@
+ #define AFE_CMD_REMOTE_LPASS_CORE_HW_VOTE_REQUEST	0x000100f4
+ #define AFE_CMD_RSP_REMOTE_LPASS_CORE_HW_VOTE_REQUEST   0x000100f5
+ #define AFE_CMD_REMOTE_LPASS_CORE_HW_DEVOTE_REQUEST	0x000100f6
++/* core hw block ids are small (Q6AFE_LPASS_CORE_*_BLOCK: 2..4) */
++#define Q6AFE_LPASS_CORE_HW_VOTE_MAX			8
+ 
+ /* I2S config specific */
+ #define AFE_API_VERSION_I2S_CONFIG	0x1
+@@ -382,6 +384,8 @@
+ 	wait_queue_head_t wait;
+ 	struct list_head port_list;
+ 	spinlock_t port_list_lock;
++	/* client handle the DSP returned for the last vote of each core hw block */
++	u32 core_hw_vote_handle[Q6AFE_LPASS_CORE_HW_VOTE_MAX];
+ };
+ 
+ struct afe_port_cmd_device_start {
+@@ -1018,11 +1022,27 @@
+ 		}
+ 	}
+ 		break;
+-	case AFE_CMD_RSP_REMOTE_LPASS_CORE_HW_VOTE_REQUEST:
++	case AFE_CMD_RSP_REMOTE_LPASS_CORE_HW_VOTE_REQUEST: {
++		/*
++		 * The payload of this response is the client handle alone (one
++		 * u32, no status word; the vendor techpack's q6afe.c stores
++		 * payload[0] per token). The devote has to name this handle:
++		 * a devote with any other handle is refused (basic result 0x1)
++		 * and the vote stays held in the DSP, so the LPASS core never
++		 * powers down once the macros cycle their votes at runtime
++		 * (Retroid Pocket 5, SM8250: handles 0x75, 0x76, 0x81, 0x82 ...
++		 * returned, every devote sent with 0 and refused).
++		 */
++		const u32 *handle = data->payload;
++
++		if (hdr->token < Q6AFE_LPASS_CORE_HW_VOTE_MAX &&
++		    data->payload_size >= (int)sizeof(*handle))
++			afe->core_hw_vote_handle[hdr->token] = *handle;
+ 		afe->result.opcode = hdr->opcode;
+-		afe->result.status = res->status;
++		afe->result.status = 0;
+ 		wake_up(&afe->wait);
+ 		break;
++	}
+ 	default:
+ 		break;
+ 	}
+@@ -1902,6 +1922,7 @@
+ 	pkt->hdr.opcode = AFE_CMD_REMOTE_LPASS_CORE_HW_DEVOTE_REQUEST;
+ 	vote_cfg->hw_block_id = hw_block_id;
+ 	vote_cfg->client_handle = client_handle;
++	dev_dbg(afe->dev, "AFE devote (%d) handle %u\n", hw_block_id, client_handle);
+ 
+ 	ret = apr_send_pkt(afe->apr, pkt);
+ 	if (ret < 0)
+@@ -1954,13 +1975,19 @@
+ 			break;
+ 		msleep(50);
+ 	}
+-	if (ret)
++	if (ret) {
+ 		dev_err(afe->dev, "AFE failed to vote (%d)\n", hw_block_id);
+-	else if (i)
++		return ret;
++	}
++
++	if (hw_block_id < Q6AFE_LPASS_CORE_HW_VOTE_MAX)
++		*client_handle = afe->core_hw_vote_handle[hw_block_id];
++	dev_dbg(afe->dev, "AFE vote (%d) handle %u\n", hw_block_id, *client_handle);
++	if (i)
+ 		dev_info(afe->dev, "AFE vote (%d) accepted after %d retries\n",
+ 			 hw_block_id, i);
+ 
+-	return ret;
++	return 0;
+ }
+ EXPORT_SYMBOL(q6afe_vote_lpass_core_hw);
+ 

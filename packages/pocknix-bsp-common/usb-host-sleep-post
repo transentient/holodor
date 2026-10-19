@@ -1,0 +1,15 @@
+#!/bin/sh
+# 010-usb-host (post-resume): restore HOST mode on every controller the pre script switched.
+set -u
+STATE=/run/pocknix/usb-host-sleep
+[ -s "${STATE}" ] || exit 0
+while read -r m; do
+  [ -f "${m}" ] || continue
+  if echo host > "${m}" 2>/dev/null; then
+    logger -t pocknix-usb-host "post-resume: ${m} -> host"
+  else
+    logger -t pocknix-usb-host "post-resume: could not restore host on ${m}"
+  fi
+done < "${STATE}"
+rm -f "${STATE}"
+exit 0

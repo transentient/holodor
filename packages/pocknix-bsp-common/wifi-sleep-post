@@ -1,14 +1,14 @@
 #!/bin/sh
-# Resume side of wifi-sleep-pre: re-enable the radio only if we disabled it.
+# 000-wifi (post): radio back on after resume; the pre hook turned it off (see the PKGBUILD comment:
+# a wedged WCN7860 tx queue makes the driver's suspend time out and abort the system suspend).
+# Until bsp-common 35 this hook also launched the wifi heal ladder. Since 36 the one-case heal is
+# pocknix-wifi-heal.service, which follows the kernel log for a firmware recovery at any time.
 FLAG=/run/pocknix-wifi-resume
 if [ -e "${FLAG}" ]; then
   rm -f "${FLAG}"
   nmcli radio wifi on 2>/dev/null || true
-  # Verify + self-heal in the background so the resume path never blocks.
-  # MUST be a transient unit: anything merely backgrounded (setsid &) from a
-  # systemd-sleep hook dies with the hook's cgroup — the heal never ran once in
-  # its first two weeks (09-03). See pocknix-wifi-heal.
-  systemd-run -q --collect --unit="pocknix-wifi-heal-$(date +%s)" \
-    /usr/lib/pocknix/pocknix-wifi-heal 2>/dev/null || true
 fi
+# bsp-common 37: the resume gateway check (second verified wifi case, see pocknix-wifi-heal) runs detached so this
+# hook returns at once; it waits for the link itself and logs to /var/lib/pocknix/wifi-heal.log.
+systemd-run --unit=pocknix-wifi-resume-check --collect --quiet /usr/lib/pocknix/pocknix-wifi-heal --after-resume 2>/dev/null || true
 exit 0

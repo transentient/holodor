@@ -12,10 +12,20 @@
 #
 # Behavior split (keep in sync with pocknix-bsp/20-pocknix-powerkey.conf):
 #   short press (release <= SHORT_PRESS_SECS) -> systemctl suspend   (this daemon)
-#   long press  (>= 5 s)                      -> poweroff            (logind HandlePowerKeyLongPress)
+#   long press  (>= LONG_PRESS_SECS)          -> poweroff            (this daemon, PMIC-verified)
 #   press while asleep                        -> wake                (PMIC wakeup; kernel)
-# Presses between SHORT_PRESS_SECS and 5 s do nothing — that dead zone is what keeps an
-# accidental lingering press from sleeping AND from shutting down.
+# Presses between SHORT_PRESS_SECS and LONG_PRESS_SECS do nothing — that dead zone is what
+# keeps an accidental lingering press from sleeping AND from shutting down.
+#
+# WHY the long press moved here from logind (2026-10-11): on the RP5, docked and idle, the
+# device suspended, woke 20 s later and logind logged "Power key pressed short" then "Power
+# key pressed long" and powered the device off — nobody was in the room. The PMIC key
+# driver (pm8941-pwrkey) reports the key from a status-register read in its interrupt; a
+# glitch that reads "down" with no release interrupt leaves KEY_POWER held forever, and
+# logind only counts seconds. Here a long press is honoured only if the PMIC's real-time
+# status register (PON_RT_STS, KPDPWR_N_SET) still shows the key physically down at the
+# 5 s mark; otherwise it is logged as a phantom and ignored. logind's
+# HandlePowerKeyLongPress is 'ignore' (20-pocknix-powerkey.conf) so the two never race.
 #
 # Plasma Mobile note: the shell also reacts to KEY_POWER (display toggle/lock). That's fine
 # alongside this daemon — suspend wins, and the wake press (debounced here) is what the
@@ -24,13 +34,15 @@
 #
 # Robustness rules inherited from pocknix-volumed: match devices by CAPABILITY (never by
 # name), never exit, drop erroring fds immediately and rescan, bound every subprocess.
-import os, sys, time, select, subprocess
+import os, re, sys, time, select, subprocess
 try:
     from evdev import InputDevice, list_devices, ecodes
 except ImportError:
     sys.exit("pocknix-powerd: python-evdev not installed")
 
 SHORT_PRESS_SECS   = 0.8   # release within this = "a press" -> suspend
+LONG_PRESS_SECS    = 5.0   # held this long AND physically down at the PMIC -> poweroff
+PON_RT_STS_OFF     = 0x10  # PON real-time status register, offset from the PON base
 RESUME_IGNORE_SECS = 3.0   # swallow KEY_POWER this long after any resume
 RESCAN_SECS        = 5     # re-enumerate devices that (dis)appeared
 SUSPEND_TIMEOUT    = 5     # never let a stuck systemctl block the loop
@@ -103,10 +115,14 @@ def restore_brightness(reason):
         return
     target = int(mx * RESTORE_FRAC)
     try:
-        open(path, "w").write(str(target))
+        # close inside the try: sysfs reports the error at flush/close (EINVAL while the
+        # panel is off, e.g. a docked wake with the internal display disabled), and an
+        # unclosed file raised it as "Exception ignored" at garbage collection instead.
+        with open(path, "w") as f:
+            f.write(str(target))
         print(f"pocknix-powerd: {reason}: brightness {cur} -> {target} (of {mx})", flush=True)
     except OSError as e:
-        print(f"pocknix-powerd: brightness restore failed: {e}", flush=True)
+        print(f"pocknix-powerd: {reason}: brightness restore {cur} -> {target} refused ({e.strerror}); panel off?", flush=True)
 
 def battery_state():
     # (capacity%, on_ac) from sysfs; (None, True) if unreadable so we never block a suspend on a guess.
@@ -153,6 +169,54 @@ def do_suspend():
     except (subprocess.TimeoutExpired, OSError) as e:
         print(f"pocknix-powerd: systemctl suspend failed: {e}", flush=True)
 
+def do_poweroff(reason):
+    print(f"pocknix-powerd: {reason} -> poweroff", flush=True)
+    try:
+        subprocess.run(["systemctl", "poweroff"], timeout=SUSPEND_TIMEOUT,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        print(f"pocknix-powerd: systemctl poweroff failed: {e}", flush=True)
+
+def pmic_key_down(dev):
+    """Ground truth for "is the power button physically down right now".
+
+    The PMIC power key (pm8941-pwrkey) sits under .../c440000.spmi:pmic@<sid>:pon@<base>:pwrkey;
+    its PON real-time status register is readable through regmap debugfs
+    (/sys/kernel/debug/regmap/0-<sid>/registers, one fixed-width "addr: val" line per
+    register, so the register is reached by seeking). Returns True/False, or None when this
+    is not a PMIC key or the register cannot be read (the kernel's event is trusted then).
+    """
+    try:
+        sysdev = os.path.realpath(f"/sys/class/input/{os.path.basename(dev.path)}/device/device")
+    except OSError:
+        return None
+    m = re.search(r'pmic@([0-9a-fA-F]+):pon@([0-9a-fA-F]+):pwrkey$', sysdev)
+    if not m:
+        return None
+    sid, base = int(m.group(1), 16), int(m.group(2), 16)
+    try:
+        compat = open(os.path.join(sysdev, "of_node", "compatible"), "rb").read()
+    except OSError:
+        compat = b""
+    bit = 0x80 if b"pmk8350" in compat else 0x01   # PON_GEN3_KPDPWR_N_SET / PON_KPDPWR_N_SET
+    reg = base + PON_RT_STS_OFF
+    try:
+        with open(f"/sys/kernel/debug/regmap/0-{sid:02x}/registers", "rb") as f:
+            width = len(f.readline())              # "%0Nx: %02x\n", N = map address width
+            if width < 6:
+                return None
+            f.seek(width * reg)
+            line = f.read(width).decode(errors="replace")
+    except OSError:
+        return None
+    addr, _, val = line.strip().partition(": ")
+    try:
+        if int(addr, 16) != reg:
+            return None
+        return bool(int(val, 16) & bit)
+    except ValueError:
+        return None
+
 def has_power_key(dev):
     return ecodes.KEY_POWER in dev.capabilities().get(ecodes.EV_KEY, [])
 
@@ -174,6 +238,7 @@ def scan(known_paths):
 
 devs = {}                 # path -> InputDevice
 down_at = {}              # path -> monotonic time of KEY_POWER down
+stuck = set()             # paths whose kernel key state says "down" while the PMIC says released
 last_scan = 0.0
 last_delta = boot_mono_delta()
 ignore_until = 0.0        # monotonic deadline; drop KEY_POWER until then
@@ -183,13 +248,38 @@ while True:
     if now - last_scan >= RESCAN_SECS:
         devs.update(scan(set(devs)))
         last_scan = now
+        # A phantom "down" with no release leaves the kernel's key state held: the next real
+        # press then produces no down event at all (the input core drops same-value reports).
+        # Poll the kernel state and ask the PMIC: really held -> time it; released -> stuck.
+        for path, dev in list(devs.items()):
+            if path in down_at:
+                continue
+            try:
+                held = ecodes.KEY_POWER in dev.active_keys()
+            except OSError:
+                continue
+            if not held:
+                stuck.discard(path)
+                continue
+            phys = pmic_key_down(dev)
+            if phys:
+                print(f"pocknix-powerd: kernel reports KEY_POWER held on {path} with no event seen;"
+                      f" PMIC agrees -> timing a long press", flush=True)
+                down_at[path] = now
+            elif phys is False and path not in stuck:
+                print(f"pocknix-powerd: kernel reports KEY_POWER held on {path} but the PMIC says"
+                      f" released -> stuck phantom state; the next release counts as a short press", flush=True)
+                stuck.add(path)
     if not devs:
         time.sleep(1)              # nothing to watch yet — wait, never exit
         continue
 
     by_fd = {dev.fd: (path, dev) for path, dev in devs.items()}
+    timeout = RESCAN_SECS
+    if down_at:
+        timeout = max(0.05, min(timeout, min(down_at.values()) + LONG_PRESS_SECS - time.monotonic()))
     try:
-        ready, _, _ = select.select(list(by_fd), [], [], RESCAN_SECS)
+        ready, _, _ = select.select(list(by_fd), [], [], timeout)
     except OSError:
         for dev in devs.values():
             try: dev.close()
@@ -217,12 +307,20 @@ while True:
             for ev in dev.read():
                 if ev.type != ecodes.EV_KEY or ev.code != ecodes.KEY_POWER:
                     continue
+                if ev.value in (0, 1):             # rare; journal it with its source device
+                    print(f"pocknix-powerd: KEY_POWER {'down' if ev.value else 'up'} on {path} ({dev.name})"
+                          f"{' (resume holdoff, ignored)' if now < ignore_until else ''}", flush=True)
                 if now < ignore_until:
                     continue                       # wake press — swallow it
                 if ev.value == 1:                  # down: start timing
                     down_at[path] = now
                 elif ev.value == 0:                # up: short press => suspend
                     t0 = down_at.pop(path, None)
+                    if t0 is None and path in stuck:
+                        # the press that cleared a stuck state has no down event; honour it
+                        print(f"pocknix-powerd: release on {path} cleared the stuck key state -> short press", flush=True)
+                        t0 = now
+                    stuck.discard(path)
                     if t0 is not None and now - t0 <= SHORT_PRESS_SECS:
                         # If the screen is already blanked (Plasma/gamescope idle timeout turned
                         # DPMS off but the system is still awake), this press is "wake the display",
@@ -246,3 +344,19 @@ while True:
             try: dev.close()
             except OSError: pass
             devs.pop(path, None); down_at.pop(path, None)
+    # long press: a key held LONG_PRESS_SECS powers off — but only if the PMIC agrees that the
+    # button is physically down. A "down" with no release interrupt (seen 2026-10-10, docked,
+    # nobody near the device) stays down in the kernel forever and would otherwise power off
+    # every time.
+    for path, t0 in list(down_at.items()):
+        held = now - t0
+        if held < LONG_PRESS_SECS:
+            continue
+        down_at.pop(path, None)
+        dev = devs.get(path)
+        phys = pmic_key_down(dev) if dev is not None else None
+        if phys is False:
+            print(f"pocknix-powerd: KEY_POWER on {path} held {held:.1f}s but the PMIC says released"
+                  f" -> phantom press, ignored", flush=True)
+            continue
+        do_poweroff(f"long press {held:.1f}s on {path} (pmic={'down' if phys else 'unverified'})")

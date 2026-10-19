@@ -230,7 +230,6 @@
 		regulator-max-microvolt = <3300000>;
 
 		gpio = <&tlmm 3 GPIO_ACTIVE_HIGH>;
-		regulator-always-on;
 		regulator-boot-on;
 		enable-active-high;
 
@@ -322,6 +321,37 @@
 		qcom,tx-device = <&wcd_tx>;
 
 		#sound-dai-cells = <1>;
+	};
+
+	/*
+	 * HOLODOR 2026-10-12: the DisplayPort AUX pair reaches the USB-C
+	 * connector through a GPIO-driven SBU switch (part unmarked). The live
+	 * Android device tree of the Retroid Pocket 5 (kona HDK, 4.19.157) drives
+	 * it from the DP display node as "qcom,dp-gpio-aux-switch": aux-en on
+	 * tlmm 9 (held 0 while DisplayPort is up = enable active low) and aux-sel
+	 * on tlmm 8 (1 when the plug is in the CC2 = reversed orientation). The
+	 * kona reference's FSA4480 (i2c 0x43) is not populated here. Without this
+	 * node the AUX pair was never routed for a reversed plug: no picture on
+	 * either dock (tlmm 9 was last driven by the phantom redriver node that
+	 * ROCKNIX carried, with the same active-low polarity).
+	 */
+	dp_sbu_mux: usb-sbu-mux {
+		compatible = "gpio-sbu-mux";
+
+		enable-gpios = <&tlmm 9 GPIO_ACTIVE_LOW>;
+		select-gpios = <&tlmm 8 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&dp_aux_switch_default>;
+
+		mode-switch;
+		orientation-switch;
+
+		port {
+			dp_sbu_mux_in: endpoint {
+				remote-endpoint = <&pm8150b_typec_sbu_out>;
+			};
+		};
 	};
 
 	reserved-memory {
@@ -790,47 +820,21 @@
 &i2c15 {
 	status = "okay";
 
-	typec-mux@1c {
-		compatible = "onnn,nb7vpq904m";
-		reg = <0x1c>;
-
-	 	enable-gpios = <&tlmm 9 GPIO_ACTIVE_LOW>;
-
-		vcc-supply = <&vreg_s4a_1p8>;
-
-		retimer-switch;
-		orientation-switch;
-
-		ports {
-			#address-cells = <1>;
-			#size-cells = <0>;
-
-			port@0 {
-				reg = <0>;
-
-				redriver_usb_con_ss: endpoint {
-					remote-endpoint = <&pm8150b_typec_mux_in>;
-				};
-			};
-
-			port@1 {
-				reg = <1>;
-
-				redriver_phy_con_ss: endpoint {
-					remote-endpoint = <&usb_1_qmpphy_out>;
-					data-lanes = <0 1 2 3>;
-				};
-			};
-
-			port@2 {
-				reg = <2>;
-
-				redriver_usb_con_sbu: endpoint {
-					remote-endpoint = <&pm8150b_typec_sbu_out>;
-				};
-			};
-		};
-	};
+	/*
+	 * HOLODOR 2026-10-12: the ROCKNIX dts described an ON Semi NB7VPQ904M
+	 * redriver here (typec-mux@1c, enable tlmm 9) and routed the connector's
+	 * SuperSpeed and SBU lanes through it. The Retroid Pocket 5 has no such
+	 * chip: nothing on this bus acknowledges any address, the vendor Android
+	 * overlays for this board (kona QRD/HDK, dtbo fragment on qupv3_se15_i2c)
+	 * carry the same node with status "disabled", and every kernel write to
+	 * it failed silently. The phantom swallowed the plug orientation, so the
+	 * combo PHY never switched its lanes: a reversed USB-C plug had power
+	 * but no SuperSpeed and no DisplayPort (both docks, 2026-10-12). The SS
+	 * lanes go straight from the PHY to the connector; the PHY owns the lane
+	 * orientation (usb_1_qmpphy below) and a GPIO switch the AUX pair
+	 * (dp_sbu_mux in the root node). tlmm 9 was this node's enable pin: it is
+	 * the AUX switch enable.
+	 */
 };
 
 &mdss {
@@ -1011,12 +1015,21 @@
 					 PDO_FIXED_USB_COMM |
 					 PDO_FIXED_DATA_SWAP)>;
 
+		/*
+		 * HOLODOR 2026-10-12: also ask for 9 V. The PM8150B accepts 5 V or
+		 * 9-12 V on USBIN (USBIN_ADAPTER_ALLOW_CFG reads 0x07) and docks
+		 * keep their 5 V profile tiny: the Elecom DST-090BP1SV offers
+		 * 5 V / 0.5 A but 9 V / 1.34 A, a 65 W charger 5 V / 3 A but
+		 * 9 V / 3 A. With 5 V only, a docked Retroid Pocket 5 got 2.5 W.
+		 * 2 A at 9 V keeps the PMIC's buck at 18 W (OnePlus 8 class PD).
+		 */
 		sink-pdos = <PDO_FIXED(5000, 3000,
 					 PDO_FIXED_DUAL_ROLE |
 					 PDO_FIXED_USB_COMM |
-					 PDO_FIXED_DATA_SWAP)>;
+					 PDO_FIXED_DATA_SWAP)
+			     PDO_FIXED(9000, 2000, 0)>;
 
-		op-sink-microwatt = <15000000>;
+		op-sink-microwatt = <18000000>;
 
 		altmodes {
 			displayport {
@@ -1039,15 +1052,14 @@
 			port@1 {
 				reg = <1>;
 				pm8150b_typec_mux_in: endpoint {
-					remote-endpoint = <&redriver_usb_con_ss>;
+					remote-endpoint = <&usb_1_qmpphy_out>;
 				};
 			};
 
 			port@2 {
 				reg = <2>;
-
 				pm8150b_typec_sbu_out: endpoint {
-					remote-endpoint = <&redriver_usb_con_sbu>;
+					remote-endpoint = <&dp_sbu_mux_in>;
 				};
 			};
 		};
@@ -1315,6 +1327,23 @@
 &swr2 {
 	status = "okay";
 
+	/*
+	 * HOLODOR 2026-10-16: the TX SoundWire master's wake interrupt, from the
+	 * vendor kona device tree (kona-audio-overlay.dtsi, tx_swr_master:
+	 * interrupts-extended = <&intc GIC_SPI 297 ...>, <&pdc 109 ...>,
+	 * "swr_master_irq", "swr_wake_irq", qcom,swr-wakeup-required). Mainline
+	 * sm8250.dtsi declares only the core interrupt, so a headset plug event
+	 * raised by the WCD938x while this bus is in clock stop could not wake
+	 * it, and jack detection needed the codec held awake (a udev rule), which
+	 * kept the audio DSP from ever sleeping. The qcom soundwire driver takes
+	 * interrupt 1 as its wake irq; sm8450/sm8650/sm8750/sc8280xp name theirs
+	 * "core", "wakeup" the same way.
+	 */
+	/delete-property/ interrupts;
+	interrupts-extended = <&intc GIC_SPI 297 IRQ_TYPE_LEVEL_HIGH>,
+			      <&pdc 109 IRQ_TYPE_LEVEL_HIGH>;
+	interrupt-names = "core", "wakeup";
+
 	wcd_tx: wcd9385-tx@0,3 {
 		compatible = "sdw20217010d00";
 		reg = <0 3>;
@@ -1329,6 +1358,13 @@
 		drive-strength = <16>;
 		output-low;
 		bias-pull-up;
+	};
+
+	dp_aux_switch_default: dp-aux-switch-default-state {
+		pins = "gpio8", "gpio9";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-disable;
 	};
 
 	fan_pwr_en_state: fan-pwr-en-state {
@@ -1465,6 +1501,7 @@
 		boot-gpios = <&tlmm 110 GPIO_ACTIVE_HIGH>;
 		enable-gpios = <&tlmm 111 GPIO_ACTIVE_HIGH>;
 		reset-gpios = <&tlmm 109 GPIO_ACTIVE_HIGH>;
+		vdd-supply = <&vreg_mcu_3v3>;
 		pinctrl-0 = <&mcu_boot_default &mcu_en_default &mcu_rst_default>;
 		pinctrl-names = "default";
 	};
@@ -1514,6 +1551,15 @@
 
 	vdda-phy-supply = <&vreg_l9a_1p2>;
 	vdda-pll-supply = <&vreg_l18a_0p92>;
+
+	/*
+	 * no redriver on this board: the PHY flips its lanes for a reversed plug
+	 * (orientation-switch only, as sm8150-hdk; mode-switch is not needed for
+	 * the lane flip and kernel 23 with it hung at the logo on a docked boot:
+	 * the PHY re-initialised itself on the mode change). The AUX pair is
+	 * switched by dp_sbu_mux, which carries the mode-switch instead.
+	 */
+	orientation-switch;
 };
 
 &usb_1_qmpphy_dp_in {
@@ -1521,7 +1567,7 @@
 };
 
 &usb_1_qmpphy_out {
-	remote-endpoint = <&redriver_phy_con_ss>;
+	remote-endpoint = <&pm8150b_typec_mux_in>;
 };
 
 &venus {

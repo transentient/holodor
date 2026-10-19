@@ -1,0 +1,13 @@
+[Unit]
+Description=pocknix: wifi heal, firmware recovery -> chip power cycle (the resume gateway check is launched by sleep.d/post/000-wifi)
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/pocknix/pocknix-wifi-heal
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

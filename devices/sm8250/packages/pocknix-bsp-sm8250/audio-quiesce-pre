@@ -1,0 +1,79 @@
+#!/bin/sh
+# 002-audio-quiesce (pre) — ensure Q6AFE / SoundWire / LPASS_HW_MACRO release
+# their ADSP vote and WSA881x speaker amplifiers assert hardware shutdown (sd_n)
+# before system suspend, without running the UCM DisableSequence (which pops).
+#
+# Why this is needed on SM8250:
+#   qcom_snd_parse_of() marks every DPCM link ignore_suspend=1, so an open ALSA
+#   PCM or a counting-down DAPM pmdown_time timer keeps the Q6AFE port and its
+#   LPASS_HW_MACRO clock votes held across s2idle, preventing the ADSP from
+#   entering subsystem sleep (~90 mW penalty).
+#
+# Pop-free sequence (measured on RODE VideoMic NTG 2026-10-19):
+#   1. Drop ASoC pmdown_time to 0 ms and WCD938x/SoundWire autosuspend to 50 ms.
+#   2. Load a temporary null sink (`pocknix_sleep_null`) and move any active
+#      sink-inputs to it so `alsa_output.platform-sound.*` transitions from
+#      RUNNING to IDLE without closing client streams.
+#   3. Suspend `alsa_output.platform-sound.*` via `pactl suspend-sink <sink> 1`.
+#      This triggers normal ALSA pcm_close -> wsa881x_digital_mute() ->
+#      wsa881x_runtime_suspend() (asserting the hardware sd_n shutdown GPIO)
+#      without running UCM DisableSequence (which yanks the 8.5 V boost and
+#      PDM mux while sd_n is high, causing a full-scale speaker pop).
+#   4. Wait up to 800 ms for both LPASS_HW_MACRO == 0 and both WSA881x SoundWire
+#      slaves (sdw:1:0:0217:2010:00:1/2) to reach runtime_status == suspended.
+#   5. Leave the hardware sinks suspended until post/002-audio-quiesce runs
+#      after resume so userspace cannot re-open the PCM before freeze.
+
+clk=/sys/kernel/debug/clk/LPASS_HW_MACRO/clk_prepare_count
+state=/run/pocknix-audio-quiesce-state
+rm -f "${state}"
+
+[ -r "${clk}" ] || exit 0
+before=$(cat "${clk}" 2>/dev/null || echo 0)
+[ "${before:-0}" -gt 0 ] 2>/dev/null || exit 0
+
+for f in /sys/devices/platform/sound/*/pmdown_time; do
+  [ -w "${f}" ] && echo 0 > "${f}" 2>/dev/null || true
+done
+[ -w /sys/devices/platform/audio-codec/power/autosuspend_delay_ms ] && \
+  echo 50 > /sys/devices/platform/audio-codec/power/autosuspend_delay_ms 2>/dev/null || true
+for d in /sys/bus/soundwire/devices/*/power/autosuspend_delay_ms \
+         /sys/devices/platform/soc@0/3*.soundwire/power/autosuspend_delay_ms; do
+  [ -w "${d}" ] && echo 50 > "${d}" 2>/dev/null || true
+done
+
+mod_id=""
+if [ -S /run/user/1001/pulse/native ]; then
+  mod_id=$(runuser -u deck -- env XDG_RUNTIME_DIR=/run/user/1001 \
+    timeout 2 pactl load-module module-null-sink sink_name=pocknix_sleep_null 2>/dev/null || true)
+  for si in $(runuser -u deck -- env XDG_RUNTIME_DIR=/run/user/1001 \
+    timeout 2 pactl list sink-inputs short 2>/dev/null | awk '{print $1}'); do
+    runuser -u deck -- env XDG_RUNTIME_DIR=/run/user/1001 \
+      timeout 2 pactl move-sink-input "${si}" pocknix_sleep_null 2>/dev/null || true
+  done
+  for s in $(runuser -u deck -- env XDG_RUNTIME_DIR=/run/user/1001 \
+    timeout 2 pactl list sinks short 2>/dev/null | awk '/alsa_output\.platform-sound/{print $2}'); do
+    runuser -u deck -- env XDG_RUNTIME_DIR=/run/user/1001 \
+      timeout 2 pactl suspend-sink "${s}" 1 2>/dev/null || true
+  done
+fi
+
+echo "${mod_id}" > "${state}"
+
+i=0
+after="${before}"
+sdw1="active"
+sdw2="active"
+while [ "${i}" -lt 8 ]; do
+  after=$(cat "${clk}" 2>/dev/null || echo 0)
+  sdw1=$(cat /sys/bus/soundwire/devices/sdw:1:0:0217:2010:00:1/power/runtime_status 2>/dev/null || echo suspended)
+  sdw2=$(cat /sys/bus/soundwire/devices/sdw:1:0:0217:2010:00:2/power/runtime_status 2>/dev/null || echo suspended)
+  if [ "${after:-0}" -eq 0 ] 2>/dev/null && [ "${sdw1}" = "suspended" ] && [ "${sdw2}" = "suspended" ]; then
+    break
+  fi
+  sleep 0.1
+  i=$((i + 1))
+done
+
+echo "002-audio-quiesce: LPASS_HW_MACRO ${before} -> ${after} (sdw=${sdw1}/${sdw2}, mod=${mod_id:-none})" >/dev/kmsg 2>/dev/null || true
+exit 0

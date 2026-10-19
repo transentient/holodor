@@ -1,0 +1,41 @@
+From: Holodor <holodor@bonesaw.com>
+Subject: [PATCH] drm/msm/dp: accept audio prepare while the DP link is down
+
+msm_dp_audio_prepare() (reached from both the hdmi-codec hw_params and
+prepare callbacks through drm_hdmi_audio_helper) returned -EINVAL whenever
+the DisplayPort link was not powered. PipeWire's ACP opens every UCM
+device PCM, runs hw_params (which prepares) and marks the WHOLE profile
+unsupported if one device fails, so a UCM DisplayPort device on the
+Retroid Pocket 5 (sm8250, DP over USB-C) meant no sound at all on every
+undocked boot (Holodor bsp-sm8250 27, 2026-10-09).
+
+Return 0 without programming anything instead: no register access, the
+stream plays into nothing, audio_enabled stays false so shutdown() is a
+no-op. The DSP side (q6afe DISPLAY_PORT_RX start) is unchanged.
+
+---
+ drivers/gpu/drm/msm/dp/dp_audio.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+--- a/drivers/gpu/drm/msm/dp/dp_audio.c	2026-10-09 12:07:42.750399637 +0900
++++ b/drivers/gpu/drm/msm/dp/dp_audio.c	2026-10-09 12:07:42.752323851 +0900
+@@ -283,9 +283,18 @@
+ 	 * driver to maintain the correct state of clocks. To protect
+ 	 * such cases check for connection status and bail out if not
+ 	 * connected.
++	 *
++	 * HOLODOR: bail out with SUCCESS, not -EINVAL. Userspace configures this
++	 * PCM with no sink attached: PipeWire's ACP probes every UCM device when
++	 * it creates the card and marks the whole profile unsupported if one of
++	 * them fails hw_params/prepare (no speakers, no headphones on an
++	 * undocked boot). Nothing is programmed here, so there is still no
++	 * unclocked access; the stream plays into nothing until a sink is up,
++	 * and shutdown() stays a no-op because audio_enabled is never set.
+ 	 */
+ 	if (!msm_dp_display->power_on) {
+-		rc = -EINVAL;
++		pr_debug("%s: DP link not powered, accepting audio prepare without programming\n",
++			 __func__);
+ 		goto end;
+ 	}
+ 

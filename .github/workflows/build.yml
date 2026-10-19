@@ -46,8 +46,10 @@ jobs:
           set -e
           for f in devices/*/packages/*/kernel-cmdline; do
             devdir="$(dirname "$(dirname "$(dirname "$f")")")"
+            # profile.conf expands variables from config/pocknix.conf (SD_ROOT_PARTUUID since 2026-09-28),
+            # so source the config first, as scripts/lib.sh does; otherwise root=PARTUUID= comes out empty.
             want="$(bash -c "unset SOC ROOT_LABEL KERNEL_CMDLINE KERNEL_CMDLINE_ROOT KERNEL_CMDLINE_EXTRA
-                             source '$devdir/profile.conf'; printf '%s' \"\$KERNEL_CMDLINE\"")"
+                             source config/pocknix.conf; source '$devdir/profile.conf'; printf '%s' \"\$KERNEL_CMDLINE\"")"
             got="$(cat "$f")"
             [ "$want" = "$got" ] || { echo "DRIFT in $f"; exit 1; }
             echo "$f matches $devdir/profile.conf"

@@ -3,9 +3,7 @@
 **A SteamOS Linux distro for Snapdragon handhelds.**
 
 [![Odin 3 release](https://img.shields.io/github/v/release/transentient/holodor?filter=!release-rp5-*&label=Odin%203)](https://github.com/transentient/holodor/releases)
-<!-- RP5 badge, add with the first RP5 release:
 [![RP5 release](https://img.shields.io/github/v/release/transentient/holodor?filter=release-rp5-*&label=Retroid%20Pocket%205)](https://github.com/transentient/holodor/releases?q=rp5)
--->
 
 ## Download
 

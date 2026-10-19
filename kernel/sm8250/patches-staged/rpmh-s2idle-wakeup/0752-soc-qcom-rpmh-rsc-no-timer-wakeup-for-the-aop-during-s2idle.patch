@@ -1,0 +1,52 @@
+From: Holodor <holodor@bonesaw.com>
+Date: Sun, 18 Oct 2026 11:20:00 +0900
+Subject: [PATCH] soc: qcom: rpmh-rsc: write "no timer wakeup" to the CONTROL TCS during s2idle
+
+rpmh_rsc_write_next_wakeup() tells the AOP when the APSS expects its next
+timer wakeup, so the AOP can pick a low-power mode whose entry and exit fit
+before it.  It writes the maximum value when system_state is SYSTEM_SUSPEND
+and otherwise converts the genpd's next_hrtimer into arch-timer cycles.
+
+suspend-to-idle never sets SYSTEM_SUSPEND: suspend_enter() calls
+s2idle_loop() before that assignment.  And the s2idle power-off path
+(dev_pm_genpd_suspend -> genpd_sync_power_off) bypasses the cpu governor,
+which is the only writer of gd->next_hrtimer (cpu_power_down_ok).  So at the
+s2idle flush the function subtracts "now" from a next_hrtimer that dates from
+the last idle period before the suspend began: a few milliseconds ahead at
+best, in the past at worst (the s64 -> u64 conversion then wraps).  The AOP
+is told the APSS wakes again almost immediately and never chooses CX shutdown
+or AOSS deep sleep.  Measured on the Retroid Pocket 5 (sm8250): with every
+APPS vote at zero in the sleep set the qcom_stats aosd/cxsd/ddr counters
+stay at 0 across an 11.7 h s2idle, while the vendor kernel on the same
+firmware reaches all three (its suspend path writes no timer at all).
+
+Treat a system suspend in progress like the SYSTEM_SUSPEND case: no timer
+wakeup.  The wake sources of a suspended system are interrupts routed through
+the PDC (RTC alarm, power key, PCIe wake), not a kernel timer.
+---
+--- a/drivers/soc/qcom/rpmh-rsc.c
++++ b/drivers/soc/qcom/rpmh-rsc.c
+@@ -24,6 +24,7 @@
+ #include <linux/pm_domain.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/slab.h>
++#include <linux/suspend.h>
+ #include <linux/spinlock.h>
+ #include <linux/wait.h>
+ 
+@@ -813,6 +814,15 @@ void rpmh_rsc_write_next_wakeup(struct rsc_drv *drv)
+ 	if (system_state == SYSTEM_SUSPEND)
+ 		goto exit;
+ 
++	/*
++	 * suspend-to-idle does not set SYSTEM_SUSPEND and its genpd power-off
++	 * path does not run the cpu governor, so gd->next_hrtimer is stale
++	 * here (it predates the suspend).  A suspended system has no timer
++	 * wakeup to report: its wake sources are PDC interrupts.
++	 */
++	if (pm_suspend_target_state != PM_SUSPEND_ON)
++		goto exit;
++
+ 	/* Find the earliest hrtimer wakeup from online cpus */
+ 	wakeup = dev_pm_genpd_get_next_hrtimer(drv->dev);
+ 

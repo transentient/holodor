@@ -1,4 +1,7 @@
 #!/bin/sh
 # Re-disable cpu0 deep idle after resume (awake-time GMU quirk back in force).
-echo 1 > /sys/devices/system/cpu/cpu0/cpuidle/state1/disable 2>/dev/null || true
+# restore the pre-sleep value (1 only on boards with the GMU quirk; 0 elsewhere)
+S=/sys/devices/system/cpu/cpu0/cpuidle/state1/disable
+v=$(cat /run/pocknix-cpu0-state1-disable 2>/dev/null); [ "$v" = 1 ] || v=0
+echo "$v" > "$S" 2>/dev/null || true
 exit 0

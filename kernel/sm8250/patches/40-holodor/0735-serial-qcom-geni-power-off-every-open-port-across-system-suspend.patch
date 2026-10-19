@@ -1,0 +1,84 @@
+From: Holodor <holodor@bonesaw.com>
+Date: Fri, 16 Oct 2026 15:30:00 +0900
+Subject: [PATCH v2] serial: qcom-geni: power off every open port across system suspend
+
+qcom_geni_serial_suspend() switches the console port's interconnect votes to
+QCOM_ICC_TAG_ACTIVE_ONLY "so we can hit the lowest possible state in
+suspend".  Every other port that is open across suspend has a worse
+version of the problem: uart_suspend_port() shuts it down and drops its
+UART_PM_STATE, but that is only a runtime PM put, which cannot suspend the
+device while the PM core holds it from prepare to complete.  The port stays
+powered: its ALWAYS-tagged votes stay in the RPMh sleep set and its SE
+clock stays prepared, which keeps the GCC PLL (gpll0) and the RPMh XO
+voted on through suspend.
+
+On the Retroid Pocket 5 the gamepad MCU (serdev on 888000.serial) and the
+QCA6390 Bluetooth (serdev on 998000.serial) are open all the time.  With
+the clk core transitions traced through a suspend, gcc_qupv3_wrap0_s6_clk
+and gcc_qupv3_wrap2_s2_clk were the last prepared clocks under bi_tcxo at
+the RPMh flush, and their votes kept QUP0/CN0/SN11 in the sleep set.
+
+Apply the console's tag switch to every port, and force the runtime
+suspend (and resume) of non-console ports that are not wakeup sources
+around uart_suspend_port()/uart_resume_port().  v1 did only the tag switch.
+---
+--- a/drivers/tty/serial/qcom_geni_serial.c	2026-10-16 13:25:03.218283676 +0900
++++ b/drivers/tty/serial/qcom_geni_serial.c	2026-10-16 14:14:34.099902685 +0900
+@@ -1975,15 +1975,31 @@
+ 	struct uart_port *uport = &port->uport;
+ 	struct qcom_geni_private_data *private_data = uport->private_data;
+ 
++	int ret;
++
+ 	/*
+ 	 * This is done so we can hit the lowest possible state in suspend
+-	 * even with no_console_suspend
++	 * even with no_console_suspend, and for every other port.
+ 	 */
+-	if (uart_console(uport)) {
+-		geni_icc_set_tag(&port->se, QCOM_ICC_TAG_ACTIVE_ONLY);
+-		geni_icc_set_bw(&port->se);
+-	}
+-	return uart_suspend_port(private_data->drv, uport);
++	geni_icc_set_tag(&port->se, QCOM_ICC_TAG_ACTIVE_ONLY);
++	geni_icc_set_bw(&port->se);
++
++	ret = uart_suspend_port(private_data->drv, uport);
++	if (ret)
++		return ret;
++
++	/*
++	 * uart_suspend_port() shuts a non-console port down and asks for it to
++	 * be powered off, but that is a runtime PM put, which cannot suspend
++	 * the device while the PM core holds it from prepare to complete. An
++	 * open port (a serdev client such as Bluetooth or a gamepad MCU) then
++	 * keeps its SE clock prepared through suspend, and with it the GCC
++	 * PLL and the RPMh XO in the sleep set. Force the runtime suspend.
++	 */
++	if (!uart_console(uport) && !device_may_wakeup(dev))
++		return pm_runtime_force_suspend(dev);
++
++	return 0;
+ }
+ 
+ static int qcom_geni_serial_resume(struct device *dev)
+@@ -1993,11 +2009,15 @@
+ 	struct uart_port *uport = &port->uport;
+ 	struct qcom_geni_private_data *private_data = uport->private_data;
+ 
+-	ret = uart_resume_port(private_data->drv, uport);
+-	if (uart_console(uport)) {
+-		geni_icc_set_tag(&port->se, QCOM_ICC_TAG_ALWAYS);
+-		geni_icc_set_bw(&port->se);
++	if (!uart_console(uport) && !device_may_wakeup(dev)) {
++		ret = pm_runtime_force_resume(dev);
++		if (ret)
++			return ret;
+ 	}
++
++	ret = uart_resume_port(private_data->drv, uport);
++	geni_icc_set_tag(&port->se, QCOM_ICC_TAG_ALWAYS);
++	geni_icc_set_bw(&port->se);
+ 	return ret;
+ }
+ 

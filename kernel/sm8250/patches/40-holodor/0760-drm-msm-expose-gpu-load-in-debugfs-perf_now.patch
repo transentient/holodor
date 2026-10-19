@@ -1,0 +1,87 @@
+From: gennro <gennro2004@gmail.com>
+Subject: [PATCH] drm/msm: expose GPU load in debugfs as perf_now
+
+Valve's SteamOS MangoHud build (mangoapp, the Steam performance
+overlay) reads Adreno GPU usage from /sys/kernel/debug/dri/0/perf_now,
+a single percentage, instead of fdinfo. Mainline has no such file, so
+the overlay's GPU load is stuck at 0%.
+
+devfreq already samples the GMU busy counter every polling period;
+keep the resulting busy percentage and report it through perf_now.
+It reads 0 while the GPU is suspended.
+
+[ Holodor: from kettlelinux 40-kettle/1110 ]
+---
+--- a/drivers/gpu/drm/msm/msm_debugfs.c
++++ b/drivers/gpu/drm/msm/msm_debugfs.c
+@@ -363,6 +363,21 @@ static int stall_reenable_time_get(void *data, u64 *val)
+ 	return ret;
+ }
+ 
++/*
++ * GPU load in percent, as sampled by devfreq. Read by Valve's MangoHud
++ * (mangoapp) for the Steam performance overlay's GPU usage.
++ */
++static int perf_now_show(struct seq_file *m, void *arg)
++{
++	struct msm_drm_private *priv = m->private;
++	struct msm_gpu *gpu = priv->gpu;
++
++	seq_printf(m, "%u\n", gpu ? READ_ONCE(gpu->devfreq.load) : 0);
++
++	return 0;
++}
++DEFINE_SHOW_ATTRIBUTE(perf_now);
++
+ static void msm_debugfs_gpu_init(struct drm_minor *minor)
+ {
+ 	struct drm_device *dev = minor->dev;
+@@ -381,6 +396,9 @@ static void msm_debugfs_gpu_init(struct drm_minor *minor)
+ 	debugfs_create_file("stall_reenable_time_us", 0400, minor->debugfs_root,
+ 		priv, &stall_reenable_time_fops);
+ 
++	debugfs_create_file("perf_now", 0444, minor->debugfs_root,
++		priv, &perf_now_fops);
++
+ 	gpu_devfreq = debugfs_create_dir("devfreq", minor->debugfs_root);
+ 
+ 	debugfs_create_bool("idle_clamp",0600, gpu_devfreq,
+--- a/drivers/gpu/drm/msm/msm_gpu_devfreq.c
++++ b/drivers/gpu/drm/msm/msm_gpu_devfreq.c
+@@ -93,6 +93,7 @@ static int msm_devfreq_get_dev_status(struct device *dev,
+ 	if (df->suspended) {
+ 		mutex_unlock(&df->lock);
+ 		status->busy_time = 0;
++		WRITE_ONCE(df->load, 0);
+ 		return 0;
+ 	}
+ 
+@@ -109,6 +110,9 @@ static int msm_devfreq_get_dev_status(struct device *dev,
+ 
+ 	status->busy_time = busy_time;
+ 
++	WRITE_ONCE(df->load, status->total_time ?
++		   min_t(u64, div64_ul(100ULL * busy_time, status->total_time), 100) : 0);
++
+ 	return 0;
+ }
+ 
+@@ -251,6 +255,7 @@ void msm_devfreq_suspend(struct msm_gpu *gpu)
+ 
+ 	mutex_lock(&df->lock);
+ 	df->suspended = true;
++	WRITE_ONCE(df->load, 0);
+ 	mutex_unlock(&df->lock);
+ 
+ 	devfreq_suspend_device(df->devfreq);
+--- a/drivers/gpu/drm/msm/msm_gpu.h
++++ b/drivers/gpu/drm/msm/msm_gpu.h
+@@ -144,6 +144,8 @@ struct msm_gpu_devfreq {
+ 	ktime_t time;
+ 	/** @idle_time: Time of last transition to idle.  */
+ 	ktime_t idle_time;
++	/** @load: GPU busy percentage over the last sampling period. */
++	unsigned int load;
+ 	/**
+ 	 * @idle_work:
+ 	 * Used to delay clamping to idle freq on active->idle transition.

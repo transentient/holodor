@@ -1,0 +1,126 @@
+From: Holodor <holodor@bonesaw.com>
+Subject: [PATCH] ASoC: qcom: q6afe-dai: accept a DisplayPort/HDMI prepare with no sink
+
+On the Retroid Pocket 5 (sm8250, DisplayPort over USB-C) PipeWire's ACP
+probes every UCM device once, when the sound card is created, by opening
+the PCM and running hw_params (alsa-lib prepares inside hw_params). The
+DisplayPort back end's prepare starts the DSP port, and with no dock on
+the link the DSP refuses (AFE_PORT_CMD_DEVICE_START -> ADSP_ENOTREADY, or
+a 3 s timeout), so the whole "HDMI" profile is marked unsupported on
+every undocked boot and docking later gives no dock audio: PipeWire never
+re-probes a card (2026-10-09, re-found 2026-10-15).
+
+Desktop HDMI/DP codecs accept the prepare with no monitor attached; the
+PCM plays into nothing and the jack tells userspace the output is
+unavailable. Do the same here: hdmi-codec exports the sink presence it
+is told by the display driver (msm_dp signals plugged only after link
+training, dp_display.c msm_dp_display_handle_plugged_change), and
+q6afe-dai's prepare for HDMI_RX / DISPLAY_PORT_RX returns 0 without
+starting the AFE port when no sink is present. is_port_started stays
+false, so shutdown() is a no-op. Links without an hdmi-codec and all
+other DAIs are unchanged. Companion of 0721 (the display side of the
+same prepare).
+
+---
+--- a/include/sound/hdmi-codec.h	2026-10-15 01:42:45.561424068 +0900
++++ b/include/sound/hdmi-codec.h	2026-10-15 01:42:45.575622342 +0900
+@@ -135,6 +135,13 @@
+ struct snd_soc_component;
+ struct snd_soc_jack;
+ 
++/*
++ * HOLODOR: sink presence as last reported by the display driver through the
++ * plugged callback. 1 = a sink with audio support is attached, 0 = none,
++ * -ENODEV when the component is not an hdmi-codec.
++ */
++int hdmi_codec_sink_present(struct snd_soc_component *component);
++
+ #define HDMI_CODEC_DRV_NAME "hdmi-audio-codec"
+ 
+ #endif /* __HDMI_CODEC_H__ */
+--- a/sound/soc/codecs/hdmi-codec.c	2026-10-15 01:42:45.564506674 +0900
++++ b/sound/soc/codecs/hdmi-codec.c	2026-10-15 01:42:45.575757311 +0900
+@@ -1121,6 +1121,24 @@
+ 	.set_jack		= hdmi_codec_set_jack,
+ };
+ 
++/*
++ * HOLODOR: let the CPU side of a DisplayPort/HDMI back end (q6afe on Qualcomm
++ * SoCs) ask whether a sink is attached before it starts the DSP port. The
++ * state is the one the display driver reports through plugged_cb, i.e. the
++ * same signal the jack carries to userspace.
++ */
++int hdmi_codec_sink_present(struct snd_soc_component *component)
++{
++	struct hdmi_codec_priv *hcp;
++
++	if (!component || component->driver != &hdmi_driver)
++		return -ENODEV;
++
++	hcp = snd_soc_component_get_drvdata(component);
++	return hcp->jack_status ? 1 : 0;
++}
++EXPORT_SYMBOL_GPL(hdmi_codec_sink_present);
++
+ static int hdmi_codec_probe(struct platform_device *pdev)
+ {
+ 	struct hdmi_codec_pdata *hcd = pdev->dev.platform_data;
+--- a/sound/soc/qcom/qdsp6/q6afe-dai.c	2026-10-15 01:42:45.567537131 +0900
++++ b/sound/soc/qcom/qdsp6/q6afe-dai.c	2026-10-15 01:42:45.575996629 +0900
+@@ -12,6 +12,7 @@
+ #include <sound/pcm.h>
+ #include <sound/soc.h>
+ #include <sound/pcm_params.h>
++#include <sound/hdmi-codec.h>
+ #include "q6dsp-lpass-ports.h"
+ #include "q6dsp-common.h"
+ #include "q6afe.h"
+@@ -384,6 +385,26 @@
+ 
+ }
+ 
++/*
++ * HOLODOR: ask the hdmi-codec on this back end (DisplayPort / HDMI links)
++ * whether a sink is attached. A link without an hdmi-codec keeps the old
++ * behaviour.
++ */
++static bool q6afe_dai_hdmi_sink_present(struct snd_pcm_substream *substream)
++{
++	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
++	struct snd_soc_dai *codec_dai;
++	int i, ret;
++
++	for_each_rtd_codec_dais(rtd, i, codec_dai) {
++		ret = hdmi_codec_sink_present(codec_dai->component);
++		if (ret >= 0)
++			return ret > 0;
++	}
++
++	return true;
++}
++
+ static int q6afe_dai_prepare(struct snd_pcm_substream *substream,
+ 		struct snd_soc_dai *dai)
+ {
+@@ -402,6 +423,21 @@
+ 	switch (dai->id) {
+ 	case HDMI_RX:
+ 	case DISPLAY_PORT_RX:
++		/*
++		 * HOLODOR: with no sink on the link the DSP refuses to start the
++		 * port (ADSP_ENOTREADY, or a 3 s command timeout). Accept the
++		 * prepare without starting anything, the way a desktop HDMI PCM
++		 * opens with no monitor attached: the stream plays into nothing
++		 * and the jack tells userspace the output is unavailable. This is
++		 * what lets PipeWire's one-time card probe keep the DisplayPort
++		 * profile on a boot without a dock (Retroid Pocket 5).
++		 */
++		if (!q6afe_dai_hdmi_sink_present(substream)) {
++			dev_dbg(dai->dev, "%s: no sink, prepare accepted without starting the AFE port\n",
++				dai->name);
++			dai_data->is_port_started[dai->id] = false;
++			return 0;
++		}
+ 		q6afe_hdmi_port_prepare(dai_data->port[dai->id],
+ 					&dai_data->port_config[dai->id].hdmi);
+ 		break;

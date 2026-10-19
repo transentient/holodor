@@ -11,6 +11,12 @@
 #   game pinned to cpus 4-7              64-89 fps, 5 % over 15-18 ms   (lavd mode no longer matters)
 # ROCKNIX exposes the same idea as a per-game "big cores only" choice; here it is the default.
 #
+# The Steam client UI too (2026-10-16, RP5): Steam itself starts every steamwebhelper with affinity mask 0x7c
+# (cpus 2-6, a homogeneous-x86 assumption) and the scheduler then runs the CEF main/compositor threads on the
+# A55s; the library grid's slide animation ran slow enough that a normal press cadence cancelled it ("slides,
+# then snaps"). Pinning steamwebhelper to the fast cores made it smooth (Cliff's eye; a rig measurement is on
+# the post-release list). Same cores as the games; the UI is idle while a game runs.
+#
 # How: Steam starts every game (Proton or native) under `reaper SteamLaunch AppId=<id> -- ...`.
 # This loop finds new reapers and sets the CPU affinity of the reaper and everything under it;
 # processes started later inherit it. The Steam client, gamescope and the rest of the system keep
@@ -49,7 +55,7 @@ ALL_CPUS="0-$(( $(ls -d /sys/devices/system/cpu/cpu[0-9]* | wc -l) - 1 ))"
 # Thread names are matched on /proc/<pid>/task/<tid>/comm every few seconds (threads inherit the
 # game's affinity when created, so a one-shot at launch cannot catch them).
 SIDE_THREADS="dxvk-shader"
-echo "pocknix-game-affinity: games -> cpus ${CPUS}; ${SIDE_THREADS}* threads -> cpus ${ALL_CPUS}"
+echo "pocknix-game-affinity: games + steamwebhelper -> cpus ${CPUS}; ${SIDE_THREADS}* threads -> cpus ${ALL_CPUS}"
 side_threads() {  # threads of the pids under $1 whose comm starts with a SIDE_THREADS name
   for p in $(descendants "$1"); do
     for t in /proc/${p}/task/*; do
@@ -79,6 +85,12 @@ while :; do
     seen="${seen} ${pid}"
     echo "pocknix-game-affinity: pinned $(tr '\0' ' ' < /proc/${pid}/cmdline 2>/dev/null | grep -o 'AppId=[0-9]*') (reaper ${pid}) to cpus ${CPUS}"
   done
+  # Steam UI: pin every steamwebhelper we have not seen yet (Steam sets its own mask at launch)
+  for pid in $(pgrep -x steamwebhelper 2>/dev/null); do
+    case " ${ui_seen} " in *" ${pid} "*) continue ;; esac
+    taskset -a -c -p "${CPUS}" "${pid}" >/dev/null 2>&1 && ui_seen="${ui_seen} ${pid}"
+  done
+  keep=""; for pid in ${ui_seen}; do [ -d "/proc/${pid}" ] && keep="${keep} ${pid}"; done; ui_seen="${keep}"
   # forget reapers that are gone, so the list stays short
   keep=""; for pid in ${seen}; do [ -d "/proc/${pid}" ] && keep="${keep} ${pid}"; done; seen="${keep}"
   tick=$(( ${tick:-0} + 1 ))

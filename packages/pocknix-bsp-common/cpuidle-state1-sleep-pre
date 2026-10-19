@@ -2,5 +2,10 @@
 # Enable cpu0 deep idle (state1) for the suspend window only. Awake it stays
 # disabled (GMU quirk, 30-pocknix-cpuidle.conf). s2idle needs state1 to descend
 # past WFI toward cluster/domain sleep; harmless under deep. Pocknix pattern.
-echo 0 > /sys/devices/system/cpu/cpu0/cpuidle/state1/disable 2>/dev/null || true
+# Remember what it was (1 only where 30-pocknix-cpuidle.conf set it: the SM8550 GMU quirk) so the post hook
+# restores that instead of forcing 1 everywhere: on the SM8250 the post hook left cpu0 without its
+# power-collapse state while awake after the first sleep (found 2026-10-16, 18 s of cpu0 deep idle in 13 h).
+S=/sys/devices/system/cpu/cpu0/cpuidle/state1/disable
+cat "$S" > /run/pocknix-cpu0-state1-disable 2>/dev/null || true
+echo 0 > "$S" 2>/dev/null || true
 exit 0

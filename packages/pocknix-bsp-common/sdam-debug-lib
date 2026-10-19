@@ -1,0 +1,17 @@
+# sdam-debug-lib (POSIX sh, sourced by the 003-sdam-debug sleep hooks and postmortem tools):
+# print the nvmem path of the PM8150 SDAM scratch block (device-tree node nvram@b100, patch 0102).
+# nvmem device names carry a shared counter (spmi_sdam0 one boot, spmi_sdam1 the next), so match the
+# of_node; fall back to the only spmi_sdam device if there is exactly one and no of_node links.
+sdam_nvmem() {
+  d= n=0 first=
+  for d in /sys/bus/nvmem/devices/spmi_sdam*; do
+    [ -e "$d/nvmem" ] || continue
+    n=$((n + 1)); [ -n "$first" ] || first=$d
+    case "$(readlink "$d/of_node" 2>/dev/null)" in
+      *nvram@b100*) echo "$d/nvmem"; return 0 ;;
+    esac
+  done
+  if [ "$n" = 1 ]; then echo "$first/nvmem"; return 0; fi
+  echo "003-sdam-debug: no PM8150 SDAM nvmem (nvram@b100) under /sys/bus/nvmem/devices ($n spmi_sdam devices)" >/dev/kmsg
+  return 1
+}

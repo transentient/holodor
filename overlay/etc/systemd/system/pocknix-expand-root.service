@@ -1,10 +1,23 @@
 [Unit]
-Description=Expand root partition + filesystem to fill the disk (first boot)
+Description=Expand root partition + filesystem to fill the disk (first boot, before any other writer, then reboot)
+# 2026-10-10: this used to float in multi-user.target, so on the first boot the ext4 online resize
+# ran WHILE Steam was already downloading. On the RP5 that left the block bitmaps wrong and Steam's
+# new files landed on pages of bash, libstdc++ etc. (HANDOFF 2026-10-09 15:00; E1 proved the same
+# card is byte-clean when the resize happens with nothing else writing). Now it runs right after
+# the kernel's root remount, ahead of every sysinit unit that writes to the root, then syncs and
+# reboots; the second boot sees the grown filesystem cold from disk.
+# 2026-10-10 15:40 (Cliff): no boot animation on the throwaway first boot. plymouth-start is ordered
+# after udev only, so the resize goes in BEFORE it: the first boot shows the static logo for the
+# few seconds of the resize, restarts, and the animation plays once on the real boot. Root is
+# read-write after systemd-remount-fs (4.5 s on the RP5); local-fs.target would come after plymouth.
 DefaultDependencies=no
-After=systemd-remount-fs.service local-fs.target
-# Finish before the autologin getty hands off to the Steam session, so the client's first-run
-# download has the full card to use, not just the image's slack.
-Before=getty@tty1.service getty.target shutdown.target
+After=systemd-remount-fs.service
+Before=plymouth-start.service sysinit.target shutdown.target
+Before=systemd-journal-flush.service systemd-tmpfiles-setup.service systemd-random-seed.service
+Before=systemd-sysusers.service systemd-update-done.service systemd-machine-id-commit.service
+Before=systemd-hwdb-update.service systemd-journal-catalog-update.service ldconfig.service
+Before=systemd-firstboot.service systemd-update-utmp.service systemd-repart.service
+Before=plymouth-read-write.service systemd-binfmt.service
 Conflicts=shutdown.target
 ConditionPathExists=!/var/lib/pocknix/expand-root.done
 
@@ -14,4 +27,4 @@ RemainAfterExit=yes
 ExecStart=/usr/local/bin/pocknix-expand-root
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=sysinit.target

@@ -139,7 +139,27 @@ verified_fetch() {
   fail "checksum mismatch on ${desc} after re-download" "(corrupted download or upstream change)"
 }
 
+# --- clock -------------------------------------------------------------------
+# Every download below is HTTPS. A device whose RTC lost its time (the RP5 after a battery
+# run flat: 2026-10-12 it booted in the year 2066) fails every TLS handshake with
+# "certificate has expired" until timesyncd has set the clock, which happens a few seconds
+# after the network comes up. Wait for that instead of burning the first attempt.
+wait_for_clock() {
+  local i=0 y
+  y="$(date +%Y)"
+  [ "${y}" -ge 2026 ] && [ "${y}" -le 2040 ] && return 0
+  ui "Setting the clock..." "" \
+     "(the device's clock is at ${y}; waiting for the network time service)"
+  while [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" != "yes" ]; do
+    i=$((i + 1))
+    [ "${i}" -ge 60 ] && { echo "[warn] clock still unsynchronized after 120 s (year ${y}); trying anyway"; return 0; }
+    sleep 2
+  done
+  echo "[ok] clock synchronized: $(date -u +%FT%TZ) (was year ${y})"
+}
+
 wait_for_network
+wait_for_clock
 
 # 1. Resolve the runtime release + its published checksums.
 ui "Downloading Steam (1/4): resolving current version..."
