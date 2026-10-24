@@ -40,11 +40,12 @@ case "${1:-}" in
       if [ "$(current)" = performance ]; then m=autopilot; else m=performance; fi
     fi
     mkdir -p "$(dirname "${MODE_FILE}")" 2>/dev/null
-    if ! printf '%s\n' "${m}" > "${MODE_FILE}" 2>/dev/null; then
+    if ! printf '%s\n' "${m}" > "${MODE_FILE}.tmp" 2>/dev/null || ! mv -f "${MODE_FILE}.tmp" "${MODE_FILE}" 2>/dev/null; then
+      rm -f "${MODE_FILE}.tmp" 2>/dev/null
       echo "pocknix-lavd-mode: cannot write ${MODE_FILE} (run as root)" >&2
       exit 1
     fi
-    systemctl restart pocknix-lavd.service
+    timeout 5 systemctl restart pocknix-lavd.service
     echo "scx_lavd mode: ${m}"
     ;;
   *)

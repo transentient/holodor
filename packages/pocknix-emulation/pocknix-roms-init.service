@@ -5,6 +5,7 @@
 # is fully idempotent, and never blocks the session (the script is guarded + exits 0).
 [Unit]
 Description=pocknix: create ~/ROMs tree and seed emulator configs on first login
+ConditionUser=!root
 # Only meaningful in a graphical session; ordering is best-effort (oneshot, non-blocking).
 After=graphical-session-pre.target
 PartOf=graphical-session.target

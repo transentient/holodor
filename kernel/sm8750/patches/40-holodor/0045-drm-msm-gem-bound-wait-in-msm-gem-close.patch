@@ -1,0 +1,58 @@
+From: Holodor <holodor@bonesaw.com>
+Subject: [PATCH] drm/msm/gem: bound dma_resv and dma_fence waits in close/release paths
+
+msm_gem_close() and msm_gem_dmabuf_release() call dma_resv_wait_timeout()
+with MAX_SCHEDULE_TIMEOUT and interruptible=false, and msm_gem_vm_close()
+calls dma_fence_wait() with intr=false.
+
+When a process (such as gamescope, mangoapp, or sway) exits or closes a
+GEM handle / dmabuf fd while a GPU fence on that buffer object is wedged
+behind a failing GMU resume or GPU recovery worker, the thread enters an
+unbounded TASK_UNINTERRUPTIBLE (D-state) sleep waiting on the reservation
+or VM fence, blocking process teardown and session restart indefinitely.
+
+Bound these three teardown waits to 2000 ms (msecs_to_jiffies(2000)),
+matching the 2-second timeout used elsewhere in drm/msm recovery paths, so
+that handle, dmabuf, and VM teardown can proceed even if the GPU/GMU is
+wedged.
+
+Signed-off-by: Holodor <holodor@bonesaw.com>
+---
+ drivers/gpu/drm/msm/msm_gem.c       | 2 +-
+ drivers/gpu/drm/msm/msm_gem_prime.c | 2 +-
+ drivers/gpu/drm/msm/msm_gem_vma.c   | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+--- a/drivers/gpu/drm/msm/msm_gem.c
++++ b/drivers/gpu/drm/msm/msm_gem.c
+@@ -82,7 +82,7 @@
+ 	 * in CLOSE ioctl
+ 	 */
+ 	dma_resv_wait_timeout(obj->resv, DMA_RESV_USAGE_BOOKKEEP, false,
+-			      MAX_SCHEDULE_TIMEOUT);
++			      msecs_to_jiffies(2000));
+ 
+ 	/*
+ 	 * Merge the KMS-VM teardown (if vma_ref hits 0) with the user-VM
+--- a/drivers/gpu/drm/msm/msm_gem_prime.c
++++ b/drivers/gpu/drm/msm/msm_gem_prime.c
+@@ -49,7 +49,7 @@
+ 	struct drm_gem_object *obj = dma_buf->priv;
+ 
+ 	dma_resv_wait_timeout(obj->resv, DMA_RESV_USAGE_BOOKKEEP, false,
+-			      MAX_SCHEDULE_TIMEOUT);
++			      msecs_to_jiffies(2000));
+ 
+ 	msm_gem_vma_put(obj);
+ 	drm_gem_dmabuf_release(dma_buf);
+--- a/drivers/gpu/drm/msm/msm_gem_vma.c
++++ b/drivers/gpu/drm/msm/msm_gem_vma.c
+@@ -915,7 +915,7 @@
+ 		return;
+ 
+ 	if (vm->last_fence)
+-		dma_fence_wait(vm->last_fence, false);
++		dma_fence_wait_timeout(vm->last_fence, false, msecs_to_jiffies(2000));
+ 
+ 	/* Kill the scheduler now, so we aren't racing with it for cleanup: */
+ 	drm_sched_stop(&vm->sched, NULL);

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Reboot to Android
+Comment=Switch ROCKNIX ABL boot mode to Android and restart
+Icon=system-reboot
+Exec=/usr/local/bin/pocknix-boot-target reboot-android
+Terminal=false
+Categories=System;
+Keywords=android;reboot;boot;dualboot;

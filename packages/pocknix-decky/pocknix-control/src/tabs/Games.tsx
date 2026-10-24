@@ -15,6 +15,14 @@ const audioLatencyOptions = [
   { data: "120", label: "120 ms" },
 ];
 
+const powerProfileOptions = [
+  { data: "", label: "System default" },
+  { data: "eco", label: "Eco (~60% clocks)" },
+  { data: "balanced", label: "Balanced (~80% clocks)" },
+  { data: "performance", label: "Performance (uncapped)" },
+  { data: "max", label: "Max (pinned clocks)" },
+];
+
 // Per-flag FEX toggles (Armada Control parity). Order and labels match their
 // panel; each overrides the selected preset's value for that flag only.
 const lsfgMultiplierOptions = [
@@ -83,6 +91,8 @@ export function Games({ config, setConfig }: { config: Config; setConfig: Dispat
   const storedProfile = values.fexProfile as string | undefined;
   const fexValue = storedProfile && presets[storedProfile] ? storedProfile : "default";
   const fexOptions = Object.entries(presets).map(([id, profile]) => ({ data: id, label: profile.label }));
+  const storedPower = String(values.powerProfile ?? "");
+  const powerValue = powerProfileOptions.some((option) => option.data === storedPower) ? storedPower : "";
   const storedLatency = String(values.audioLatency ?? "");
   const audioValue = audioLatencyOptions.some((option) => option.data === storedLatency) ? storedLatency : "";
   const lsfgSettings = (values.lsfg || {}) as Record<string, any>;
@@ -110,6 +120,7 @@ export function Games({ config, setConfig }: { config: Config; setConfig: Dispat
         {!editingDefault ? <ToggleField label="Use Per-Game Settings" checked={perGameEnabled} onChange={setPerGameEnabled} /> : null}
         {editingDefault || perGameEnabled ? (
           <>
+            <SelectEdit label="Power Profile" value={powerValue} options={powerProfileOptions} onChange={(id) => patchSettings({ powerProfile: id })} />
             <SelectEdit label="FEX Preset" value={fexValue} options={fexOptions} onChange={(id) => patchSettings({ fexProfile: id, fexFlags: {} })} />
             <SelectEdit label="Audio Buffer" value={audioValue} options={audioLatencyOptions} onChange={(id) => patchSettings({ audioLatency: id })} />
             <ToggleField

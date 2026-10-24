@@ -1,0 +1,34 @@
+From 19e15b7d6f340dd636e54eb5b39a2991453d8ad5 Mon Sep 17 00:00:00 2001
+From: Teguh Sobirin <teguh@sobir.in>
+Date: Sat, 5 Sep 2026 17:03:08 +0700
+Subject: [PATCH] ASoC: qcom: common: set jack for codecs on Quaternary MI2S
+
+qcom_snd_wcd_jack_setup() only calls snd_soc_component_set_jack() for
+the TX_CODEC_DMA_TX_{0,1,2,3} backends. On boards where a jack-capable
+codec is wired to the Quaternary MI2S port - such as the ES8326 headset
+codec on the Retroid Pocket Duo (eliza) - the "Headset Jack" is created
+but never handed to the codec. As a result the codec's .set_jack op is
+never invoked, its jack-detection IRQ has no snd_soc_jack to report to,
+and headphone insertion/removal and button events are never delivered to
+userspace.
+
+Add QUATERNARY_MI2S_RX and QUATERNARY_MI2S_TX to the switch so the
+jack is registered with codecs on those DAIs as well.
+
+Signed-off-by: Teguh Sobirin <teguh@sobir.in>
+---
+ sound/soc/qcom/common.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/sound/soc/qcom/common.c b/sound/soc/qcom/common.c
+--- a/sound/soc/qcom/common.c
++++ b/sound/soc/qcom/common.c
+@@ -234,6 +234,8 @@ int qcom_snd_wcd_jack_setup(struct snd_soc_pcm_runtime *rtd,
+ 	}
+ 
+ 	switch (cpu_dai->id) {
++	case QUATERNARY_MI2S_RX:
++	case QUATERNARY_MI2S_TX:
+ 	case TX_CODEC_DMA_TX_0:
+ 	case TX_CODEC_DMA_TX_1:
+ 	case TX_CODEC_DMA_TX_2:

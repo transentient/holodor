@@ -1,0 +1,171 @@
+From: Holodor <holodor@bonesaw.com>
+Subject: [PATCH] drm/msm/a6xx: drain GMU RPMh votes on shutdown and recover from initial-freq timeout
+
+1. In a6xx_gmu_shutdown(), wait for all GMU RSCC DRV0 TCSes to drain via
+   a6xx_gmu_rpmh_off(gmu) after HFI_H2F_MSG_PREPARE_SLUMBER before asserting
+   REG_A6XX_GMU_CM3_SYSRESET and calling a6xx_rpmh_stop(), matching
+   a6xx_gmu_force_off().
+2. Propagate a6xx_hfi_set_freq() / a6xx_gmu_set_initial_freq() errors in
+   a6xx_gmu_resume(), collapse half-powered GX GDSC and synced_poweroff CX GDSC
+   before retrying if initial frequency voting fails, and check
+   (gmu->hung || a6xx_gpu->hung) in a6xx_gmu_stop() so GPU recovery always
+   takes the a6xx_gmu_force_off() path.
+3. Clear any stray A6XX_HFI_IRQ_BLOCKED_MSG_MASK (0x4) bit in
+   REG_A6XX_GMU_GMU2HOST_INTR_CLR if an HFI command times out so a subsequent
+   GMU_OOB_GPU_SET poll is not left with 0x4 set.
+
+Signed-off-by: Holodor <holodor@bonesaw.com>
+---
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_gmu.c b/drivers/gpu/drm/msm/adreno/a6xx_gmu.c
+--- a/drivers/gpu/drm/msm/adreno/a6xx_gmu.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_gmu.c
+@@ -225,7 +225,11 @@
+ 		return;
+ 
+ 	if (!gmu->legacy) {
+-		a6xx_hfi_set_freq(gmu, perf_index, bw_index);
++		ret = a6xx_hfi_set_freq(gmu, perf_index, bw_index);
++		if (ret) {
++			gmu->hung = true;
++			return;
++		}
+ 		/* With Bandwidth voting, we now vote for all resources, so skip OPP set */
+ 		if (!bw_index)
+ 			dev_pm_opp_set_opp(&gpu->pdev->dev, opp);
+@@ -452,11 +456,13 @@
+ 			break;
+ 	} while (true);
+ 
+-	if (ret)
++	if (ret) {
++		gmu->hung = true;
+ 		DRM_DEV_ERROR(gmu->dev,
+ 			"Timeout waiting for GMU OOB set %s: 0x%x\n",
+ 				a6xx_gmu_oob_bits[state].name,
+ 				gmu_read(gmu, REG_A6XX_GMU_GMU2HOST_INTR_INFO));
++	}
+ 
+ 	/* Clear the acknowledge interrupt */
+ 	gmu_write(gmu, REG_A6XX_GMU_GMU2HOST_INTR_CLR, 1 << ack);
+@@ -1179,18 +1185,20 @@
+ 	a6xx_rpmh_stop(gmu);
+ }
+ 
+-static void a6xx_gmu_set_initial_freq(struct msm_gpu *gpu, struct a6xx_gmu *gmu)
++static int a6xx_gmu_set_initial_freq(struct msm_gpu *gpu, struct a6xx_gmu *gmu)
+ {
+ 	struct dev_pm_opp *gpu_opp;
+ 	unsigned long gpu_freq = gmu->gpu_freqs[gmu->current_perf_index];
+ 
+ 	gpu_opp = dev_pm_opp_find_freq_exact(&gpu->pdev->dev, gpu_freq, true);
+ 	if (IS_ERR(gpu_opp))
+-		return;
++		return PTR_ERR(gpu_opp);
+ 
+ 	gmu->freq = 0; /* so a6xx_gmu_set_freq() doesn't exit early */
+ 	a6xx_gmu_set_freq(gpu, gpu_opp, false);
+ 	dev_pm_opp_put(gpu_opp);
++
++	return gmu->hung ? -ETIMEDOUT : 0;
+ }
+ 
+ static void a6xx_gmu_set_initial_bw(struct msm_gpu *gpu, struct a6xx_gmu *gmu)
+@@ -1301,9 +1309,13 @@
+ 		return pm_runtime_put_sync(gmu->gxpd);
+ 
+ 	/*
+-	 * On A8x, GX GDSC collapse should be triggered only when it is stuck ON
++	 * On A8x, GX GDSC collapse should be triggered when it is stuck ON,
++	 * including when GX_GDSC powered on during HFI freq voting before
++	 * GX_HM_CLK_OFF cleared.
+ 	 */
+-	if (adreno_gpu->funcs->gx_is_on(adreno_gpu)) {
++	if (adreno_gpu->funcs->gx_is_on(adreno_gpu) ||
++	    !(gmu_read(gmu, REG_A8XX_GMU_PWR_CLK_STATUS) &
++	      A8XX_GMU_PWR_CLK_STATUS_GX_HM_GDSC_POWER_OFF)) {
+ 		pm_runtime_get_sync(gmu->gxpd);
+ 		/*
+ 		 * Hint to gfxclkctl driver to do a hw collapse during the next
+@@ -1321,11 +1333,13 @@
+ 	struct adreno_gpu *adreno_gpu = &a6xx_gpu->base;
+ 	struct msm_gpu *gpu = &adreno_gpu->base;
+ 	struct a6xx_gmu *gmu = &a6xx_gpu->gmu;
++	int retries = 0;
+ 	int status, ret;
+ 
+ 	if (WARN(!gmu->initialized, "The GMU is not set up yet\n"))
+ 		return -EINVAL;
+ 
++retry:
+ 	gmu->hung = false;
+ 
+ 	/* Turn on the resources */
+@@ -1391,7 +1405,14 @@
+ 	enable_irq(gmu->hfi_irq);
+ 
+ 	/* Set the GPU to the current freq */
+-	a6xx_gmu_set_initial_freq(gpu, gmu);
++	ret = a6xx_gmu_set_initial_freq(gpu, gmu);
++	if (ret) {
++		if (retries < 2) {
++			a6xx_gmu_force_off(gmu);
++			goto disable_clk;
++		}
++		return 0;
++	}
+ 
+ 	return 0;
+ 
+@@ -1399,11 +1420,18 @@
+ 	disable_irq(gmu->gmu_irq);
+ 	a6xx_rpmh_stop(gmu);
+ disable_clk:
++	a6xx_gmu_gxpd_put(gmu);
+ 	clk_bulk_disable_unprepare(gmu->nr_clocks, gmu->clocks);
+ rpm_put:
+-	a6xx_gmu_gxpd_put(gmu);
+-
+-	pm_runtime_put(gmu->dev);
++	if (!IS_ERR_OR_NULL(gmu->cxpd))
++		dev_pm_genpd_synced_poweroff(gmu->cxpd);
++	pm_runtime_put_sync(gmu->dev);
++
++	if (retries < 2) {
++		retries++;
++		msleep(20);
++		goto retry;
++	}
+ 
+ 	return ret;
+ }
+@@ -1483,6 +1511,9 @@
+ 	/* Stop the interrupts and mask the hardware */
+ 	a6xx_gmu_irq_disable(gmu);
+ 
++	/* Make sure there are no outstanding RPMh votes */
++	a6xx_gmu_rpmh_off(gmu);
++
+ 	/* Halt the gmu cm3 core */
+ 	gmu_write(gmu, REG_A6XX_GMU_CM3_SYSRESET, 1);
+ 
+@@ -1508,7 +1539,7 @@
+ 	 * Force the GMU off if we detected a hang, otherwise try to shut it
+ 	 * down gracefully
+ 	 */
+-	if (gmu->hung)
++	if (gmu->hung || a6xx_gpu->hung)
+ 		a6xx_gmu_force_off(gmu);
+ 	else
+ 		a6xx_gmu_shutdown(gmu);
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_hfi.c b/drivers/gpu/drm/msm/adreno/a6xx_hfi.c
+--- a/drivers/gpu/drm/msm/adreno/a6xx_hfi.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_hfi.c
+@@ -140,6 +140,8 @@
+ 		DRM_DEV_ERROR(gmu->dev,
+ 			"Message %s id %d timed out waiting for response\n",
+ 			a6xx_hfi_msg_id[id], seqnum);
++		gmu_write(gmu, REG_A6XX_GMU_GMU2HOST_INTR_CLR,
++			  A6XX_HFI_IRQ_BLOCKED_MSG_MASK);
+ 		return -ETIMEDOUT;
+ 	}
+ 

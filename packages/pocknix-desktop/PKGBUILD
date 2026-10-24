@@ -20,7 +20,7 @@
 # docs/plasma-mobile-plan.md and the plasma-mobile-compositor memory.
 pkgname=pocknix-desktop
 pkgver=0.1.0
-pkgrel=14  # 14 (2026-10-02): on-screen keyboard - depends on plasma-keyboard (ours, Holo Core has none), kwinrc InputMethod + VirtualKeyboardEnabled seeded by pocknix-desktop, pocknix-osk + a keyboard button pinned to the panel by firstrun (Cliff: "we need a virtual keyboard and a little icon for it on the bottom bar"); 13: /etc/xdg/kscreenlockerrc Autolock=false LockOnResume=false (no keyboard/OSK; lock screen unusable, 09-27); 12: scale 1.5 (installer dialogs overflowed 960x540 with tablet mode, 09-18); 11: tablet mode + wallpaper; 10: startplasma-wayland
+pkgrel=15  # 15 (2026-10-19): add reboot-to-android.desktop tile ("Reboot to Android" via pocknix-boot-target); 14 (2026-10-02): on-screen keyboard - depends on plasma-keyboard (ours, Holo Core has none), kwinrc InputMethod + VirtualKeyboardEnabled seeded by pocknix-desktop, pocknix-osk + a keyboard button pinned to the panel by firstrun (Cliff: "we need a virtual keyboard and a little icon for it on the bottom bar"); 13: /etc/xdg/kscreenlockerrc Autolock=false LockOnResume=false (no keyboard/OSK; lock screen unusable, 09-27); 12: scale 1.5 (installer dialogs overflowed 960x540 with tablet mode, 09-18); 11: tablet mode + wallpaper; 10: startplasma-wayland
 pkgdesc="Plasma Mobile desktop session for the RP6 + game<->desktop session switch"
 arch=('any')
 url="https://github.com/shuuri-labs/pocknix-os"
@@ -39,10 +39,10 @@ source=('pocknix-desktop' 'pocknix-desktop-rotate'
         'pocknix-desktop-firstrun'
         'pocknix-desktop-firstrun.desktop' 'pocknix-desktop-rotate.desktop'
         'pocknix-desktop-remove-taskpanel' 'pocknix-desktop-remove-taskpanel.desktop'
-        'steamos-session-select' 'return-to-gamemode.desktop'
+        'steamos-session-select' 'return-to-gamemode.desktop' 'reboot-to-android.desktop'
         'pocknix-flathub-setup' 'pocknix-flathub.service' 'ksplashrc' 'pocknix-x11.conf'
         'powerdevilrc' 'kscreenlockerrc' 'pocknix-osk' 'pocknix-osk.desktop')
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   install -Dm755 "${srcdir}/pocknix-desktop"          "${pkgdir}/usr/bin/pocknix-desktop"
@@ -59,9 +59,11 @@ package() {
     "${pkgdir}/usr/bin/pocknix-desktop-remove-taskpanel"
   install -Dm644 "${srcdir}/pocknix-desktop-remove-taskpanel.desktop" \
     "${pkgdir}/etc/xdg/autostart/pocknix-desktop-remove-taskpanel.desktop"
-  # "Return to Game Mode" tile in the Plasma app grid.
+  # "Return to Game Mode" + "Reboot to Android" tiles in the Plasma app grid.
   install -Dm644 "${srcdir}/return-to-gamemode.desktop" \
     "${pkgdir}/usr/share/applications/return-to-gamemode.desktop"
+  install -Dm644 "${srcdir}/reboot-to-android.desktop" \
+    "${pkgdir}/usr/share/applications/reboot-to-android.desktop"
   # Flathub remote setup for Discover/flatpak (enabled by build-sd-image.sh firstboot_config).
   install -Dm755 "${srcdir}/pocknix-flathub-setup"    "${pkgdir}/usr/bin/pocknix-flathub-setup"
   install -Dm644 "${srcdir}/pocknix-flathub.service" \

@@ -8,9 +8,13 @@
 # suspend hook runs. Deep sleep drops Wi-Fi anyway, so nothing is lost.
 # A flag records that WE turned it off, so resume only re-enables in that case.
 FLAG=/run/pocknix-wifi-resume
-if command -v nmcli >/dev/null 2>&1 && [ "$(nmcli -t radio wifi 2>/dev/null)" = "enabled" ]; then
+PFLAG=/var/lib/pocknix/wifi-sleep-off
+if command -v nmcli >/dev/null 2>&1 && [ "$(timeout 5 nmcli -t radio wifi 2>/dev/null)" = "enabled" ]; then
+  mkdir -p /var/lib/pocknix
   : > "${FLAG}"
-  nmcli radio wifi off 2>/dev/null || true
+  : > "${PFLAG}"
+  sync "${PFLAG}" 2>/dev/null || true
+  timeout 5 nmcli radio wifi off 2>/dev/null || true
   # give the fw a moment to drain/park before the PM callbacks fire
   sleep 0.5
 fi

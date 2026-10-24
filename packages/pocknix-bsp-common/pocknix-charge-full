@@ -1,18 +1,56 @@
 #!/bin/sh
-# Restore full-charge behavior. The Odin 3's battmgr firmware DEFAULTS to a
-# battery-care window (charge_control_end_threshold=80, start=70). That surprises
-# users badly: plugged in overnight, the device stops at 80%, the 70% restart does
-# not fire during deep suspend, and sleep drain walks the battery down from there
-# ("plugged in all night, woke to 58%" — 2026-08-28). Until a trustworthy opt-in
-# battery-care panel exists, ship stock full-charge expectations: end=100, start=95.
-# READ-before-write guard: only touch the knobs if they exist and differ.
+# Apply the persisted charge limit and bypass-charging state on boot and USB
+# power_supply change events. The Odin 3's battmgr firmware DEFAULTS to an
+# 80/70 window and re-asserts it on charger events; read /var/lib/pocknix/charge-limit
+# (default 100) and /var/lib/pocknix/bypass-charging (default 0) and apply them
+# with a read-before-write guard.
+
+limit=100
+if [ -r /var/lib/pocknix/charge-limit ]; then
+  val=$(tr -d ' \t\r\n' < /var/lib/pocknix/charge-limit 2>/dev/null)
+  case "$val" in
+    ''|*[!0-9]*) ;;
+    *)
+      if [ "$val" -ge 50 ] && [ "$val" -le 100 ]; then
+        limit="$val"
+      fi
+      ;;
+  esac
+fi
+start_limit=$((limit - 5))
+[ "$start_limit" -lt 45 ] && start_limit=45
+
+bypass=0
+if [ -r /var/lib/pocknix/bypass-charging ]; then
+  bval=$(tr -d ' \t\r\n' < /var/lib/pocknix/bypass-charging 2>/dev/null)
+  [ "$bval" = "1" ] && bypass=1
+fi
+
 for d in /sys/class/power_supply/*/; do
   end="$d/charge_control_end_threshold"
   start="$d/charge_control_start_threshold"
-  [ -w "$end" ] || continue
-  [ "$(cat "$end" 2>/dev/null)" = "100" ] || echo 100 > "$end" 2>/dev/null || true
-  if [ -w "$start" ] && [ "$(cat "$start" 2>/dev/null)" != "95" ]; then
-    echo 95 > "$start" 2>/dev/null || true
+  if [ -w "$end" ]; then
+    [ "$(cat "$end" 2>/dev/null)" = "$limit" ] || echo "$limit" > "$end" 2>/dev/null || true
+    if [ -w "$start" ] && [ "$(cat "$start" 2>/dev/null)" != "$start_limit" ]; then
+      echo "$start_limit" > "$start" 2>/dev/null || true
+    fi
+  fi
+
+  cc="$d/constant_charge_current"
+  if [ -w "$cc" ]; then
+    cur=$(cat "$cc" 2>/dev/null)
+    if [ "$bypass" = "1" ]; then
+      [ "$cur" = "0" ] || echo 0 > "$cc" 2>/dev/null || true
+    else
+      if [ "$cur" = "0" ] && [ "$(cat "$d/status" 2>/dev/null)" != "Full" ]; then
+        max_cc=$(cat "$d/constant_charge_current_max" 2>/dev/null)
+        case "$max_cc" in
+          ''|*[!0-9]*|0) max_cc=3000000 ;;
+        esac
+        echo "$max_cc" > "$cc" 2>/dev/null || true
+      fi
+    fi
   fi
 done
 exit 0
+

@@ -1,0 +1,402 @@
+#!/usr/bin/python3
+# pocknix-sdcard-roms-sync — Plug-and-play Android / portable microSD ROM, BIOS & ES-DE discovery.
+#
+# Called by:
+#   - /usr/lib/hwsupport/sdcard-mount.sh (on microSD insert/remove under /run/media/deck/<label>)
+#   - /usr/bin/pocknix-roms-init         (at login, in case the SD card mounted earlier in boot)
+#   - /usr/bin/pocknix-steam-sync        (before syncing ES-DE favorites into Steam shortcuts.vdf)
+#
+# Design:
+#   1. Non-destructive union via symlinks:
+#      Game files/folders on the SD card are symlinked into the user's active ES-DE ROM directory
+#      (default ~/Emulation/ROMs/<system>) and ~/Emulation/BIOS. Local files on internal storage
+#      are NEVER overwritten, so internal and SD-card libraries coexist seamlessly.
+#   2. Case-insensitive Android frontend compatibility:
+#      Supports ES-DE, EmuDeck, Daijisho, Beacon, and RetroArch folder layouts (ROMs/, Roms/,
+#      roms/, Emulation/roms/, etc.) and maps common Android system aliases (ngc/gamecube -> gc,
+#      ps1/playstation -> psx, nethersx2/aethersx2 -> ps2, nsw/yuzu/eden -> switch, 3ds -> n3ds,
+#      dc -> dreamcast, md -> genesis, sfc -> snes, fc -> nes, pce -> tg16, etc.).
+#   3. Automatic PS2 BIOS alias (ps2-bios.bin):
+#      ARMSX2 expects ~/Emulation/BIOS/ps2-bios.bin, whereas Android (NetherSX2/AetherSX2) users
+#      typically keep raw scph*.bin dumps. If ps2-bios.bin is missing and a valid 4 MB PS2 BIOS
+#      dump is found in ~/Emulation/BIOS, it is linked as ps2-bios.bin automatically.
+#   4. Clean hot-unplug:
+#      On card removal (or at the start of every scan), any symlink in ~/Emulation or ~/ES-DE
+#      whose target points into /run/media/deck/ and no longer resolves is pruned cleanly.
+import os
+import re
+import sys
+
+HOME = os.path.expanduser("~")
+EMU = os.path.join(HOME, "Emulation")
+BIOS_DIR = os.path.join(EMU, "BIOS")
+ESDE_DIR = os.path.join(HOME, "ES-DE")
+MEDIA_ROOT = "/run/media/deck"
+
+CANONICAL_SYSTEMS = {
+    "nes", "famicom", "snes", "sfc", "n64", "gb", "gbc", "gba", "nds", "n3ds",
+    "genesis", "megadrive", "mastersystem", "gamegear", "segacd", "sega32x", "saturn", "dreamcast",
+    "tg16", "pcengine", "supergrafx", "neogeo", "arcade", "fbneo", "mame",
+    "atari2600", "atari7800", "atarilynx", "atarijaguar",
+    "wonderswan", "wonderswancolor", "ngp", "ngpc", "virtualboy",
+    "psx", "ps2", "ps3", "psp", "psvita",
+    "gc", "wii", "wiiu", "switch", "xbox",
+}
+
+SYSTEM_ALIASES = {
+    "ngc": "gc",
+    "gamecube": "gc",
+    "nintendogamecube": "gc",
+    "wii-u": "wiiu",
+    "nsw": "switch",
+    "yuzu": "switch",
+    "eden": "switch",
+    "suyu": "switch",
+    "citron": "switch",
+    "ps1": "psx",
+    "psone": "psx",
+    "playstation": "psx",
+    "pcsx2": "ps2",
+    "aethersx2": "ps2",
+    "nethersx2": "ps2",
+    "armsx2": "ps2",
+    "playstation2": "ps2",
+    "rpcs3": "ps3",
+    "playstation3": "ps3",
+    "ppsspp": "psp",
+    "vita": "psvita",
+    "vita3k": "psvita",
+    "3ds": "n3ds",
+    "citra": "n3ds",
+    "azahar": "n3ds",
+    "lime3ds": "n3ds",
+    "ds": "nds",
+    "melonds": "nds",
+    "drastic": "nds",
+    "fc": "nes",
+    "md": "genesis",
+    "sms": "mastersystem",
+    "gg": "gamegear",
+    "megacd": "segacd",
+    "scd": "segacd",
+    "32x": "sega32x",
+    "dc": "dreamcast",
+    "pce": "tg16",
+    "turbografx": "tg16",
+    "turbografx16": "tg16",
+    "ws": "wonderswan",
+    "wsc": "wonderswancolor",
+    "vb": "virtualboy",
+    "lynx": "atarilynx",
+    "jaguar": "atarijaguar",
+}
+
+IGNORED_NAMES = {
+    ".ds_store", ".nomedia", "thumbs.db", "desktop.ini",
+    "systeminfo.txt", "metadata.txt", "readme.txt",
+}
+
+
+def get_rom_dir() -> str:
+    settings_path = os.path.join(ESDE_DIR, "settings", "es_settings.xml")
+    val = ""
+    try:
+        with open(settings_path, "r", encoding="utf-8", errors="replace") as f:
+            m = re.search(r'name="ROMDirectory"\s+value="([^"]*)"', f.read())
+            if m:
+                val = m.group(1).strip()
+    except OSError:
+        pass
+    if val.startswith("~"):
+        val = HOME + val[1:]
+    if val:
+        return val
+    if os.path.exists(settings_path):
+        return os.path.join(HOME, "ROMs")
+    return os.path.join(EMU, "ROMs")
+
+
+def is_sdcard_symlink(path: str) -> bool:
+    if not os.path.islink(path):
+        return False
+    try:
+        target = os.readlink(path)
+    except OSError:
+        return False
+    return target.startswith(MEDIA_ROOT + "/")
+
+
+def prune_dead_links(root_dir: str) -> int:
+    removed = 0
+    if not os.path.isdir(root_dir):
+        return 0
+    for dirpath, dirnames, filenames in os.walk(root_dir, topdown=False):
+        for name in filenames + dirnames:
+            full = os.path.join(dirpath, name)
+            if is_sdcard_symlink(full) and not os.path.exists(full):
+                try:
+                    os.unlink(full)
+                    removed += 1
+                except OSError:
+                    pass
+    return removed
+
+
+def map_system_name(raw_name: str) -> str | None:
+    low = raw_name.strip().lower()
+    if low in CANONICAL_SYSTEMS:
+        return low
+    return SYSTEM_ALIASES.get(low)
+
+
+def should_skip_entry(name: str) -> bool:
+    if name.startswith(".") or name.startswith("._"):
+        return True
+    return name.lower() in IGNORED_NAMES
+
+
+def link_children(src_dir: str, dst_dir: str) -> int:
+    if not os.path.isdir(src_dir):
+        return 0
+    try:
+        entries = sorted(os.listdir(src_dir))
+    except OSError:
+        return 0
+    linked = 0
+    os.makedirs(dst_dir, exist_ok=True)
+    for name in entries:
+        if should_skip_entry(name):
+            continue
+        src_path = os.path.join(src_dir, name)
+        dst_path = os.path.join(dst_dir, name)
+        if os.path.islink(dst_path):
+            # Replace if dangling; leave intact if valid
+            if not os.path.exists(dst_path):
+                try:
+                    os.unlink(dst_path)
+                except OSError:
+                    continue
+            else:
+                continue
+        elif os.path.exists(dst_path):
+            continue
+        try:
+            os.symlink(src_path, dst_path)
+            linked += 1
+        except OSError:
+            pass
+    return linked
+
+
+def find_case_insensitive_Subdir(parent: str, candidates: list[str]) -> list[str]:
+    if not os.path.isdir(parent):
+        return []
+    try:
+        actual = {e.lower(): os.path.join(parent, e) for e in os.listdir(parent)}
+    except OSError:
+        return []
+    found = []
+    seen = set()
+    for c in candidates:
+        p = actual.get(c.lower())
+        if p and os.path.isdir(p) and p not in seen:
+            found.append(p)
+            seen.add(p)
+    return found
+
+
+def discover_rom_roots(mount_point: str) -> list[str]:
+    roots = []
+    for emu_dir in find_case_insensitive_Subdir(mount_point, ["Emulation"]):
+        roots.extend(find_case_insensitive_Subdir(emu_dir, ["ROMs", "roms"]))
+    roots.extend(find_case_insensitive_Subdir(mount_point, ["ROMs", "roms"]))
+    return roots
+
+
+def discover_bios_roots(mount_point: str, rom_roots: list[str]) -> list[str]:
+    roots = []
+    for emu_dir in find_case_insensitive_Subdir(mount_point, ["Emulation"]):
+        roots.extend(find_case_insensitive_Subdir(emu_dir, ["BIOS", "bios"]))
+    roots.extend(find_case_insensitive_Subdir(mount_point, ["BIOS", "bios"]))
+    for ra_dir in find_case_insensitive_Subdir(mount_point, ["RetroArch"]):
+        roots.extend(find_case_insensitive_Subdir(ra_dir, ["system", "bios"]))
+    for rr in rom_roots:
+        roots.extend(find_case_insensitive_Subdir(rr, ["BIOS", "bios"]))
+    return roots
+
+
+def ensure_ps2_bios_alias(bios_dir: str) -> None:
+    target_alias = os.path.join(bios_dir, "ps2-bios.bin")
+    if os.path.islink(target_alias) and not os.path.exists(target_alias):
+        try:
+            os.unlink(target_alias)
+        except OSError:
+            pass
+    if os.path.exists(target_alias):
+        return
+    if not os.path.isdir(bios_dir):
+        return
+
+    candidates = []
+    for dirpath, _, filenames in os.walk(bios_dir, followlinks=True):
+        for fn in sorted(filenames):
+            low = fn.lower()
+            if not low.endswith(".bin") or low == "ps2-bios.bin":
+                continue
+            full = os.path.join(dirpath, fn)
+            try:
+                st = os.stat(full)
+            except OSError:
+                continue
+            # Standard PS2 BIOS image size is 4 MiB (4,194,304 bytes)
+            if st.st_size != 4194304:
+                continue
+            score = 0
+            if "scph" in low or "ps2" in low:
+                score += 2
+            try:
+                with open(full, "rb") as bf:
+                    chunk = bf.read(262144)
+                if b"ROMGEN" in chunk or b"Sony Computer Entertainment" in chunk:
+                    score += 4
+            except OSError:
+                continue
+            if score > 0:
+                candidates.append((score, full))
+
+    if candidates:
+        candidates.sort(key=lambda x: (-x[0], x[1]))
+        best = candidates[0][1]
+        try:
+            os.symlink(best, target_alias)
+            print(f"[pocknix-sdcard-roms-sync] linked PS2 BIOS alias ps2-bios.bin -> {best}")
+        except OSError:
+            pass
+
+
+def sync_mount(mount_point: str, roms_dst: str) -> tuple[int, int]:
+    if not os.path.isdir(mount_point):
+        return 0, 0
+    # If the user already pointed ES-DE's ROMDirectory directly at this SD card, do not self-link.
+    try:
+        if os.path.realpath(roms_dst).startswith(os.path.realpath(mount_point) + "/"):
+            return 0, 0
+    except OSError:
+        pass
+
+    rom_roots = discover_rom_roots(mount_point)
+    roms_linked = 0
+    for rr in rom_roots:
+        try:
+            subdirs = sorted(os.listdir(rr))
+        except OSError:
+            continue
+        for sub in subdirs:
+            sub_path = os.path.join(rr, sub)
+            if not os.path.isdir(sub_path):
+                continue
+            canonical = map_system_name(sub)
+            if not canonical:
+                continue
+            roms_linked += link_children(sub_path, os.path.join(roms_dst, canonical))
+
+    bios_roots = discover_bios_roots(mount_point, rom_roots)
+    bios_linked = 0
+    for br in bios_roots:
+        bios_linked += link_children(br, BIOS_DIR)
+
+    # Also link ES-DE downloaded_media and gamelists if present on the SD card
+    for es_dir in find_case_insensitive_Subdir(mount_point, ["ES-DE"]):
+        for media_dir in find_case_insensitive_Subdir(es_dir, ["downloaded_media"]):
+            try:
+                for sys_dir in sorted(os.listdir(media_dir)):
+                    canonical = map_system_name(sys_dir) or sys_dir.lower()
+                    link_children(
+                        os.path.join(media_dir, sys_dir),
+                        os.path.join(ESDE_DIR, "downloaded_media", canonical),
+                    )
+            except OSError:
+                pass
+        for gl_dir in find_case_insensitive_Subdir(es_dir, ["gamelists"]):
+            try:
+                for sys_dir in sorted(os.listdir(gl_dir)):
+                    canonical = map_system_name(sys_dir) or sys_dir.lower()
+                    link_children(
+                        os.path.join(gl_dir, sys_dir),
+                        os.path.join(ESDE_DIR, "gamelists", canonical),
+                    )
+            except OSError:
+                pass
+
+    # Stage BootHolodor.apk and boot_holodor.sh onto the SD card root if available
+    # so the user can easily install the 1-tap "Boot to Holodor" app when in Android.
+    for tool_name in ("BootHolodor.apk", "boot_holodor.sh"):
+        dst_tool = os.path.join(mount_point, tool_name)
+        if os.path.exists(dst_tool):
+            continue
+        for src_dir in ("/usr/share/bootloader/rocknix_abl", "/boot/rocknix_abl"):
+            src_tool = os.path.join(src_dir, tool_name)
+            if os.path.isfile(src_tool):
+                try:
+                    with open(src_tool, "rb") as sf, open(dst_tool, "wb") as df:
+                        df.write(sf.read())
+                except OSError:
+                    pass
+                break
+
+    return roms_linked, bios_linked
+
+
+def main() -> int:
+    roms_dst = get_rom_dir()
+    os.makedirs(roms_dst, exist_ok=True)
+    os.makedirs(BIOS_DIR, exist_ok=True)
+
+    pruned = (
+        prune_dead_links(roms_dst)
+        + prune_dead_links(BIOS_DIR)
+        + prune_dead_links(os.path.join(ESDE_DIR, "downloaded_media"))
+        + prune_dead_links(os.path.join(ESDE_DIR, "gamelists"))
+    )
+
+    action = sys.argv[1] if len(sys.argv) > 1 else "scan"
+    target_mp = sys.argv[2] if len(sys.argv) > 2 else ""
+
+    total_roms = 0
+    total_bios = 0
+
+    if action == "remove":
+        ensure_ps2_bios_alias(BIOS_DIR)
+        print(f"[pocknix-sdcard-roms-sync] remove {target_mp}: pruned {pruned} stale link(s)")
+        return 0
+
+    mounts = []
+    if action == "add" and target_mp and os.path.isdir(target_mp):
+        mounts = [target_mp]
+    elif os.path.isdir(MEDIA_ROOT):
+        try:
+            mounts = [
+                os.path.join(MEDIA_ROOT, d)
+                for d in sorted(os.listdir(MEDIA_ROOT))
+                if os.path.isdir(os.path.join(MEDIA_ROOT, d))
+            ]
+        except OSError:
+            mounts = []
+
+    for mp in mounts:
+        r, b = sync_mount(mp, roms_dst)
+        total_roms += r
+        total_bios += b
+
+    ensure_ps2_bios_alias(BIOS_DIR)
+
+    if pruned or total_roms or total_bios:
+        print(
+            f"[pocknix-sdcard-roms-sync] {action}: +{total_roms} ROM entry(s), "
+            f"+{total_bios} BIOS entry(s), -{pruned} stale link(s)"
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

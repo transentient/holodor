@@ -2,7 +2,7 @@ import asyncio
 
 from pocknix_control.config import build_config
 from pocknix_control.fan_curves import delete_curve, fan_status, save_curve
-from pocknix_control.modes import set_download_inhibit_mode, set_fan_mode, set_lavd_mode, set_power_mode, set_charge_limit, set_led_color, set_led_mode, zero_stick_centers, reset_stick_centers
+from pocknix_control.modes import reboot_to_android, set_bypass_charging, set_download_inhibit_mode, set_fan_mode, set_lavd_mode, set_power_mode, set_charge_limit, set_led_color, set_led_mode, zero_stick_centers, reset_stick_centers
 from pocknix_control.sdcard import detect_sdcard, format_sdcard
 from pocknix_control.tweaks import save_tweaks
 from pocknix_control.updates import check_updates, start_update, update_status
@@ -44,6 +44,10 @@ class Plugin:
         await asyncio.to_thread(set_charge_limit, pct)
         return await self.get_config()
 
+    async def set_bypass_charging(self, enabled):
+        await asyncio.to_thread(set_bypass_charging, enabled)
+        return await self.get_config()
+
     async def set_led_color(self, hexcolor):
         await asyncio.to_thread(set_led_color, hexcolor)
         return await self.get_config()
@@ -60,6 +64,8 @@ class Plugin:
         await asyncio.to_thread(reset_stick_centers)
         return await self.get_config()
 
+    async def reboot_to_android(self):
+        await asyncio.to_thread(reboot_to_android)
 
     async def set_download_inhibit_mode(self, mode):
         await asyncio.to_thread(set_download_inhibit_mode, mode)

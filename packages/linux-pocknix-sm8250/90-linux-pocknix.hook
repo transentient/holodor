@@ -8,6 +8,7 @@ Type = Path
 Target = boot/Image
 Target = boot/dtbs/*
 Target = usr/lib/modules/*
+Target = usr/lib/pocknix/kernel-cmdline
 
 [Action]
 Description = pocknix: rebuilding /flash/KERNEL (qcom-abl boot image)...

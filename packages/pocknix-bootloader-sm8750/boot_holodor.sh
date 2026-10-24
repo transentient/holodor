@@ -1,0 +1,4 @@
+#!/bin/sh
+# Holodor: switch Holodor ABL / OpenABL / ROCKNIX ABL boot mode to Linux (Holodor) and reboot from Android.
+# Run via Settings > Odin settings > Run script as Root > boot_holodor.sh
+sh -c 'DEV=/dev/block/by-name/devinfo; OOFF=$(grep -abo "OablSettings" "$DEV" 2>/dev/null | head -n 1 | cut -d: -f1); if [ -n "$OOFF" ] && [ "$OOFF" -ge 2456 ]; then B=$(dd if="$DEV" bs=1 skip=$((OOFF + 58)) count=1 2>/dev/null | od -An -tu1 | tr -d " "); if [ -n "$B" ]; then printf "\\$(printf "%03o" $(((B & 252) | 1)))" | dd of="$DEV" bs=1 seek=$((OOFF + 58)) count=1 conv=notrunc 2>/dev/null; fi; fi; OFF=$(grep -abo "BootMode" "$DEV" 2>/dev/null | head -n 1 | cut -d: -f1); if [ -n "$OFF" ] && [ "$OFF" -ge 2456 ]; then printf "\x00" | dd of="$DEV" bs=1 seek=$((OFF + 56)) count=1 conv=notrunc 2>/dev/null; fi; sync && (svc power reboot 2>/dev/null || reboot)'

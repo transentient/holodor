@@ -1,0 +1,51 @@
+--- a/drivers/gpu/drm/msm/adreno/a6xx_gmu.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_gmu.c
+@@ -1817,17 +1817,23 @@
+ 	/* Construct a vote for rest of the corners */
+ 	for (int i = 1; i < freqs_count; i++) {
+ 		unsigned int level = a6xx_gmu_get_arc_level(dev, freqs[i]);
+-		u8 j, index = 0;
++		u8 j, index = 0xff;
+ 
+-		/* Get the primary index that matches the arc level */
++		/*
++		 * Get the primary index that matches the arc level. If nothing
++		 * fits, use the maximum non-zero vote (matching
++		 * a6xx_gmu_rpmh_arc_votes_init).
++		 */
+ 		for (j = 0; j < count; j++) {
+ 			if (mx[j] >= level) {
+ 				index = j;
+ 				break;
++			} else if (mx[j]) {
++				index = j;
+ 			}
+ 		}
+ 
+-		if (j == count) {
++		if (index == 0xff) {
+ 			DRM_DEV_ERROR(dev,
+ 				      "Mx Level %u not found in the RPMh list\n",
+ 				      level);
+@@ -2004,9 +2010,18 @@
+ 	int ret, i, cmd_idx = 0;
+ 	extern bool disable_acd;
+ 
+-	/* Skip ACD probe if requested via module param */
+-	if (disable_acd) {
+-		DRM_DEV_ERROR(gmu->dev, "Skipping GPU ACD probe\n");
++	/*
++	 * Skip ACD on A8xx (Gen8) or when requested via module param: upstream
++	 * drm/msm does not yet initialize Gen8 CLX/BCL registers and HFI tables
++	 * (HFI_FEATURE_CLX / HFI_H2F_MSG_CLX_TBL), so enabling ACD causes the
++	 * GMU ACD throttle comparator to assert F/2 clock division at >= 607 MHz
++	 * on Adreno 830 (halving compute throughput from 3066 to 1565 GFLOPS).
++	 */
++	if (disable_acd || adreno_is_a8xx(adreno_gpu)) {
++		if (disable_acd)
++			DRM_DEV_ERROR(gmu->dev, "Skipping GPU ACD probe\n");
++		if (!IS_ERR_OR_NULL(gmu->qmp))
++			qmp_send(gmu->qmp, "{class: gpu, res: acd, val: 0}");
+ 		return 0;
+ 	}
+ 

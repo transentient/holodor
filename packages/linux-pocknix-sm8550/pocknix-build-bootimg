@@ -20,10 +20,10 @@ mountpoint -q "$FLASH" || { echo "pocknix-build-bootimg: $FLASH not mounted — 
 cmdline="$(cat "$CMDLINE_FILE")"
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 
-gzip -c /boot/Image > "$tmp/kernel.gz"
+gzip -cn /boot/Image > "$tmp/kernel.gz"
 for d in /boot/dtbs/*.dtb; do [ -f "$d" ] && cat "$d" >> "$tmp/kernel.gz"; done
 # valid empty cpio ramdisk (no initramfs; UFS/ext4 are built-in) so the kernel unpacks it cleanly
-if command -v cpio >/dev/null 2>&1; then printf '' | cpio -o -H newc --quiet > "$tmp/ramdisk" 2>/dev/null
+if command -v cpio >/dev/null 2>&1; then printf '' | { cpio -o -H newc --reproducible --quiet 2>/dev/null || cpio -o -H newc --quiet; } > "$tmp/ramdisk" 2>/dev/null
 else printf 'dummy' > "$tmp/ramdisk"; fi
 
 python3 "$MKBOOTIMG" \
@@ -32,9 +32,15 @@ python3 "$MKBOOTIMG" \
   --os_version 12.0.0 --os_patch_level "$(date '+%Y-%m')" --header_version 0 \
   --cmdline "$cmdline" -o "$tmp/KERNEL"
 
+if [ -f "$FLASH/KERNEL" ] && cmp -s "$tmp/KERNEL" "$FLASH/KERNEL"; then
+  echo "pocknix-build-bootimg: $FLASH/KERNEL already matches this kernel — nothing to do, KERNEL.bak untouched"
+  exit 0
+fi
 mount -o remount,rw "$FLASH" 2>/dev/null || true
 [ -f "$FLASH/KERNEL" ] && cp -f "$FLASH/KERNEL" "$FLASH/KERNEL.bak"
-cp -f "$tmp/KERNEL" "$FLASH/KERNEL"
-( cd "$FLASH" && md5sum KERNEL > KERNEL.md5 )
+cp -f "$tmp/KERNEL" "$FLASH/KERNEL.new"
+sync
+mv -f "$FLASH/KERNEL.new" "$FLASH/KERNEL"
+( cd "$FLASH" && md5sum KERNEL > KERNEL.md5.new && mv -f KERNEL.md5.new KERNEL.md5 )
 sync
 echo "pocknix-build-bootimg: rebuilt $FLASH/KERNEL (kernel $(cat /usr/lib/pocknix/kernelrelease 2>/dev/null || echo '?'); KERNEL.bak kept)"

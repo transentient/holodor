@@ -1,0 +1,39 @@
+From: gennro <gennro2004@gmail.com>
+Subject: [PATCH] scsi: ufs: qcom: don't enable the lane clocks twice
+
+ufs_qcom_enable_lane_clks() prepares and enables every clock of the host
+(devm_clk_bulk_get_all()), but only ufs_qcom_disable_lane_clks() checks
+is_lane_clks_enabled. A runtime resume with the link in hibern8 enables
+them twice: ufshcd_setup_clocks(on) -> ufs_qcom_setup_clocks(PRE_CHANGE)
+and then ufs_qcom_resume(). The next suspend disables them once, so every
+cycle leaks one reference on gcc_ufs_phy_axi_clk, unipro_core, ahb and
+the symbol clocks (and 3x on bi_tcxo ref_clk on a Retroid Pocket 5).
+
+Those clocks then never turn off, not even in system suspend: they keep
+GPLL0 and the RPMh XO vote (bi_tcxo) on, so the SoC can't shut XO down
+or reach AOSS sleep / CX collapse in s2idle.
+
+Return early when the clocks are already enabled, mirroring the disable
+side.
+
+[ Holodor: from kettlelinux 40-kettle/1160 ]
+---
+--- a/drivers/ufs/host/ufs-qcom.c
++++ b/drivers/ufs/host/ufs-qcom.c
+@@ -356,6 +356,16 @@ static int ufs_qcom_enable_lane_clks(struct ufs_qcom_host *host)
+ {
+ 	int err;
+ 
++	/*
++	 * Called from ufs_qcom_setup_clocks(on) when the link is in hibern8 and
++	 * again from ufs_qcom_resume(): enabling twice while the disable side
++	 * runs once leaks one reference to every UFS clock (the bulk set is all
++	 * of them) per runtime resume, so they never turn off again, keep XO
++	 * voted on and block SoC sleep (AOSS, CX collapse).
++	 */
++	if (host->is_lane_clks_enabled)
++		return 0;
++
+ 	err = clk_bulk_prepare_enable(host->num_clks, host->clks);
+ 	if (err)
+ 		return err;

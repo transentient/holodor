@@ -22,10 +22,12 @@ OUT=/var/log/pocknix-diag.txt
     echo "$(cat "$r/name") type=$(cat "$r/type") soft=$(cat "$r/soft") hard=$(cat "$r/hard")"
   done
   printf '\n## wifi: NetworkManager device/conn\n'
-  nmcli radio all 2>/dev/null
-  nmcli device status 2>/dev/null
-  nmcli -f NAME,TYPE,DEVICE connection show 2>/dev/null
-  printf '\n## wifi: iwd devices\n'; iwctl device list 2>/dev/null || echo "(iwctl n/a)"
+  WDEV="$(timeout 5 nmcli -t -f DEVICE,TYPE device status 2>/dev/null | awk -F: '$2=="wifi"{print $1; exit}')"
+  [ -n "$WDEV" ] || WDEV=wlan0
+  timeout 5 nmcli radio all 2>/dev/null
+  timeout 5 nmcli device status 2>/dev/null
+  timeout 5 nmcli -f NAME,TYPE,DEVICE connection show 2>/dev/null
+  printf '\n## wifi: iwd devices\n'; timeout 5 iwctl device list 2>/dev/null || echo "(iwctl n/a)"
   printf '\n## wifi: connection profile baked?\n'; ls -l /etc/NetworkManager/system-connections/ 2>/dev/null || echo "(none)"
   printf '\n## wifi: profile contents (psk redacted) — confirms SSID actually baked in\n'
   for f in /etc/NetworkManager/system-connections/*.nmconnection; do
@@ -38,26 +40,26 @@ OUT=/var/log/pocknix-diag.txt
   cat /etc/iwd/main.conf 2>/dev/null || echo "(none)"
   printf '\n## wifi: regulatory domain (5 GHz needs a country set)\n'; iw reg get 2>/dev/null || echo "(iw n/a)"
   printf '\n## wifi: scan — does NM see any APs?\n'
-  nmcli -f SSID,SIGNAL,SECURITY,CHAN device wifi list 2>/dev/null | head -30 || echo "(nmcli wifi list n/a)"
-  printf '\n## wifi: wlan0 detail\n'
-  nmcli device show wlan0 2>/dev/null | grep -E 'GENERAL.STATE|GENERAL.CONNECTION|IP4.ADDRESS|WIFI-PROPERTIES' || true
-  nmcli networking connectivity 2>/dev/null
-  printf '\n## wifi: iwd station\n'; iwctl station wlan0 show 2>/dev/null || echo "(iwctl n/a)"
+  timeout 10 nmcli -f SSID,SIGNAL,SECURITY,CHAN device wifi list 2>/dev/null | head -30 || echo "(nmcli wifi list n/a)"
+  printf '\n## wifi: %s detail\n' "$WDEV"
+  timeout 5 nmcli device show "$WDEV" 2>/dev/null | grep -E 'GENERAL.STATE|GENERAL.CONNECTION|IP4.ADDRESS|WIFI-PROPERTIES' || true
+  timeout 5 nmcli networking connectivity 2>/dev/null
+  printf '\n## wifi: iwd station\n'; timeout 5 iwctl station "$WDEV" show 2>/dev/null || echo "(iwctl n/a)"
   printf '\n## rfkill\n'; rfkill list 2>/dev/null || echo "(rfkill n/a)"
   printf '\n## regulatory.db present?\n'; ls -l /usr/lib/firmware/regulatory.db* 2>/dev/null || echo "MISSING"
   printf '\n## ath12k dmesg\n'; dmesg 2>/dev/null | grep -i ath12k | tail -20
   printf '\n## wifi: FORCED connect attempt (prints the real activation failure reason)\n'
   prof=$(ls /etc/NetworkManager/system-connections/*.nmconnection 2>/dev/null | head -1)
-  if nmcli -g GENERAL.STATE device show wlan0 2>/dev/null | grep -q '^100'; then
+  if timeout 5 nmcli -g GENERAL.STATE device show "$WDEV" 2>/dev/null | grep -q '^100'; then
     # already activated: re-running 'connection up' would tear the link down and
     # rebuild it (visible as a wifi blip every boot)
-    echo "(wlan0 already connected — skipping forced activation)"
+    echo "($WDEV already connected — skipping forced activation)"
   elif [ -n "$prof" ]; then
     name=$(basename "${prof%.nmconnection}")
     echo "+ nmcli --wait 25 connection up \"$name\""
-    nmcli --wait 25 connection up "$name" 2>&1
-    echo "--- wlan0 after attempt ---"
-    nmcli -f GENERAL.STATE,GENERAL.REASON,GENERAL.CONNECTION,IP4.ADDRESS device show wlan0 2>&1
+    timeout 30 nmcli --wait 25 connection up "$name" 2>&1
+    echo "--- $WDEV after attempt ---"
+    timeout 5 nmcli -f GENERAL.STATE,GENERAL.REASON,GENERAL.CONNECTION,IP4.ADDRESS device show "$WDEV" 2>&1
   else
     echo "(no profile to activate)"
   fi
@@ -98,10 +100,15 @@ OUT=/var/log/pocknix-diag.txt
 } > "$OUT" 2>&1
 
 # Copy onto the FAT boot partition (readable on macOS too).
-mp=$(mktemp -d)
-if mount /dev/disk/by-partlabel/system "$mp" 2>/dev/null || mount -L ROCKNIX "$mp" 2>/dev/null; then
-  cp "$OUT" "$mp/pocknix-diag.txt" 2>/dev/null || true
+if findmnt -rn /flash >/dev/null 2>&1; then
+  cp "$OUT" /flash/pocknix-diag.txt.tmp 2>/dev/null && mv -f /flash/pocknix-diag.txt.tmp /flash/pocknix-diag.txt 2>/dev/null || true
   sync
-  umount "$mp" 2>/dev/null || true
+else
+  mp=$(mktemp -d)
+  if mount /dev/disk/by-partlabel/system "$mp" 2>/dev/null || mount -L ROCKNIX "$mp" 2>/dev/null; then
+    cp "$OUT" "$mp/pocknix-diag.txt.tmp" 2>/dev/null && mv -f "$mp/pocknix-diag.txt.tmp" "$mp/pocknix-diag.txt" 2>/dev/null || true
+    sync
+    umount "$mp" 2>/dev/null || true
+  fi
+  rmdir "$mp" 2>/dev/null || true
 fi
-rmdir "$mp" 2>/dev/null || true

@@ -31,7 +31,7 @@ if [ -n "$rootuuid" ]; then
 fi
 
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-gzip -c /boot/Image > "$tmp/kernel.gz"
+gzip -cn /boot/Image > "$tmp/kernel.gz"
 ndtb=0
 for g in $DTB_GLOBS; do
   for d in /boot/dtbs/$g; do [ -f "$d" ] || continue; cat "$d" >> "$tmp/kernel.gz"; ndtb=$((ndtb+1)); done
@@ -52,9 +52,15 @@ for f in $FW_FILES; do
   fi
 done
 [ "$nfw" -gt 0 ] || echo "pocknix-build-bootimg: WARNING: no a650 firmware found — KERNEL will boot with a dead GPU"
-if command -v cpio >/dev/null 2>&1; then (cd "$fwroot" && find lib | cpio -o -H newc --quiet) | gzip -9 > "$tmp/ramdisk"
-elif command -v bsdtar >/dev/null 2>&1; then (cd "$fwroot" && bsdtar --format newc -cf - lib) | gzip -9 > "$tmp/ramdisk"
-else printf 'dummy' > "$tmp/ramdisk"; echo "pocknix-build-bootimg: WARNING: no cpio/bsdtar — shipped a dummy ramdisk (GPU race!)"; fi
+find "$fwroot" -exec touch -h -d '@0' {} +
+if command -v cpio >/dev/null 2>&1; then
+  (cd "$fwroot" && find lib | LC_ALL=C sort | { cpio -o -H newc --reproducible --quiet 2>/dev/null || cpio -o -H newc --quiet; }) | gzip -9n > "$tmp/ramdisk"
+elif command -v bsdtar >/dev/null 2>&1; then
+  (cd "$fwroot" && bsdtar --format newc -cf - lib) | gzip -9n > "$tmp/ramdisk"
+else
+  printf 'dummy' > "$tmp/ramdisk"
+  echo "pocknix-build-bootimg: WARNING: no cpio/bsdtar — shipped a dummy ramdisk (GPU race!)"
+fi
 
 python3 "$MKBOOTIMG" \
   --kernel "$tmp/kernel.gz" --ramdisk "$tmp/ramdisk" \
@@ -68,8 +74,10 @@ if [ -f "$FLASH/KERNEL" ] && cmp -s "$tmp/KERNEL" "$FLASH/KERNEL"; then
 fi
 mount -o remount,rw "$FLASH" 2>/dev/null || true
 [ -f "$FLASH/KERNEL" ] && cp -f "$FLASH/KERNEL" "$FLASH/KERNEL.bak"
-cp -f "$tmp/KERNEL" "$FLASH/KERNEL"
-( cd "$FLASH" && md5sum KERNEL > KERNEL.md5 )
+cp -f "$tmp/KERNEL" "$FLASH/KERNEL.new"
+sync
+mv -f "$FLASH/KERNEL.new" "$FLASH/KERNEL"
+( cd "$FLASH" && md5sum KERNEL > KERNEL.md5.new && mv -f KERNEL.md5.new KERNEL.md5 )
 # The ABL prefers \boot\grub\*.dtb over the appended dtbs: a leftover GRUB-era dir would hijack
 # the model menu with the wrong set. Remove it (and the dead EFI chainloader) if present.
 rm -rf "$FLASH/boot" "$FLASH/EFI" 2>/dev/null || true

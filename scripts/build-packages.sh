@@ -199,7 +199,7 @@ Update one to match the other."
   # (falling back to their sm8550 strings when unset, e.g. standalone makepkg).
   local mkflags="-s" tune_env
   case "${pkgdir}" in */devices/*/packages/*) mkflags="-d" ;; esac
-  tune_env="POCKNIX_SOC=$(printf %q "${SOC}") POCKNIX_TUNE_CFLAGS=$(printf %q "${POCKNIX_TUNE_CFLAGS}") POCKNIX_FEX_TUNE_CPU=$(printf %q "${POCKNIX_FEX_TUNE_CPU}")"
+  tune_env="POCKNIX_SOC=$(printf %q "${SOC}") POCKNIX_TUNE_CFLAGS=$(printf %q "${POCKNIX_TUNE_CFLAGS}") POCKNIX_FEX_TUNE_CPU=$(printf %q "${POCKNIX_FEX_TUNE_CPU}") FEX_NINJA_JOBS=$(printf %q "${FEX_NINJA_JOBS:-6}")"
   if ! chroot "${BROOT}" runuser -u builder -- \
       bash -lc "cd /build/${name} && LC_ALL=C SRCDEST=/build/srccache ${tune_env} makepkg ${mkflags} -f --noconfirm --nocheck --skippgpcheck"; then
     warn "makepkg failed for ${name} — keeping any previous build in ${LOCALREPO##*/}"

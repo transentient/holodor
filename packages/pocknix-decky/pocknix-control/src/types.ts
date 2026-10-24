@@ -2,6 +2,8 @@ export interface GameTweak {
   enabled?: boolean;
   name?: string;
   fexProfile?: string;
+  /** Per-game power profile ("", "eco", "balanced", "performance", "max"); "" = System default. */
+  powerProfile?: string;
   /** Audio buffer in ms (PULSE_LATENCY_MSEC exported by pocknix-proton-wrapper); "" = game default. */
   audioLatency?: string;
   /** Run the panel at its highest refresh rate (120 Hz) for this game; default is the lowest (60 Hz). */
@@ -50,9 +52,12 @@ export interface Config {
   fanCurves: Record<string, FanCurve>;
   powerMode: string;
   chargeLimit: number;
+  bypassCharging?: boolean;
+  canBypassCharging?: boolean;
   ledColor: string;
   ledMode: string;
   stickCenters: string;
+  canBootAndroid?: boolean;
   lavdMode: string;
   downloadInhibitMode: string;
   tweaks: Tweaks;

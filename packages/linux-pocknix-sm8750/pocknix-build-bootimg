@@ -37,7 +37,7 @@ if [ -n "$rootuuid" ]; then
 fi
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 
-gzip -c /boot/Image > "$tmp/kernel.gz"
+gzip -cn /boot/Image > "$tmp/kernel.gz"
 ndtb=0
 for g in $DTB_GLOBS; do
   for d in /boot/dtbs/$g; do [ -f "$d" ] || continue; cat "$d" >> "$tmp/kernel.gz"; ndtb=$((ndtb+1)); done
@@ -59,9 +59,15 @@ cp /usr/lib/firmware/qcom/sm8750/gen80000_zap.mbn "$fwroot/lib/firmware/qcom/sm8
 if ! ls "$fwroot"/lib/firmware/qcom/gen80000_* >/dev/null 2>&1; then
   echo "pocknix-build-bootimg: WARNING: no gen80000 firmware found — KERNEL will boot with a dead GPU"
 fi
-if command -v cpio >/dev/null 2>&1; then (cd "$fwroot" && find lib | cpio -o -H newc --quiet) | gzip -9 > "$tmp/ramdisk"
-elif command -v bsdtar >/dev/null 2>&1; then (cd "$fwroot" && bsdtar --format newc -cf - lib) | gzip -9 > "$tmp/ramdisk"
-else printf 'dummy' > "$tmp/ramdisk"; echo "pocknix-build-bootimg: WARNING: no cpio/bsdtar — shipped a dummy ramdisk (GPU race!)"; fi
+find "$fwroot" -exec touch -h -d '@0' {} +
+if command -v cpio >/dev/null 2>&1; then
+  (cd "$fwroot" && find lib | LC_ALL=C sort | { cpio -o -H newc --reproducible --quiet 2>/dev/null || cpio -o -H newc --quiet; }) | gzip -9n > "$tmp/ramdisk"
+elif command -v bsdtar >/dev/null 2>&1; then
+  (cd "$fwroot" && bsdtar --format newc -cf - lib) | gzip -9n > "$tmp/ramdisk"
+else
+  printf 'dummy' > "$tmp/ramdisk"
+  echo "pocknix-build-bootimg: WARNING: no cpio/bsdtar — shipped a dummy ramdisk (GPU race!)"
+fi
 
 python3 "$MKBOOTIMG" \
   --kernel "$tmp/kernel.gz" --ramdisk "$tmp/ramdisk" \
@@ -80,7 +86,9 @@ if [ -f "$FLASH/KERNEL" ] && cmp -s "$tmp/KERNEL" "$FLASH/KERNEL"; then
 fi
 mount -o remount,rw "$FLASH" 2>/dev/null || true
 [ -f "$FLASH/KERNEL" ] && cp -f "$FLASH/KERNEL" "$FLASH/KERNEL.bak"
-cp -f "$tmp/KERNEL" "$FLASH/KERNEL"
-( cd "$FLASH" && md5sum KERNEL > KERNEL.md5 )
+cp -f "$tmp/KERNEL" "$FLASH/KERNEL.new"
+sync
+mv -f "$FLASH/KERNEL.new" "$FLASH/KERNEL"
+( cd "$FLASH" && md5sum KERNEL > KERNEL.md5.new && mv -f KERNEL.md5.new KERNEL.md5 )
 sync
 echo "pocknix-build-bootimg: rebuilt $FLASH/KERNEL (kernel $(cat /usr/lib/pocknix/kernelrelease 2>/dev/null || echo '?'), $ndtb dtb(s), $(du -h "$FLASH/KERNEL" | cut -f1); KERNEL.bak kept)"

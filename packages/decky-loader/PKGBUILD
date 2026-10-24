@@ -8,7 +8,7 @@
 # (see build-frontend.sh; upstream builds static/ with pnpm+rollup and gitignores it) and the
 # updater patch (pacman owns updates; upstream's updater would download the x86 binary into cwd).
 pkgname=decky-loader
-pkgver=3.2.9
+pkgver=3.3.0
 pkgrel=1
 pkgdesc="Plugin loader for Steam's gamepad UI (Decky), native Python build"
 arch=('any')
@@ -25,8 +25,8 @@ makedepends=('python-build' 'python-installer' 'python-poetry-core')
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
         "decky-frontend-v${pkgver}.tar.zst"
         '0001-updater-managed-by-pacman.patch')
-sha256sums=('f677e2b8f00723506bf820a0f7281081d2d12100abfe138f08f260108aa76dc1'
-            '0d645fd0f135fa8cb282a1f7344a3b08582bee187a6e576e993b985c9bf9b246'
+sha256sums=('3bdd1714e3df86bba80aa5f8289127ece5892c1a74ee5d394ca8ca663db819a3'
+            '96fab02c1f3af7be7a83a8dcdeb13b10e88b8b4e55d613b72883c274b677033a'
             'e7b22366580adaca4d8fed560c75be9bdad8afd1dbf5960493299b5648368646')
 
 prepare() {

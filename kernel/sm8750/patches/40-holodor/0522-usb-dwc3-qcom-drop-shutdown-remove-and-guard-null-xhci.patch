@@ -1,0 +1,39 @@
+From: Holodor <holodor@bonesaw.com>
+Date: Thu, 22 Oct 2026 11:42:00 +0900
+Subject: [PATCH] usb: dwc3: qcom: drop .shutdown = dwc3_qcom_remove and guard NULL xhci/hcd
+
+Neither drivers/usb/dwc3/core.c nor dwc3-qcom-legacy.c sets .shutdown to
+remove. Running dwc3_qcom_remove() during device_shutdown() while a USB-C
+DisplayPort Alt-Mode dock is active tears down the shared QMP combo PHY and
+hangs warm reboot before PSCI SYSTEM_RESET. Also guard against NULL dwc->xhci
+or hcd in dwc3_qcom_read_usb2_speed().
+
+Signed-off-by: Holodor <holodor@bonesaw.com>
+---
+diff --git a/drivers/usb/dwc3/dwc3-qcom.c b/drivers/usb/dwc3/dwc3-qcom.c
+--- a/drivers/usb/dwc3/dwc3-qcom.c
++++ b/drivers/usb/dwc3/dwc3-qcom.c
+@@ -235,10 +235,15 @@
+ 	struct usb_hcd __maybe_unused *hcd;
+ 	struct dwc3 *dwc = &qcom->dwc;
+ 
++	if (!dwc->xhci)
++		return USB_SPEED_UNKNOWN;
++
+ 	/*
+ 	 * FIXME: Fix this layering violation.
+ 	 */
+ 	hcd = platform_get_drvdata(dwc->xhci);
++	if (!hcd)
++		return USB_SPEED_UNKNOWN;
+ 
+ #ifdef CONFIG_USB
+ 	udev = usb_hub_find_child(hcd->self.root_hub, port_index + 1);
+@@ -847,7 +852,6 @@
+ static struct platform_driver dwc3_qcom_driver = {
+ 	.probe		= dwc3_qcom_probe,
+ 	.remove		= dwc3_qcom_remove,
+-	.shutdown	= dwc3_qcom_remove,
+ 	.driver		= {
+ 		.name	= "dwc3-qcom",
+ 		.pm	= pm_ptr(&dwc3_qcom_dev_pm_ops),

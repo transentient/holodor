@@ -1,0 +1,623 @@
+diff --git a/Efi/BootImage.c b/Efi/BootImage.c
+index a4e9af5..633c4ba 100644
+--- a/Efi/BootImage.c
++++ b/Efi/BootImage.c
+@@ -292,15 +292,20 @@ ModelDtb (
+         )) {
+       continue;
+     }
+-    if (AsciiStrEq (Info.Model, Model)) {
++    if (Model && *Model && AsciiStrEq (Info.Model, Model)) {
+       Blob     = Dtbs + Found.Items[Index].Offset;
+       BlobSize = Found.Items[Index].Size;
+     }
+     DtInfoFree (&Info);
+   }
++  if (!Blob && Found.Count == 1) {
++    Blob     = Dtbs + Found.Items[0].Offset;
++    BlobSize = Found.Items[0].Size;
++  }
+   VecFree (&Found);
+   if (!Blob) {
+-    return "no devicetree for the selected model in it";
++    return (!Model || !*Model) ? "no device model selected: it needs one for its devicetree"
++                               : "no devicetree for the selected model in it";
+   }
+   if (!UefiPaddedDtb (Blob, BlobSize, DTB_PAD, Out)) {
+     return "its devicetree doesn't parse";
+@@ -502,10 +507,6 @@ BootImageStart (
+   CONST CHAR8 *Why;
+   EFI_STATUS   Status;
+ 
+-  if (!Model || !*Model) {
+-    SAY (Log, "no device model selected: it needs one for its devicetree");
+-    return BOOT_IMAGE_NOT_STARTED_NO_MODEL;
+-  }
+   Status = MenuHostAction (Host, OPENABL_MENU_ACTION_BOOT_IMAGE_VERIFY);
+   if (Status != EFI_SUCCESS) {
+     SAY (Log, "verified boot refused it (%s)", STATUS_STR (Status));
+@@ -515,9 +516,13 @@ BootImageStart (
+     return BOOT_IMAGE_NOT_STARTED_REFUSED;
+   }
+   // Once verified, the buffer is ours again.
+-  Why = LayOut (Host, Found, Model, Log);
++  Why = LayOut (Host, Found, Model ? Model : "", Log);
+   gBS->FreePool (Found->Buffer);
+   SAY (Log, "%s", Why);
++  if ((!Model || !*Model) &&
++      AsciiStrEq (Why, "no device model selected: it needs one for its devicetree")) {
++    return BOOT_IMAGE_NOT_STARTED_NO_MODEL;
++  }
+   return BOOT_IMAGE_NOT_STARTED_FAILED;
+ }
+ 
+@@ -529,11 +534,13 @@ BootImageStartVerified (
+   IN LOG_SINK                Log
+ )
+ {
+-  if (!Model || !*Model) {
+-    SAY (Log, "no device model selected: it needs one for its devicetree");
++  CONST CHAR8 *Why = LayOut (Host, Found, Model ? Model : "", Log);
++
++  SAY (Log, "%s", Why);
++  if ((!Model || !*Model) &&
++      AsciiStrEq (Why, "no device model selected: it needs one for its devicetree")) {
+     return EFI_NOT_READY;
+   }
+-  SAY (Log, "%s", LayOut (Host, Found, Model, Log));
+   return EFI_LOAD_ERROR;
+ }
+ 
+diff --git a/Efi/Models.c b/Efi/Models.c
+index 6d1de23..0323c1c 100644
+--- a/Efi/Models.c
++++ b/Efi/Models.c
+@@ -70,12 +70,16 @@ BlobFor (
+     if (!DtInspect (Blob, Dtbs.Items[Index].Size, &Info)) {
+       continue;
+     }
+-    if (AsciiStrEq (Info.Model, Model)) {
++    if (Model && *Model && AsciiStrEq (Info.Model, Model)) {
+       *Out  = Dtbs.Items[Index];
+       Found = TRUE;
+     }
+     DtInfoFree (&Info);
+   }
++  if (!Found && Dtbs.Count == 1) {
++    *Out  = Dtbs.Items[0];
++    Found = TRUE;
++  }
+   VecFree (&Dtbs);
+   return Found;
+ }
+diff --git a/Efi/Qcom.c b/Efi/Qcom.c
+index 5feeeb6..8748d99 100644
+--- a/Efi/Qcom.c
++++ b/Efi/Qcom.c
+@@ -292,16 +292,19 @@ QcomFlushVariables (OUT EFI_STATUS *Status)
+ {
+   VARIABLE_SERVICES *Services = Open (&mVariableServicesGuid);
+ 
+-  if (!Services) {
++  if (Services) {
++    *Status = Services->FlushVariableNv (Services);
+ #ifdef OABL_DEVINFO_SETTINGS
+-    *Status = VariablesPersistToDevinfo ();
+-    return TRUE;
+-#else
+-    return FALSE;
++    (VOID)VariablesPersistToDevinfo ();
+ #endif
++    return TRUE;
+   }
+-  *Status = Services->FlushVariableNv (Services);
++#ifdef OABL_DEVINFO_SETTINGS
++  *Status = VariablesPersistToDevinfo ();
+   return TRUE;
++#else
++  return FALSE;
++#endif
+ }
+ 
+ BOOLEAN
+diff --git a/Efi/Variables.c b/Efi/Variables.c
+index e83fbcc..02a1e7c 100644
+--- a/Efi/Variables.c
++++ b/Efi/Variables.c
+@@ -303,13 +303,11 @@ VariablesMoveOutOfDevinfo (IN LOG_SINK Log)
+   // Where devinfo stores the settings, write the copy again now that the
+   // old values made room. A record an older ABL filled (up to seven of its
+   // eight values) had no room for it at the flush above.
+-  if (!QcomHasVariableServices ()) {
+-    Status = VariablesPersistToDevinfo ();
+-    if (EFI_ERROR (Status)) {
+-      LogPrint (
+-        Log, "settings: the settings into devinfo: %s", STATUS_TEXT (Status)
+-      );
+-    }
++  Status = VariablesPersistToDevinfo ();
++  if (EFI_ERROR (Status)) {
++    LogPrint (
++      Log, "settings: the settings into devinfo: %s", STATUS_TEXT (Status)
++    );
+   }
+ #endif
+   LogPrint (
+@@ -348,6 +346,7 @@ VariablesPersistToDevinfo (VOID)
+ {
+   SETTINGS_STORE_VALUE Entries[SETTINGS_STORE_ENTRIES];
+   CONST CHAR8         *Skipped[SETTINGS_STORE_SKIPPED_MAX];
++  CONST CHAR8         *LegacyBootMode = "BootMode";
+   UINTN                SkippedCount;
+   OABL_BUFFER          Raw;
+   BOOLEAN              Fits = TRUE;
+@@ -356,6 +355,7 @@ VariablesPersistToDevinfo (VOID)
+   if (!ReadDevinfo (&Raw)) {
+     return EFI_UNSUPPORTED;
+   }
++  DevInfoClearValues (Raw.Data, Raw.Len, &LegacyBootMode, 1);
+   SettingsStorePack (StoredGet, NULL, Entries, Skipped, &SkippedCount);
+   for (UINTN Index = 0; Index < SETTINGS_STORE_ENTRIES; Index++) {
+     CONST SETTINGS_STORE_VALUE *Entry = &Entries[Index];
+@@ -368,6 +368,10 @@ VariablesPersistToDevinfo (VOID)
+       );
+     }
+   }
++  Fits &= DevInfoSetValue (
++    Raw.Data, Raw.Len, "HolodorAblVer", (CONST UINT8 *)MENU_VERSION,
++    AsciiStrLen (MENU_VERSION) + 1
++  );
+   if (!Fits) {
+     Status = EFI_OUT_OF_RESOURCES;
+   } else if (!QcomWriteDeviceState (Raw.Data, Raw.Len, &Status)) {
+@@ -385,15 +389,12 @@ VariablesRestoreFromDevinfo (IN LOG_SINK Log)
+   SETTINGS_VAR Vars[SETTINGS_STORE_VARS];
+   OABL_BUFFER  Raw;
+   DEVINFO      Parsed;
++  OABL_BYTES   LegacyBm;
+   UINT64       Set = 0;
+ 
+-  if (QcomHasVariableServices ()) {
+-    return;
+-  }
+   if (!ReadDevinfo (&Raw)) {
+     LogPrint (
+-      Log, "settings: no variable services, and devinfo unreadable: the "
+-           "settings are this boot's"
++      Log, "settings: devinfo unreadable: the settings are this boot's"
+     );
+     return;
+   }
+@@ -401,10 +402,6 @@ VariablesRestoreFromDevinfo (IN LOG_SINK Log)
+     goto Done;
+   }
+   if (!SettingsStoreUnpack (DevinfoValueOf, &Parsed, Vars)) {
+-    LogPrint (
+-      Log,
+-      "settings: no variable services: the settings will be kept in devinfo"
+-    );
+     goto Done;
+   }
+   for (UINTN Index = 0; Index < SETTINGS_STORE_VARS; Index++) {
+@@ -414,8 +411,14 @@ VariablesRestoreFromDevinfo (IN LOG_SINK Log)
+       Set++;
+     }
+   }
++  if (DevInfoValue (&Parsed, "BootMode", &LegacyBm) && LegacyBm.Len >= 1 &&
++      LegacyBm.Ptr[0] <= 1) {
++    UINT8 Bm = LegacyBm.Ptr[0];
++    VariablesPut (SETTINGS_KEY_BOOT_MODE, &Bm, 1);
++    (VOID)VariablesPersistToDevinfo ();
++  }
+   LogPrint (
+-    Log, "settings: no variable services: %llu setting(s) from devinfo", Set
++    Log, "settings: %llu setting(s) synced from devinfo", Set
+   );
+ Done:
+   BufferFree (&Raw);
+diff --git a/Menu/BootSplash.c b/Menu/BootSplash.c
+index fec77a9..e266b1e 100644
+--- a/Menu/BootSplash.c
++++ b/Menu/BootSplash.c
+@@ -23,6 +23,11 @@
+ #include "Efi/Files.h"
+ #include "Efi/Qcom.h"
+ 
++#if __has_include("Menu/HolodorSplashArt.h")
++#include "Menu/HolodorSplashArt.h"
++#define HAVE_HOLODOR_SPLASH_ART 1
++#endif
++
+ extern CONST UINT8 gOablAssetFont[];
+ extern CONST UINTN gOablAssetFontSize;
+ 
+@@ -444,6 +449,43 @@ MenuBootSplash (
+   FillRect (
+     &Splash.Canvas, 0, 0, Splash.Canvas.W, Splash.Canvas.H, 0x000000, 255
+   );
++#ifdef HAVE_HOLODOR_SPLASH_ART
++  {
++    INT32 ScaleX = Splash.Canvas.W / HolodorSplash_W;
++    INT32 ScaleY = Splash.Canvas.H / HolodorSplash_H;
++    INT32 Scale  = ScaleX < ScaleY ? ScaleX : ScaleY;
++    INT32 X0, Y0, X = 0, Y = 0;
++    if (Scale < 1) {
++      Scale = 1;
++    }
++    X0 = (Splash.Canvas.W - HolodorSplash_W * Scale) / 2;
++    Y0 = (Splash.Canvas.H - HolodorSplash_H * Scale) / 2;
++    for (UINTN Off = 0; Off + 1 < HolodorSplash_RLE_SIZE; Off += 2) {
++      UINT32 Rem = gHolodorSplashRle[Off];
++      UINT32 Argb = gHolodorSplashPalette[gHolodorSplashRle[Off + 1]];
++      UINT32 Rgb  = Argb & 0xFFFFFFU;
++      UINT8  Alpha = (UINT8)(Argb >> 24);
++      while (Rem > 0 && Y < HolodorSplash_H) {
++        UINT32 Span = (UINT32)(HolodorSplash_W - X);
++        if (Span > Rem) {
++          Span = Rem;
++        }
++        if (Alpha >= 128 && Rgb != 0x000000U) {
++          FillRect (
++            &Splash.Canvas, X0 + X * Scale, Y0 + Y * Scale,
++            (INT32)Span * Scale, Scale, Rgb, 255
++          );
++        }
++        X += (INT32)Span;
++        if (X >= HolodorSplash_W) {
++          X = 0;
++          Y++;
++        }
++        Rem -= Span;
++      }
++    }
++  }
++#else
+   if (FontLoad (gOablAssetFont, gOablAssetFontSize)) {
+     // Capitals 8.5% of the screen tall, at least 24 pixels, and no wider
+     // than 60% of the screen.
+@@ -456,26 +498,27 @@ MenuBootSplash (
+       CapH = 24.0f;
+     }
+     Em = CapH / FontCapHeight (1.0f);
+-    W  = TextAdvance (Em, FONT_WEIGHT_MEDIUM, "OpenABL");
++    W  = TextAdvance (Em, FONT_WEIGHT_MEDIUM, "Holodor");
+     if (W > (float)LogicalW * 0.6f) {
+       Em *= (float)LogicalW * 0.6f / W;
+       CapH = FontCapHeight (Em);
+-      W    = TextAdvance (Em, FONT_WEIGHT_MEDIUM, "OpenABL");
++      W    = TextAdvance (Em, FONT_WEIGHT_MEDIUM, "Holodor");
+     }
+-    OpenW = TextAdvance (Em, FONT_WEIGHT_MEDIUM, "Open");
++    OpenW = TextAdvance (Em, FONT_WEIGHT_MEDIUM, "Holo");
+     X     = ((float)LogicalW - W) / 2.0f;
+     DrawText (
+       &Splash.Canvas, X, ((float)LogicalH + CapH) / 2.0f, Em,
+-      FONT_WEIGHT_MEDIUM, "Open", 0xFFFFFF
++      FONT_WEIGHT_MEDIUM, "Holo", 0xFFFFFF
+     );
+     DrawText (
+       &Splash.Canvas, X + OpenW, ((float)LogicalH + CapH) / 2.0f, Em,
+-      FONT_WEIGHT_MEDIUM, "ABL", 0xFF5555
++      FONT_WEIGHT_MEDIUM, "dor", 0xFF5555
+     );
+   }
++#endif
+   ShowFrame (&Splash);
+   MenuLog (
+-    "splash: the OpenABL wordmark drawn over the firmware's on the panel (%s)",
++    "splash: the Holodor wordmark drawn over the firmware's on the panel (%s)",
+     Size
+   );
+   SplashFree (&Splash);
+diff --git a/Menu/Menu.c b/Menu/Menu.c
+index c721f67..fc02efa 100644
+--- a/Menu/Menu.c
++++ b/Menu/Menu.c
+@@ -1131,7 +1131,7 @@ DeviceInfo (
+   );
+   Push (
+     &List, gStrings->InfoBootloader,
+-    SPrintAlloc ("OpenABL %s", M->AblVersion[0] ? M->AblVersion : MENU_VERSION)
++    SPrintAlloc ("Holodor ABL %s", M->AblVersion[0] ? M->AblVersion : MENU_VERSION)
+   );
+   {
+     OABL_STRING Text     = {0};
+diff --git a/Scripts/abl.sh b/Scripts/abl.sh
+index 2c43f1e..89fa655 100644
+--- a/Scripts/abl.sh
++++ b/Scripts/abl.sh
+@@ -26,6 +26,20 @@ build() {
+   rm -f unsigned_abl.elf
+   # Use Conf from BaseTools' templates, not the Conf in Qualcomm's tree
+   # (which links with lld through FUSE_LD).
++  if ! grep -q "Wno-enum-compare" BaseTools/Conf/tools_def.template 2>/dev/null; then
++    sed -i 's/-Wno-unused-but-set-variable/-Wno-unused-but-set-variable -Wno-unused-but-set-global -Wno-enum-compare -Wno-error/g' BaseTools/Conf/tools_def.template
++  fi
++  sed -i "s/RespDict\[Key\] = Value.replace('\\\\\\\\', '\/')/RespDict[Key] = Value/g" BaseTools/Source/Python/AutoGen/GenMake.py
++  sed -i 's/gCommandMaxLength = 4096/gCommandMaxLength = 65536/g' BaseTools/Source/Python/Common/GlobalData.py
++  mkdir -p BaseTools/Source/Python/distutils
++  cat > BaseTools/Source/Python/distutils/__init__.py << 'PYEOF'
++PYEOF
++  cat > BaseTools/Source/Python/distutils/util.py << 'PYEOF'
++import shlex
++def split_quoted(s):
++    return shlex.split(s)
++PYEOF
++  export PYTHONPATH="$PWD/BaseTools/Source/Python:${PYTHONPATH:-}"
+   for c in build_rule tools_def target; do
+     cmp -s "BaseTools/Conf/$c.template" "Conf/$c.txt" || { . edksetup.sh --reconfig; break; }
+   done
+@@ -42,7 +56,9 @@ build() {
+     make all "$@" || { echo "ERROR: Build failed for $soc."; return 1; }
+   fi
+   out=abl_signed-$(echo "$soc" | tr a-z A-Z).elf
+-  python3 /qtestsign/qtestsign.py "$sign" -o "/out/$out" abl unsigned_abl.elf || { echo "ERROR: Signing failed for $soc."; return 1; }
+-  (cd /out && sha256sum "$out" > "$out.sha256")
++  qtestsign_dir="${QTESTSIGN_DIR:-/qtestsign}"
++  out_dir="${OUT_DIR:-/out}"
++  python3 "$qtestsign_dir/qtestsign.py" "$sign" -o "$out_dir/$out" abl unsigned_abl.elf || { echo "ERROR: Signing failed for $soc."; return 1; }
++  (cd "$out_dir" && sha256sum "$out" > "$out.sha256")
+   echo "SUCCESS: $out"
+ }
+diff --git a/View/View.c b/View/View.c
+index f1644ab..5e15758 100644
+--- a/View/View.c
++++ b/View/View.c
+@@ -24,6 +24,11 @@
+ #include "View/Text.h"
+ #include "microui.h"
+ 
++#if __has_include("View/HolodorWordmarkArt.h")
++#include "View/HolodorWordmarkArt.h"
++#define HAVE_HOLODOR_WORDMARK_ART 1
++#endif
++
+ extern CONST UINT8 gOablAssetFontCjk[];
+ extern CONST UINTN gOablAssetFontCjkSize;
+ 
+@@ -763,16 +768,21 @@ RowItem (
+ 
+ // Header and footer
+ 
+-// Returns the width of the "OpenABL" wordmark at Size.
++// Returns the width of the "Holodor" wordmark at Size.
+ STATIC float
+ WordmarkWidth (IN float Size)
+ {
+-  return Measure ("Open", Size, FONT_WEIGHT_MEDIUM) +
+-         Measure ("ABL", Size, FONT_WEIGHT_MEDIUM);
++#ifdef HAVE_HOLODOR_WORDMARK_ART
++  INT32 Scale = Imax ((INT32)RoundF (ToPx (Size / 10.0f)), 1);
++  return (float)(HolodorWordmark_W * Scale);
++#else
++  return Measure ("Holo", Size, FONT_WEIGHT_MEDIUM) +
++         Measure ("dor", Size, FONT_WEIGHT_MEDIUM);
++#endif
+ }
+ 
+-// Draws the "OpenABL" wordmark from X, its capitals centred on Cy: "Open"
+-// in the text colour, "ABL" in the brand colour.
++// Draws the "Holodor" wordmark from X, its capitals centred on Cy: "Holo"
++// in the text colour, "dor" in the brand colour.
+ STATIC VOID
+ Wordmark (
+   IN float X,
+@@ -780,18 +790,50 @@ Wordmark (
+   IN float Size
+ )
+ {
+-  float OpenW = Measure ("Open", Size, FONT_WEIGHT_MEDIUM);
+-  float AblW  = Measure ("ABL", Size, FONT_WEIGHT_MEDIUM);
++#ifdef HAVE_HOLODOR_WORDMARK_ART
++  INT32 Scale = Imax ((INT32)RoundF (ToPx (Size / 10.0f)), 1);
++  INT32 X0    = (INT32)RoundF (X);
++  INT32 Y0    = (INT32)RoundF (Cy) - (HolodorWordmark_H * Scale) / 2;
++  INT32 Px    = 0;
++  INT32 Py    = 0;
++  for (UINTN Off = 0; Off + 1 < HolodorWordmark_RLE_SIZE; Off += 2) {
++    UINT32 Rem   = gHolodorWordmarkRle[Off];
++    UINT32 Argb  = gHolodorWordmarkPalette[gHolodorWordmarkRle[Off + 1]];
++    UINT32 Rgb   = Argb & 0xFFFFFFU;
++    UINT8  Alpha = (UINT8)(Argb >> 24);
++    while (Rem > 0 && Py < HolodorWordmark_H) {
++      UINT32 Span = (UINT32)(HolodorWordmark_W - Px);
++      if (Span > Rem) {
++        Span = Rem;
++      }
++      if (Alpha >= 128) {
++        Fill (
++          Rect (X0 + Px * Scale, Y0 + Py * Scale, (INT32)Span * Scale, Scale),
++          Rgb, Alpha
++        );
++      }
++      Px += (INT32)Span;
++      if (Px >= HolodorWordmark_W) {
++        Px = 0;
++        Py++;
++      }
++      Rem -= Span;
++    }
++  }
++#else
++  float OpenW = Measure ("Holo", Size, FONT_WEIGHT_MEDIUM);
++  float AblW  = Measure ("dor", Size, FONT_WEIGHT_MEDIUM);
+   float H     = ToPx (Size) * 2;
+ 
+   TextIn (
+-    Rectf (X, Cy - H / 2, OpenW + ToPx (2), H), "Open", Size,
++    Rectf (X, Cy - H / 2, OpenW + ToPx (2), H), "Holo", Size,
+     FONT_WEIGHT_MEDIUM, THEME_TEXT, ALIGN_LEFT
+   );
+   TextIn (
+-    Rectf (X + OpenW, Cy - H / 2, AblW + ToPx (2), H), "ABL", Size,
++    Rectf (X + OpenW, Cy - H / 2, AblW + ToPx (2), H), "dor", Size,
+     FONT_WEIGHT_MEDIUM, THEME_BRAND, ALIGN_LEFT
+   );
++#endif
+ }
+ 
+ // The wordmark and the version in a chip at the right.
+diff --git a/build.sh b/build.sh
+index 38df141..79f2426 100755
+--- a/build.sh
++++ b/build.sh
+@@ -34,17 +34,17 @@ usage() {
+ # doesn't), whether to bundle edk2's USB host stack (where XBL has none),
+ # extra ABL make parameters, and extra program features.
+ chipset() {
+-  SIGN=-v7 PVMFW=true KERNEL_PROTOCOL=1 BUNDLED_USB=0 ABL_EXTRA="" OWN="" OWN_FULL=""
++  SIGN=-v7 PVMFW=true KERNEL_PROTOCOL=1 BUNDLED_USB=0 ABL_EXTRA="" OWN="devinfo-settings" OWN_FULL=""
+   case $1 in
+     sdm845) SIGN=-v5 PVMFW=false KERNEL_PROTOCOL=0 OWN=devinfo-settings,loader-quirks ;;
+-    sm4450) OWN=sdcc-sm4450 ;;
+-    sm6115) SIGN=-v6 PVMFW=false BUNDLED_USB=1 ABL_EXTRA=TARGET_SOC_SM6115=1 OWN=loader-quirks ;;
+-    sm6450) OWN=sdcc-sm6450 ;;
+-    sm7675) OWN=sdcc-sm7675 ;;
+-    sm8550) ;;
+-    sm8650) OWN=park-display ;;
+-    sm8750) OWN=park-display OWN_FULL=sysfont ;;
+-    sm8250) SIGN=-v6 PVMFW=false ;;
++    sm4450) OWN=devinfo-settings,sdcc-sm4450 ;;
++    sm6115) SIGN=-v6 PVMFW=false BUNDLED_USB=1 ABL_EXTRA=TARGET_SOC_SM6115=1 OWN=devinfo-settings,loader-quirks ;;
++    sm6450) OWN=devinfo-settings,sdcc-sm6450 ;;
++    sm7675) OWN=devinfo-settings,sdcc-sm7675 ;;
++    sm8550) OWN=devinfo-settings ;;
++    sm8650) OWN=devinfo-settings,park-display ;;
++    sm8750) OWN=devinfo-settings,park-display OWN_FULL=sysfont ;;
++    sm8250) SIGN=-v6 PVMFW=false OWN=devinfo-settings ;;
+     *) echo "unknown chipset $1" >&2; usage ;;
+   esac
+ }
+@@ -65,16 +65,20 @@ done
+ for soc in "${ASKED[@]}"; do chipset "$soc"; done
+ 
+ command -v git > /dev/null || { echo "git is needed" >&2; exit 1; }
+-docker info > /dev/null 2>&1 || { echo "Docker isn't running" >&2; exit 1; }
++USE_DOCKER=0
++if docker info > /dev/null 2>&1; then
++  USE_DOCKER=1
++fi
+ 
+ Scripts/fetch.sh
+ mkdir -p build/out
+ 
+-# Build image: the tianocore image plus the packages the build needs. Its
+-# tag is a hash of its inputs, so it is only rebuilt when they change.
+-mkdir -p build/image
+-cp build/edk2/pip-requirements.txt build/image/ 2> /dev/null || : > build/image/pip-requirements.txt
+-cat > build/image/Dockerfile << EOF
++if [ "$USE_DOCKER" = 1 ]; then
++  # Build image: the tianocore image plus the packages the build needs. Its
++  # tag is a hash of its inputs, so it is only rebuilt when they change.
++  mkdir -p build/image
++  cp build/edk2/pip-requirements.txt build/image/ 2> /dev/null || : > build/image/pip-requirements.txt
++  cat > build/image/Dockerfile << EOF
+ FROM $IMAGE
+ RUN dnf --assumeyes -q install glibc-devel.i686 python3-setuptools && dnf clean all
+ RUN pip install -q fonttools==4.67.0
+@@ -82,24 +86,35 @@ COPY pip-requirements.txt /tmp/
+ RUN pip install -q -r /tmp/pip-requirements.txt || true
+ RUN git config --global --add safe.directory '*'
+ EOF
+-TAG=openabl-build:$(cat build/image/Dockerfile build/image/pip-requirements.txt | cksum | cut -d' ' -f1)
+-if ! docker image inspect "$TAG" > /dev/null 2>&1; then
+-  echo "build: making the build image $TAG (once)"
+-  docker build -q --platform linux/amd64 -t "$TAG" build/image > /dev/null
++  TAG=openabl-build:$(cat build/image/Dockerfile build/image/pip-requirements.txt | cksum | cut -d' ' -f1)
++  if ! docker image inspect "$TAG" > /dev/null 2>&1; then
++    echo "build: making the build image $TAG (once)"
++    docker build -q --platform linux/amd64 -t "$TAG" build/image > /dev/null
++  fi
++  OPENABL_ROOT=/openabl
++  QTESTSIGN_ROOT=/qtestsign
++  OUT_ROOT=/out
++else
++  TAG="native-host"
++  OPENABL_ROOT="$PWD"
++  QTESTSIGN_ROOT="$PWD/build/qtestsign"
++  OUT_ROOT="$PWD/build/out"
+ fi
+ 
+-# Script for the container: build the program, then the ABL, per chipset.
++# Script for the container or host: build the program, then the ABL, per chipset.
+ COMMON=(
+-  "PREBUILT_HOST_TOOLS=BUILD_CC=clang BUILD_CXX=clang++ LDPATH=-fuse-ld=lld BUILD_AR=llvm-ar"
++  "PREBUILT_HOST_TOOLS=BUILD_CC=clang BUILD_CXX=clang++ LDPATH=-fuse-ld=lld BUILD_AR=llvm-ar EXTRA_OPTFLAGS=-Wno-unused-but-set-global"
+   QSPA_BOOTCONFIG_ENABLE=0 AB_RETRYCOUNT_DISABLE=0 VERIFIED_BOOT_ENABLED=1
+   USER_BUILD_VARIANT=1 DISABLE_PARALLEL_DOWNLOAD_FLASH=0 TARGET_ARCHITECTURE=arm64
+-  CLANG_PREFIX=aarch64-linux-gnu- BOARD_BOOTLOADER_PRODUCT_NAME=OpenABL
++  CLANG_PREFIX=aarch64-linux-gnu- BOARD_BOOTLOADER_PRODUCT_NAME=HolodorABL
+   BOARD_BOOTLOADER_PRODUCT_VERSION="$VERSION" REMOVE_CARVEOUT_REGION=0 ABL_USB_HOST=1
+   OPENABL_MENU=1
+ )
+ SCRIPT="exec 2>&1
+ export ABL_CLEAN=$CLEAN
+-. /openabl/Scripts/abl.sh
++export QTESTSIGN_DIR='$QTESTSIGN_ROOT'
++export OUT_DIR='$OUT_ROOT'
++. '$OPENABL_ROOT/Scripts/abl.sh'
+ "
+ for soc in "${ASKED[@]}"; do
+   chipset "$soc"
+@@ -113,8 +128,8 @@ for soc in "${ASKED[@]}"; do
+   [ -n "$ABL_EXTRA" ] && params+=("$ABL_EXTRA")
+   quoted=$(printf " '%s'" "${params[@]}")
+   SCRIPT+="echo \"Building the program for $soc ($features)\"
+-make -s -C /openabl FEATURES='$features' OBJ=build/obj-abl OUT=build/menu/$soc || { echo \"ERROR: the program didn't build for $soc.\"; exit 1; }
+-build $soc /openabl/build/menu/$soc/openabl-menu.efi $SIGN$quoted || exit 1
++make -s -C '$OPENABL_ROOT' FEATURES='$features' OBJ=build/obj-abl OUT=build/menu/$soc || { echo \"ERROR: the program didn't build for $soc.\"; exit 1; }
++build $soc '$OPENABL_ROOT/build/menu/$soc/openabl-menu.efi' $SIGN$quoted || exit 1
+ "
+ done
+ 
+@@ -141,28 +156,33 @@ LOG=build/abl-build.log
+ : > "$LOG"
+ STARTED=$(date +%s)
+ echo "build: ${ASKED[*]} in $TAG (log: $LOG)"
+-# Under emulation the edk2 build tool sometimes hangs with no output. Stop
+-# the container and retry once; incremental builds pick up where it was.
+ status=1
+-for attempt in 1 2; do
+-  name=openabl-build-$$-$attempt
++if [ "$USE_DOCKER" = 1 ]; then
++  for attempt in 1 2; do
++    name=openabl-build-$$-$attempt
++    rm -f build/.silent
++    watchdog "$name" &
++    dog=$!
++    set +e
++    docker run --rm --name "$name" --platform linux/amd64 \
++      -v "$PWD:/openabl" -v "$PWD/build/edk2:$WORKSPACE" \
++      -v "$PWD/build/qtestsign:/qtestsign:ro" -v "$PWD/build/out:/out" \
++      -w "$WORKSPACE" "$TAG" bash -lc "$SCRIPT" 2>&1 | tee -a "$LOG" | show
++    status=${PIPESTATUS[0]}
++    set -e
++    kill "$dog" 2> /dev/null || true
++    wait "$dog" 2> /dev/null || true
++    [ -f build/.silent ] || break
++    echo "build: no output for 10 minutes; the container was stopped"
++    status=1
++  done
+   rm -f build/.silent
+-  watchdog "$name" &
+-  dog=$!
++else
+   set +e
+-  docker run --rm --name "$name" --platform linux/amd64 \
+-    -v "$PWD:/openabl" -v "$PWD/build/edk2:$WORKSPACE" \
+-    -v "$PWD/build/qtestsign:/qtestsign:ro" -v "$PWD/build/out:/out" \
+-    -w "$WORKSPACE" "$TAG" bash -lc "$SCRIPT" 2>&1 | tee -a "$LOG" | show
++  (cd "$PWD/build/edk2" && bash -c "$SCRIPT") 2>&1 | tee -a "$LOG" | show
+   status=${PIPESTATUS[0]}
+   set -e
+-  kill "$dog" 2> /dev/null || true
+-  wait "$dog" 2> /dev/null || true
+-  [ -f build/.silent ] || break
+-  echo "build: no output for 10 minutes; the container was stopped"
+-  status=1
+-done
+-rm -f build/.silent
++fi
+ 
+ echo "build: $((($(date +%s) - STARTED) / 60)) minutes"
+ for soc in "${ASKED[@]}"; do

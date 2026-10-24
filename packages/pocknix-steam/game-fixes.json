@@ -28,6 +28,14 @@
     ],
     "why": "The default OpenGL renderer runs at about 1 fps on Turnip/Zink; Vulkan is 30x faster. 2026-10-08."
   },
+  "377160": {
+    "name": "Fallout 4",
+    "exe": {
+      "from": "Fallout4Launcher.exe",
+      "to": "Fallout4.exe"
+    },
+    "why": "Fallout4Launcher.exe requires mouse/touch input on a tiny window before starting the game; Fallout4.exe launches directly into controller-friendly gameplay."
+  },
   "782330": {
     "name": "DOOM Eternal",
     "exe": {

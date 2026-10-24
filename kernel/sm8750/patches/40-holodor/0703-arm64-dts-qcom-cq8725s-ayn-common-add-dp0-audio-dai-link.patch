@@ -1,0 +1,41 @@
+From: Holodor <noreply@holodor.local>
+Subject: [PATCH] arm64: dts: qcom: cq8725s-ayn-common: add DisplayPort0 audio DAI link
+
+Wire DISPLAY_PORT_RX_0 to mdss_dp0 in the SM8750-AYN sound card and set
+sound-name-prefix = "Display Port0" on mdss_dp0 so sc8280xp_snd_init()
+registers "DP0 Jack" for DisplayPort/HDMI audio over USB-C.
+---
+diff --git a/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi b/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
+--- a/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
+@@ -186,6 +186,22 @@
+ 				sound-dai = <&q6apm>;
+ 			};
+ 		};
++
++		dp0-dai-link {
++			link-name = "DisplayPort0 Playback";
++
++			cpu {
++				sound-dai = <&q6apmbedai DISPLAY_PORT_RX_0>;
++			};
++
++			codec {
++				sound-dai = <&mdss_dp0>;
++			};
++
++			platform {
++				sound-dai = <&q6apm>;
++			};
++		};
+ 	};
+ 
+ 	pmic-glink {
+@@ -985,6 +1001,7 @@
+ };
+ 
+ &mdss_dp0 {
++	sound-name-prefix = "Display Port0";
+ 	status = "okay";
+ };
+ 

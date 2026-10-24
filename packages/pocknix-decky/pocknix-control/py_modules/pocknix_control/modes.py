@@ -78,16 +78,35 @@ def set_lavd_mode(mode):
         raise RuntimeError(f"pocknix-lavd-mode failed (rc={proc.returncode}): {(proc.stderr or '').strip()[:300]}")
 
 
-# --- battery charge limit (care thresholds the kernel honors: stop charging at
-#     END, resume at START; "100" = charge to full / limit off) ---
-_BATT = Path("/sys/class/power_supply/battery")
+# --- battery charge limit & bypass charging (care thresholds the kernel honors:
+#     stop charging at END, resume at START; "100" = charge to full / limit off;
+#     bypass charging = constant_charge_current 0 so AC powers the system while
+#     the battery neither charges nor discharges) ---
+CHARGE_LIMIT_FILE = Path("/var/lib/pocknix/charge-limit")
+BYPASS_CHARGING_FILE = Path("/var/lib/pocknix/bypass-charging")
 CHARGE_LIMITS = (80, 85, 90, 100)
 CHARGE_DEFAULT = 100
 
 
+def _battery_dir():
+    for p in sorted(Path("/sys/class/power_supply").glob("*")):
+        try:
+            if (p / "type").read_text().strip() == "Battery":
+                return p
+        except OSError:
+            continue
+    return Path("/sys/class/power_supply/battery")
+
+
 def charge_limit():
     try:
-        v = int((_BATT / "charge_control_end_threshold").read_text().strip())
+        v = int(CHARGE_LIMIT_FILE.read_text(encoding="utf-8").strip())
+        if v in CHARGE_LIMITS:
+            return v
+    except (OSError, ValueError):
+        pass
+    try:
+        v = int((_battery_dir() / "charge_control_end_threshold").read_text().strip())
     except (OSError, ValueError):
         return CHARGE_DEFAULT
     return v if v in CHARGE_LIMITS else CHARGE_DEFAULT
@@ -97,13 +116,26 @@ def set_charge_limit(pct):
     pct = int(pct)
     if pct not in CHARGE_LIMITS:
         raise ValueError(f"charge limit {pct} not in {CHARGE_LIMITS}")
-    # start ~10 below end (hysteresis); 100 disables the limit (start=95 avoids churn).
-    start = 95 if pct >= 100 else pct - 10
+    atomically_write(CHARGE_LIMIT_FILE, f"{pct}\n", 0o644)
+    run_cmd(["/usr/local/bin/pocknix-charge-full"], timeout=5)
+
+
+def can_bypass_charging():
+    batt = _battery_dir()
+    return (batt / "constant_charge_current").exists() or (batt / "input_current_limit").exists()
+
+
+def bypass_charging():
     try:
-        (_BATT / "charge_control_end_threshold").write_text(f"{pct}\n")
-        (_BATT / "charge_control_start_threshold").write_text(f"{start}\n")
+        return BYPASS_CHARGING_FILE.read_text(encoding="utf-8").strip() in ("1", "on", "true")
     except OSError:
-        pass  # non-fatal: kernel/hardware may not expose it
+        return False
+
+
+def set_bypass_charging(enabled):
+    val = "1" if enabled else "0"
+    atomically_write(BYPASS_CHARGING_FILE, f"{val}\n", 0o644)
+    run_cmd(["/usr/local/bin/pocknix-charge-full"], timeout=5)
 
 
 # --- thumbstick RGB (HTR3212 rings via pocknix-stick-leds) ---
@@ -177,3 +209,19 @@ def reset_stick_centers():
     proc = run_cmd(["/usr/local/bin/pocknix-input-calibration", "reset"], timeout=10)
     if proc is None or proc.returncode != 0:
         raise RuntimeError("pocknix-input-calibration reset failed")
+
+
+def can_boot_android():
+    proc = run_cmd(["/usr/local/bin/pocknix-boot-target", "status"], timeout=5)
+    if proc is None or proc.returncode != 0:
+        return False
+    try:
+        return bool(_json.loads((proc.stdout or "").strip().splitlines()[-1]).get("supported"))
+    except (ValueError, IndexError):
+        return False
+
+
+def reboot_to_android():
+    proc = run_cmd(["/usr/local/bin/pocknix-boot-target", "reboot-android"], timeout=10)
+    if proc is None or proc.returncode != 0:
+        raise RuntimeError("Failed to switch boot mode to Android")

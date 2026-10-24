@@ -11,8 +11,8 @@
 # is the userspace half.
 pkgname=pocknix-sdcard-automount
 pkgver=0.1.0
-pkgrel=5
-pkgdesc="SteamOS-style microSD automount + format + Steam library registration for the gamescope session"
+pkgrel=6
+pkgdesc="SteamOS-style microSD automount (ext4/exfat/vfat) + format + Steam library & ROM registration"
 arch=('any')
 url="https://github.com/shuuri-labs/pocknix-os"
 license=('GPL2')

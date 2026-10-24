@@ -179,6 +179,9 @@ def sync(cfgdir: str, desired: list[dict]) -> None:
 
 
 def main() -> None:
+    if os.path.exists("/usr/bin/pocknix-sdcard-roms-sync"):
+        import subprocess
+        subprocess.run(["/usr/bin/pocknix-sdcard-roms-sync", "scan"], check=False)
     desired = [make_entry("ES-DE", '"/usr/bin/es-de"')] + favorites()
     for cfgdir in glob.glob(os.path.join(HOME, ".local/share/Steam/userdata/*/config")):
         if os.path.basename(os.path.dirname(cfgdir)) == "0":

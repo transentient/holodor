@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Holodor <holodor@local>
+Date: Fri, 23 Oct 2026 15:40:00 +0900
+Subject: [PATCH] ir3/sched, tu: only block kill/demote on same-block bary.f
+ and guard null shader variant
+
+ir3_sched schedules one basic block at a time (`sched_block`), and
+`sched_node_add_dep()` explicitly ignores cross-block dependencies
+(`if (src->block != instr->block) return;`). However, `check_instr()`
+iterated `ir->baryfs[]` across the entire shader without checking
+`baryf->block != instr->block`.
+
+In shaders where an early basic block executes `demote` / `kill` and a
+subsequent basic block executes `bary.f` (such as Remedy Northlight's
+MSAA/per-sample fragment shaders in Control Ultimate Edition,
+`fs.3309d1dc1b1826cd252f1f105f3583a9`), the `bary.f` in the later block
+can never be scheduled while scheduling the earlier block. This caused
+`check_instr()` to permanently block the `demote` instruction, returning
+`-1` from `ir3_sched()`, returning `NULL` from `ir3_shader_create_variant()`,
+and triggering a NULL pointer dereference in `tu_shader_create()`.
+
+Skip `bary.f` instructions from other basic blocks in `check_instr()` and
+guard against `NULL` `shader->variant` in `tu_shader_create()`.
+---
+ src/freedreno/ir3/ir3_sched.c    | 2 ++
+ src/freedreno/vulkan/tu_shader.cc | 6 ++++++
+ 2 files changed, 8 insertions(+)
+
+diff --git a/src/freedreno/ir3/ir3_sched.c b/src/freedreno/ir3/ir3_sched.c
+index 1111111..2222222 100644
+--- a/src/freedreno/ir3/ir3_sched.c
++++ b/src/freedreno/ir3/ir3_sched.c
+@@ -527,6 +527,8 @@ check_instr(struct ir3_sched_ctx *ctx, struct ir3_sched_notes *notes,
+          struct ir3_instruction *baryf = ir->baryfs[i];
+          if (baryf->flags & IR3_INSTR_UNUSED)
+             continue;
++         if (baryf->block != instr->block)
++            continue;
+          if (!is_scheduled(baryf)) {
+             notes->blocked_kill = true;
+             return false;
+diff --git a/src/freedreno/vulkan/tu_shader.cc b/src/freedreno/vulkan/tu_shader.cc
+index 1111111..2222222 100644
+--- a/src/freedreno/vulkan/tu_shader.cc
++++ b/src/freedreno/vulkan/tu_shader.cc
+@@ -3433,6 +3433,12 @@ tu_shader_create(struct tu_device *dev,
+    shader->variant =
+       ir3_shader_create_variant(ir3_shader, ir3_key, executable_info);
+ 
++   if (!shader->variant) {
++      ir3_shader_destroy(ir3_shader);
++      vk_free(&dev->vk.alloc, shader);
++      return VK_ERROR_OUT_OF_HOST_MEMORY;
++   }
++
+    if (ir3_exceeds_safe_constlen(shader->variant)) {
+       struct ir3_shader_key safe_constlen_key = *ir3_key;
+       safe_constlen_key.safe_constlen = true;
+-- 
+2.47.0

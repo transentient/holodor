@@ -22,13 +22,24 @@
 # transient unit, so the check is deterministic and testable by hand (a /dev/kmsg line is NOT seen by journalctl -k
 # on this image, found 2026-10-15). Test knob: a gateway address in /run/pocknix-wifi-heal-test-gw replaces the
 # route's gateway for the next check (rig only).
+#
+# THIRD case, from ground truth (Odin 3 2026-10-22 20:29:03, journalctl -k + NM/iwd): after resume, iwd connects to
+# one AP BSSID (passes the 2 s after-resume gateway ping), then gets band-steered/deauthed (reason 4) and roams to
+# another BSSID on the same ESSID. On that roam, ath12k_wifi7_pci logs:
+#   `dp_tx: failed to find the peer with peer_id 0`
+# on every TX frame (dropping DHCPv4 Discover), so 45 s later NM fails with `ip-config-unavailable` and disconnects
+# wlan0 with iwd AutoConnect disabled. When the kernel log emits `failed to find the peer with peer_id`, wait 5 s
+# to see if the data path self-heals (gateway answers); if not, cycle the radio (`nmcli radio wifi off/on` stops
+# the vdev and flushes the wedged DP peer table) and bring the profile back up, escalating to `recover` only if needed.
 LOG=/var/lib/pocknix/wifi-heal.log
+PFLAG=/var/lib/pocknix/wifi-sleep-off
 WAIT=${POCKNIX_WIFI_HEAL_WAIT:-40}
+mkdir -p /var/lib/pocknix
 say() { echo "$(date -Iseconds) $*" >> "$LOG"; }
-wifi_dev()   { nmcli -t -f DEVICE,TYPE device status 2>/dev/null | awk -F: '$2=="wifi"{print $1; exit}'; }
-wifi_state() { nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null | awk -F: '$2=="wifi"{print $3; exit}'; }
+wifi_dev()   { timeout 5 nmcli -t -f DEVICE,TYPE device status 2>/dev/null | awk -F: '$2=="wifi"{print $1; exit}'; }
+wifi_state() { timeout 5 nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null | awk -F: '$2=="wifi"{print $3; exit}'; }
 profile() {  # the most recently used wifi profile (TIMESTAMP field; "--order -timestamp" is not valid nmcli and the <= 35 ladder's lookup never worked)
-  nmcli -t -f NAME,TYPE,TIMESTAMP connection show 2>/dev/null | awk -F: '$2=="802-11-wireless"' | sort -t: -k3,3nr | head -1 | cut -d: -f1
+  timeout 5 nmcli -t -f NAME,TYPE,TIMESTAMP connection show 2>/dev/null | awk -F: '$2=="802-11-wireless"' | sort -t: -k3,3nr | head -1 | cut -d: -f1
 }
 wifi_pci() {
   dev=$(wifi_dev); pci=""
@@ -50,11 +61,11 @@ recover() {
   PCI=$(wifi_pci)
   [ -n "$PCI" ] && [ -e "/sys/bus/pci/devices/${PCI}/remove" ] || { say "still $(wifi_state) and no PCI wifi device to power-cycle"; return; }
   say "still $(wifi_state) -> chip power cycle (PCIe remove/rescan of ${PCI}) + nmcli connection up '${PROF}'"
-  nmcli radio wifi off 2>/dev/null; sleep 1
+  timeout 5 nmcli radio wifi off 2>/dev/null; sleep 1
   echo 1 > "/sys/bus/pci/devices/${PCI}/remove"; sleep 2
   echo 1 > /sys/bus/pci/rescan; sleep 4
-  nmcli radio wifi on 2>/dev/null; sleep 4
-  nmcli connection up "$PROF" >/dev/null 2>&1 || true
+  timeout 5 nmcli radio wifi on 2>/dev/null; sleep 4
+  timeout 15 nmcli connection up "$PROF" >/dev/null 2>&1 || true
   i=0
   while [ "$i" -lt 30 ]; do
     [ "$(wifi_state)" = "connected" ] && { say "recovered via chip power cycle (wifi dev now: $(wifi_dev))"; return; }
@@ -89,19 +100,54 @@ after_resume() {
     say "resume: gateway ${gw} answers (no action)"; return
   fi
   [ -e "$NOICMP" ] && { say "resume: gateway ${gw} silent, but a reconnect did not cure that before: no action (remove ${NOICMP} to re-arm)"; return; }
-  PROF=$(nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null | awk -F: -v d="$dev" '$2==d{print $1; exit}')
+  PROF=$(timeout 5 nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null | awk -F: -v d="$dev" '$2==d{print $1; exit}')
   [ -n "$PROF" ] || PROF=$(profile)
   [ -n "$PROF" ] || { say "resume: gateway ${gw} silent and no wifi profile to reconnect"; return; }
   say "resume: wifi connected but gateway ${gw} silent for 3 pings -> nmcli connection up '${PROF}' (re-auth + new lease)"
-  nmcli connection up "$PROF" >/dev/null 2>&1 || true
+  timeout 15 nmcli connection up "$PROF" >/dev/null 2>&1 || true
   sleep 2
   if gw_answers "$dev" "$gw"; then say "resume: cured by the reconnect (gateway ${gw} answers)"
   else : > "$NOICMP"; say "resume: UNCURED, gateway ${gw} still silent after the reconnect; resume reconnects disabled until it answers again"; fi
 }
+recover_peer() {
+  sleep 5
+  dev=$(wifi_dev); gw=$(gateway "$dev")
+  if [ "$(wifi_state)" = "connected" ] && [ -n "$gw" ] && gw_answers "$dev" "$gw"; then
+    return
+  fi
+  PROF=$(profile)
+  [ -n "$PROF" ] || { say "dp_tx peer_id fault (wifi: $(wifi_dev) $(wifi_state)) but no wifi profile configured"; return; }
+  say "dp_tx peer_id fault with dead data path (wifi: $(wifi_dev) $(wifi_state)) -> radio cycle + nmcli connection up '${PROF}'"
+  timeout 5 nmcli radio wifi off 2>/dev/null; sleep 1
+  timeout 5 nmcli radio wifi on 2>/dev/null; sleep 4
+  timeout 15 nmcli connection up "$PROF" >/dev/null 2>&1 || true
+  i=0
+  while [ "$i" -lt 20 ]; do
+    [ "$(wifi_state)" = "connected" ] && { say "recovered from dp_tx peer_id fault via radio cycle"; return; }
+    sleep 2; i=$((i + 2))
+  done
+  recover
+}
 case "${1:-}" in
   --after-resume) after_resume; exit 0 ;;
 esac
+if [ -e "$PFLAG" ]; then
+  rm -f "$PFLAG" /run/pocknix-wifi-resume
+  say "boot: found stale wifi-sleep-off flag from interrupted suspend — re-enabling Wi-Fi radio"
+  timeout 5 nmcli radio wifi on 2>/dev/null || true
+fi
 say "watching the kernel log for a wifi firmware recovery (service start)"
+last_peer_heal=0
 journalctl -k -f -n 0 -o cat 2>/dev/null | while IFS= read -r line; do
-  case "$line" in *"successfully recovered"*) recover ;; esac
+  case "$line" in
+    *"successfully recovered"*) recover ;;
+    *"failed to find the peer with peer_id"*)
+      now=$(date +%s)
+      if [ $((now - last_peer_heal)) -ge 30 ]; then
+        last_peer_heal=$now
+        recover_peer
+        last_peer_heal=$(date +%s)
+      fi
+      ;;
+  esac
 done

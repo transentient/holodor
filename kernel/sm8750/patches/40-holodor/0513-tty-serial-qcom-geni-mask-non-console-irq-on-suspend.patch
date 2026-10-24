@@ -1,67 +1,78 @@
-From: suckbluefrog <suckbluefrog@proton.me>
-Date: Fri, 10 Jul 2026 00:00:00 +000
-Subject: [PATCH] tty: serial: qcom-geni: mask non-console IRQ across suspend
+From: Praveen Talari <praveen.talari@oss.qualcomm.com>
+Subject: [PATCH] tty: serial: qcom-geni: mask non-console IRQ and force runtime suspend across system sleep
 
-A peer that keeps streaming into a non-console GENI UART during suspend can
-storm the RX IRQ once uart_suspend_port() marks the port suspended. Mask the
-main IRQ around the system-sleep transition so the spurious IRQ detector cannot
-permanently disable the gamepad UART. Exclude console and wake-capable UARTs,
-and track the extra disable reference so resume only balances what suspend did.
-
-diff --git a/drivers/tty/serial/qcom_geni_serial.c b/drivers/tty/serial/qcom_geni_serial.c
+Combine the non-console IRQ mask across system suspend with upstream
+commit d0cd9c8d0fd5 ("serial: qcom-geni: add force suspend/resume to
+system sleep callbacks") so that open UART ports release their clocks
+and interconnect votes during system sleep.
+---
 --- a/drivers/tty/serial/qcom_geni_serial.c
 +++ b/drivers/tty/serial/qcom_geni_serial.c
-@@ -147,6 +147,7 @@ struct qcom_geni_serial_port {
- 	bool rx_tx_swap;
- 	bool cts_rts_swap;
- 	bool manual_flow;
-+	bool irq_masked_for_suspend;
- 
- 	struct qcom_geni_private_data private_data;
- 	const struct qcom_geni_device_data *dev_data;
-@@ -1974,8 +1975,11 @@ static int qcom_geni_serial_suspend(struct device *dev)
+@@ -1974,6 +1974,17 @@
  	struct qcom_geni_serial_port *port = dev_get_drvdata(dev);
  	struct uart_port *uport = &port->uport;
  	struct qcom_geni_private_data *private_data = uport->private_data;
 +	int ret;
++
++	/*
++	 * A peer that keeps streaming into a non-console geni UART across the
++	 * suspend teardown (e.g. the gamepad MCU on irq 190) storms the RX IRQ
++	 * once uart_suspend_port() sets uport->suspended: the ISR then returns
++	 * IRQ_NONE without clearing the line, the level IRQ re-asserts, and the
++	 * spurious-IRQ detector ("nobody cared") permanently disables it.
++	 */
++	if (!uart_console(uport))
++		disable_irq(uport->irq);
  
  	/*
-+	 * Console ports stay unmasked so no_console_suspend continues to work.
-+	 *
  	 * This is done so we can hit the lowest possible state in suspend
- 	 * even with no_console_suspend
- 	 */
-@@ -1984,7 +1988,19 @@ static int qcom_geni_serial_suspend(struct device *dev)
+@@ -1983,7 +1994,28 @@
  		geni_icc_set_tag(&port->se, QCOM_ICC_TAG_ACTIVE_ONLY);
  		geni_icc_set_bw(&port->se);
  	}
 -	return uart_suspend_port(private_data->drv, uport);
 +
-+	port->irq_masked_for_suspend =
-+		!uart_console(uport) && !device_may_wakeup(dev);
-+	if (port->irq_masked_for_suspend)
-+		disable_irq(uport->irq);
-+
 +	ret = uart_suspend_port(private_data->drv, uport);
-+	if (ret && port->irq_masked_for_suspend) {
-+		enable_irq(uport->irq);
-+		port->irq_masked_for_suspend = false;
++	if (ret) {
++		if (!uart_console(uport))
++			enable_irq(uport->irq);
++		return ret;
 +	}
 +
++	/*
++	 * When no_console_suspend is set the console must remain active
++	 * across system sleep, so skip the force suspend path.
++	 */
++	if (!console_suspend_enabled && uart_console(uport))
++		return 0;
++
++	ret = pm_runtime_force_suspend(dev);
++	if (ret) {
++		uart_resume_port(private_data->drv, uport);
++		if (!uart_console(uport))
++			enable_irq(uport->irq);
++	}
 +	return ret;
  }
  
  static int qcom_geni_serial_resume(struct device *dev)
-@@ -1996,6 +2012,12 @@ static int qcom_geni_serial_resume(struct device *dev)
+@@ -1993,7 +2025,19 @@
+ 	struct uart_port *uport = &port->uport;
  	struct qcom_geni_private_data *private_data = uport->private_data;
  
- 	ret = uart_resume_port(private_data->drv, uport);
-+
-+	if (port->irq_masked_for_suspend) {
-+		enable_irq(uport->irq);
-+		port->irq_masked_for_suspend = false;
++	if (console_suspend_enabled || !uart_console(uport)) {
++		ret = pm_runtime_force_resume(dev);
++		if (ret) {
++			if (!uart_console(uport))
++				enable_irq(uport->irq);
++			return ret;
++		}
 +	}
 +
+ 	ret = uart_resume_port(private_data->drv, uport);
++	/* Balance the disable_irq() taken in qcom_geni_serial_suspend(). */
++	if (!uart_console(uport))
++		enable_irq(uport->irq);
  	if (uart_console(uport)) {
  		geni_icc_set_tag(&port->se, QCOM_ICC_TAG_ALWAYS);
  		geni_icc_set_bw(&port->se);

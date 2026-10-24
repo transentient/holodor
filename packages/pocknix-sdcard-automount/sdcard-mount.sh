@@ -45,7 +45,7 @@ if [[ -n "${ROOT_DISK}" && "${DEVBASE}" == "${ROOT_DISK}"* ]]; then
 fi
 
 # The Steam session user (pocknix: deck = 1001; NOT Valve's 1000 = alarm here).
-STEAM_UID=1001
+STEAM_UID="$(id -u deck 2>/dev/null || echo 1001)"
 # SteamOS's deck uid/gid — what a foreign card's files are owned by on disk. Adjacent to ours.
 STEAMOS_UID=1000
 STEAM_HOME=/home/deck
@@ -53,15 +53,16 @@ STEAM_HOME=/home/deck
 STEAM_CLIENT_DIR="${STEAM_HOME}/.local/share/Steam/steamrtarm64"
 STEAM_LDLP="${STEAM_CLIENT_DIR}:${STEAM_HOME}/.local/share/Steam/lib/aarch64-linux-gnu"
 
-MOUNT_LOCK="/var/run/sdcard-mount.lock"
-if [[ -e $MOUNT_LOCK && $(pgrep -F "$MOUNT_LOCK") ]]; then
+MOUNT_LOCK="/run/sdcard-mount.lock"
+exec 9>"${MOUNT_LOCK}"
+if ! flock -w 10 9; then
     echo "$MOUNT_LOCK is active: ignoring action $ACTION"
-    # Do not return success: it could leave the transient unit 'started' without doing the mount.
     exit 1
 fi
 
 # See if this drive is already mounted, and if so where
-MOUNT_POINT=$(mount | grep -F "${DEVICE}" | awk '{ print $3 }')
+MOUNT_POINT=$(findmnt -no TARGET -- "${DEVICE}" 2>/dev/null | head -1)
+MOUNT_FSTYPE=$(findmnt -no FSTYPE -- "${DEVICE}" 2>/dev/null | head -1)
 
 # From https://gist.github.com/HazCod/da9ec610c3d50ebff7dd5e7cac76de05
 urlencode()
@@ -76,9 +77,19 @@ notify_steam()
     local url_action=$1   # addlibraryfolder | removelibraryfolder
     local url=$2
     if pgrep -x "steam" > /dev/null; then
-        systemd-run -M ${STEAM_UID}@ --user --collect --wait \
-            /bin/sh -c "cd '${STEAM_CLIENT_DIR}' && LD_LIBRARY_PATH='${STEAM_LDLP}' ./steam steam://${url_action}/${url}" \
+        timeout 10 systemd-run -M ${STEAM_UID}@ --user --collect --wait \
+            /bin/sh -c "cd '${STEAM_CLIENT_DIR}' && LD_LIBRARY_PATH='${STEAM_LDLP}' timeout 8 ./steam steam://${url_action}/${url}" \
             || echo "notify_steam: steam://${url_action} send failed (non-fatal)"
+    fi
+}
+
+sync_sdcard_roms()
+{
+    local action=$1
+    local mp=$2
+    if [[ -x /usr/bin/pocknix-sdcard-roms-sync ]]; then
+        runuser -u deck -- env HOME="${STEAM_HOME}" /usr/bin/pocknix-sdcard-roms-sync "${action}" "${mp}" \
+            || echo "sync_sdcard_roms (${action}): failed (non-fatal)"
     fi
 }
 
@@ -95,54 +106,70 @@ do_mount()
     ID_FS_TYPE=$(jq -r '.fstype | select(type == "string")' <<< "$dev_json")
 
     # Figure out a mount point to use, namespaced under the deck user like modern SteamOS.
-    LABEL=${ID_FS_LABEL}
+    # Sanitize spaces/unsafe characters in Windows/Android exFAT labels so paths stay shell-safe.
+    LABEL=$(echo "${ID_FS_LABEL}" | tr -cs 'A-Za-z0-9._-' '_' | sed 's/^_//;s/_$//')
     if [[ -z "${LABEL}" ]]; then
         LABEL=${DEVBASE}
-    elif /bin/grep -qF " /run/media/deck/${LABEL} " /etc/mtab; then
+    elif findmnt -rn -M "/run/media/deck/${LABEL}" >/dev/null 2>&1; then
         # Already in use, make a unique one
         LABEL+="-${DEVBASE}"
     fi
     MOUNT_POINT="/run/media/deck/${LABEL}"
 
-    echo "Mount point: ${MOUNT_POINT}"
+    echo "Mount point: ${MOUNT_POINT} (fstype: ${ID_FS_TYPE})"
 
     /bin/mkdir -p -- "${MOUNT_POINT}"
 
-    # Global mount options, plus the deck<->SteamOS uid/gid swap (see header note 3). The map is
-    # full identity except the two singletons that trade STEAMOS_UID and STEAM_UID, so every other
-    # owner (root-owned lost+found, etc.) passes through unchanged instead of becoming `nobody`.
-    # STEAM_UID is STEAMOS_UID+1, so the trailing identity range starts at STEAM_UID+1.
-    TAIL_START=$((STEAM_UID + 1))
-    TAIL_COUNT=$((4294967295 - TAIL_START))
-    IDMAP="u:0:0:${STEAMOS_UID} u:${STEAMOS_UID}:${STEAM_UID}:1 u:${STEAM_UID}:${STEAMOS_UID}:1 u:${TAIL_START}:${TAIL_START}:${TAIL_COUNT}"
-    IDMAP+=" g:0:0:${STEAMOS_UID} g:${STEAMOS_UID}:${STEAM_UID}:1 g:${STEAM_UID}:${STEAMOS_UID}:1 g:${TAIL_START}:${TAIL_START}:${TAIL_COUNT}"
-    OPTS="rw,noatime,X-mount.idmap=${IDMAP}"
+    case "${ID_FS_TYPE}" in
+        ext4)
+            # Global mount options, plus the deck<->SteamOS uid/gid swap (see header note 3). The map is
+            # full identity except the two singletons that trade STEAMOS_UID and STEAM_UID, so every other
+            # owner (root-owned lost+found, etc.) passes through unchanged instead of becoming `nobody`.
+            # STEAM_UID is STEAMOS_UID+1, so the trailing identity range starts at STEAM_UID+1.
+            TAIL_START=$((STEAM_UID + 1))
+            TAIL_COUNT=$((4294967295 - TAIL_START))
+            IDMAP="u:0:0:${STEAMOS_UID} u:${STEAMOS_UID}:${STEAM_UID}:1 u:${STEAM_UID}:${STEAMOS_UID}:1 u:${TAIL_START}:${TAIL_START}:${TAIL_COUNT}"
+            IDMAP+=" g:0:0:${STEAMOS_UID} g:${STEAMOS_UID}:${STEAM_UID}:1 g:${STEAM_UID}:${STEAMOS_UID}:1 g:${TAIL_START}:${TAIL_START}:${TAIL_COUNT}"
+            OPTS="rw,noatime,X-mount.idmap=${IDMAP}"
+            ;;
+        exfat)
+            # Android portable storage SD card (exFAT): mount owned by deck (1001) so ES-DE, RetroArch,
+            # and standalone emulators have full read/write access to ROMs, BIOS, and saves.
+            OPTS="rw,noatime,uid=${STEAM_UID},gid=${STEAM_UID},fmask=0022,dmask=0022,iocharset=utf8,errors=remount-ro"
+            ;;
+        vfat)
+            # FAT32 SD card: mount owned by deck (1001) with UTF-8 filenames.
+            OPTS="rw,noatime,uid=${STEAM_UID},gid=${STEAM_UID},fmask=0022,dmask=0022,utf8,shortname=mixed,errors=remount-ro"
+            ;;
+        *)
+            echo "Error mounting ${DEVICE}: unsupported fstype: ${ID_FS_TYPE} - ${dev_json}"
+            /bin/rmdir -- "${MOUNT_POINT}" 2>/dev/null
+            exit 2
+            ;;
+    esac
 
-    # Steam only handles ext4 external drives for now (matches what its "Format" produces), so that's
-    # all we automount — same guard as Valve.
-    if [[ ${ID_FS_TYPE} != "ext4" ]]; then
-       echo "Error mounting ${DEVICE}: wrong fstype: ${ID_FS_TYPE} - ${dev_json}"
-       /bin/rmdir -- "${MOUNT_POINT}" 2>/dev/null
-       exit 2
-    fi
-
-    if ! /bin/mount -o "${OPTS}" -- "${DEVICE}" "${MOUNT_POINT}"; then
+    if ! /bin/mount -t "${ID_FS_TYPE}" -o "${OPTS}" -- "${DEVICE}" "${MOUNT_POINT}"; then
         echo "Error mounting ${DEVICE} (status = $?)"
         /bin/rmdir -- "${MOUNT_POINT}"
         exit 1
     fi
 
-    # No chown: the idmap already presents deck-owned content as our uid, and chowning through the
-    # idmapped mount would stamp an on-disk owner that breaks the card on a real SteamOS device.
+    echo "**** Mounted ${DEVICE} (${ID_FS_TYPE}) at ${MOUNT_POINT} ****"
 
-    echo "**** Mounted ${DEVICE} at ${MOUNT_POINT} ****"
+    # Only register ext4 cards as Steam library folders (Proton prefixes require POSIX symlinks/perms).
+    if [[ "${ID_FS_TYPE}" == "ext4" ]]; then
+        notify_steam addlibraryfolder "$(urlencode "${MOUNT_POINT}")"
+    fi
 
-    notify_steam addlibraryfolder "$(urlencode "${MOUNT_POINT}")"
+    # Discover and link shared ROMs/BIOS/ES-DE media on any mounted SD card (ext4, exfat, or vfat).
+    sync_sdcard_roms add "${MOUNT_POINT}"
 }
 
 do_unmount()
 {
-    notify_steam removelibraryfolder "$(urlencode "${MOUNT_POINT}")"
+    if [[ "${MOUNT_FSTYPE}" == "ext4" && -n "${MOUNT_POINT}" ]]; then
+        notify_steam removelibraryfolder "$(urlencode "${MOUNT_POINT}")"
+    fi
 
     if [[ -z ${MOUNT_POINT} ]]; then
         echo "Warning: ${DEVICE} is not mounted"
@@ -151,11 +178,14 @@ do_unmount()
         echo "**** Unmounted ${DEVICE}"
     fi
 
+    # Prune any dangling SD-card ROM/BIOS symlinks pointing into the unmounted card.
+    sync_sdcard_roms remove "${MOUNT_POINT}"
+
     # Reap empty orphan mount points under /run/media/deck.
     for f in /run/media/deck/* ; do
         [[ -e $f ]] || continue
         if [[ -n $(/usr/bin/find "$f" -maxdepth 0 -type d -empty) ]]; then
-            if ! /bin/grep -qF " $f " /etc/mtab; then
+            if ! findmnt -rn -M "$f" >/dev/null 2>&1; then
                 echo "**** Removing mount point $f"
                 /bin/rmdir "$f"
             fi

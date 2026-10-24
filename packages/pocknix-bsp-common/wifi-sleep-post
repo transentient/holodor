@@ -4,9 +4,10 @@
 # Until bsp-common 35 this hook also launched the wifi heal ladder. Since 36 the one-case heal is
 # pocknix-wifi-heal.service, which follows the kernel log for a firmware recovery at any time.
 FLAG=/run/pocknix-wifi-resume
-if [ -e "${FLAG}" ]; then
-  rm -f "${FLAG}"
-  nmcli radio wifi on 2>/dev/null || true
+PFLAG=/var/lib/pocknix/wifi-sleep-off
+if [ -e "${FLAG}" ] || [ -e "${PFLAG}" ]; then
+  rm -f "${FLAG}" "${PFLAG}"
+  timeout 5 nmcli radio wifi on 2>/dev/null || true
 fi
 # bsp-common 37: the resume gateway check (second verified wifi case, see pocknix-wifi-heal) runs detached so this
 # hook returns at once; it waits for the link itself and logs to /var/lib/pocknix/wifi-heal.log.

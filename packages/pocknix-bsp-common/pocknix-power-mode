@@ -21,11 +21,21 @@ MODE_FILE=/var/lib/pocknix/power-mode
 # sit at 587-925 MHz anyway; the floor only lifts light rendering (menus, 2D).
 for _dc in /usr/lib/pocknix/device.conf /etc/pocknix/device.conf; do [ -r "${_dc}" ] && . "${_dc}"; done
 GPU_FLOOR="${POCKNIX_GPU_MIN_FREQ:-}"
-MODE="${1:-$(cat "$MODE_FILE" 2>/dev/null || echo performance)}"
+TRANSIENT=0
+RESTORE=0
+if [ "${1:-}" = "--transient" ]; then
+  TRANSIENT=1
+  shift
+elif [ "${1:-}" = "restore" ]; then
+  RESTORE=1
+  rm -f /run/pocknix/transient-power-mode 2>/dev/null
+  set --
+fi
+MODE="${1:-$(cat "$MODE_FILE" 2>/dev/null || echo balanced)}"
 # `max` is session-only: it pins the GPU and the CPU governor (95C, -20..-34%/h) and once
 # survived a reboot from a bench into a full day of play (2026-08-17). With no argument
 # (= the boot re-apply from pocknix-power-mode.service) a persisted `max` becomes balanced.
-if [ -z "${1:-}" ] && [ "$MODE" = max ]; then
+if [ -z "${1:-}" ] && [ "$RESTORE" = 0 ] && [ "$MODE" = max ]; then
   echo "power mode: max is not kept across boots, applying balanced"
   MODE=balanced
 fi
@@ -42,8 +52,9 @@ case "$MODE" in
     G=$(ls -d /sys/class/devfreq/*.gpu 2>/dev/null | head -1)
     [ -n "$G" ] && echo "gpu: $(cat $G/max_freq)/$(cat $G/available_frequencies | tr ' ' '\n' | sort -n | tail -1) Hz"
     echo "mode: $(cat "$MODE_FILE" 2>/dev/null || echo performance)"
+    [ -r /run/pocknix/transient-power-mode ] && echo "transient: $(cat /run/pocknix/transient-power-mode 2>/dev/null)"
     exit 0 ;;
-  *) echo "usage: $0 {eco|balanced|performance|max|status}"; exit 2 ;;
+  *) echo "usage: $0 [--transient] {eco|balanced|performance|max|restore|status}"; exit 2 ;;
 esac
 for p in /sys/devices/system/cpu/cpufreq/policy*; do
   max=$(cat "$p/cpuinfo_max_freq")
@@ -76,5 +87,13 @@ if [ -n "$G" ]; then
     echo "$floor" > "$G/min_freq" 2>/dev/null
   fi
 fi
-mkdir -p "$(dirname "$MODE_FILE")"; echo "$MODE" > "$MODE_FILE"
-echo "power mode: $MODE (cpu ${CPU_PCT}%, gpu ${GPU_PCT}%$( [ -n "$G" ] && printf ", gpu floor %s MHz" $(( $(cat "$G/min_freq") / 1000000 )) ))"
+if [ "$TRANSIENT" = 1 ]; then
+  mkdir -p /run/pocknix
+  printf '%s\n' "$MODE" > /run/pocknix/transient-power-mode.tmp && mv -f /run/pocknix/transient-power-mode.tmp /run/pocknix/transient-power-mode
+elif [ "$RESTORE" = 0 ]; then
+  rm -f /run/pocknix/transient-power-mode 2>/dev/null
+  mkdir -p "$(dirname "$MODE_FILE")"
+  printf '%s\n' "$MODE" > "$MODE_FILE.tmp" && sync "$MODE_FILE.tmp" 2>/dev/null || true
+  mv -f "$MODE_FILE.tmp" "$MODE_FILE"
+fi
+echo "power mode: $MODE$( [ "$TRANSIENT" = 1 ] && printf ' (transient)' ) (cpu ${CPU_PCT}%, gpu ${GPU_PCT}%$( [ -n "$G" ] && printf ", gpu floor %s MHz" $(( $(cat "$G/min_freq") / 1000000 )) ))"

@@ -1,0 +1,46 @@
+From: Holodor <noreply@holodor.local>
+Subject: [PATCH] clk: check parent chain in clk_is_enabled_when_prepared()
+
+`clk_is_enabled_when_prepared()` previously checked only the leaf clock's
+`ops->enable` / `ops->disable` callbacks. On Qualcomm platforms, leaf
+branch clocks (such as `disp_cc_mdss_ahb_clk` managed via `pm_clk_add()`
+by `dsi_phy.c`) implement `.enable`/`.disable` (`clk_branch2_ops`), while
+their root ancestor (`bi_tcxo`, `RPMH_CXO_CLK`) implements only
+`.prepare`/`.unprepare` (`clk_rpmh_ops`).
+
+Because `clk_is_enabled_when_prepared()` returned `false` for the leaf
+clock, `pm_clk_acquire()` prepared the clock chain at probe time and
+`pm_clk_suspend()` only called `clk_disable()`, leaving `bi_tcxo`
+prepared (`prepare_count > 0`) across `s2idle` and keeping `xo.lvl`
+(`0x300e0`) voted ON in `RPMH_SLEEP_STATE` (`SLEEP_TCS`), which blocked
+AOSS/CXSD deep sleep.
+
+Walk the parent chain in `clk_is_enabled_when_prepared()` and return
+`true` if any clock in the hierarchy lacks `.enable`/`.disable` so
+`pm_clk_suspend()` unprepares the chain when suspending.
+---
+ drivers/clk/clk.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/clk/clk.c b/drivers/clk/clk.c
+--- a/drivers/clk/clk.c
++++ b/drivers/clk/clk.c
+@@ -1417,7 +1417,17 @@ EXPORT_SYMBOL_GPL(clk_enable);
+  */
+ bool clk_is_enabled_when_prepared(struct clk *clk)
+ {
+-	return clk && !(clk->core->ops->enable && clk->core->ops->disable);
++	struct clk_core *core;
++
++	if (!clk)
++		return false;
++
++	for (core = clk->core; core; core = core->parent) {
++		if (!(core->ops->enable && core->ops->disable))
++			return true;
++	}
++
++	return false;
+ }
+ EXPORT_SYMBOL_GPL(clk_is_enabled_when_prepared);
+ 

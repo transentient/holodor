@@ -1,27 +1,34 @@
 From: Holodor <holodor@transentient.github.io>
-Date: Wed, 13 Aug 2026 00:40:00 +0900
-Subject: [PATCH] usb: typec: mux: wcd939x-usbss: vendor HSJ routing for the integrated jack (v4)
+Date: Thu, 22 Oct 2026 09:20:00 +0900
+Subject: [PATCH] usb: typec: mux: wcd939x-usbss: simultaneous DP AUX + integrated HSJ routing (v5)
 
-v4: replace the batocera-derived HSJ sequence with the full vendor
-program, source-confirmed against Qualcomm's downstream wcd939x-i2c.c
-(msm-6.6, found in NothingOSS sm8735 / OnePlusOSS sm8750 trees) and
-hardware-validated by manual register pokes on the AYN Odin 3
-(2026-08-13): in exactly this state the codec HPH path carries audio
-through the switch to the 3.5mm jack (tone heard in headphones).
+v5: Support simultaneous DisplayPort Alt-Mode SBU AUX routing and the
+integrated 3.5mm headset jack (HSJ) on AYN Odin 3 (Harmonium v2.0):
+- Clear INT_SW_CTRL_1/2/3 (0x45..0x47) and route GSBU1/2 to DISP_AUXP/M via
+  EXT_SW_CTRL_1 (0x43 = 0x80 normal / 0x40 reverse) during DisplayPort Alt-Mode,
+  configuring WCD_USBSS_DISP_AUXM_THRESH (0x82) OVP threshold.
+- When DisplayPort Alt-Mode is active on Harmonium v2.0 (or while the 3.5mm
+  jack is plugged), use WCD_USBSS_USB_SS_CNTL_USB_SS_MODE_AATC (mode 2) with
+  both SENSE|MIC|AGND switches and SW_DISP_AUXP/M_SBU switches enabled so
+  3.5mm headphone audio and DisplayPort AUX operate simultaneously.
 
-Adds over v3: the pd_pu_enable DC bias/pulldown network (DP/DN/MG1/MG2
-2K PLDN, BIAS_TOP/PMP_OUT1 bit5 clears), mandatory standby exit with
-10ms settle, CHIP_ID1-gated HSJ_PWR_EN (Harmonium 2.0 only), vendor
-probe one-offs (FSM_OVERRIDE, DP/DN OVP config, MG1/MG2_EN OVP-4V,
-CT_SNS_EN clear on v2.0, MG_MISC dynamic boost incl. the MG2_MISC
-address fix: vendor says 0x2b, mainline's define points at 0x30), and
-drops v3's blind TEST-register writes in favor of the named vendor
-registers.  Park logic (TYPEC_STATE_SAFE / ORIENTATION_NONE -> HSJ)
-unchanged from v3.
+Signed-off-by: Holodor <holodor@bonesaw.com>
 ---
+diff --git a/drivers/usb/typec/mux/wcd939x-usbss.c b/drivers/usb/typec/mux/wcd939x-usbss.c
 --- a/drivers/usb/typec/mux/wcd939x-usbss.c
 +++ b/drivers/usb/typec/mux/wcd939x-usbss.c
-@@ -115,6 +115,29 @@
+@@ -54,6 +54,10 @@
+ 
+ #define WCD_USBSS_DISP_AUXP_CTL_LK_CANCEL_TRK_COEFF			GENMASK(2, 0)
+ 
++#define WCD_USBSS_DISP_AUXM_THRESH		0x82
++
++#define WCD_USBSS_DISP_AUXM_THRESH_DISP_AUXM_OVPON_CM			GENMASK(7, 5)
++
+ #define WCD_USBSS_CPLDO_CTL2			0xa1
+ 
+ #define WCD_USBSS_SWITCH_SETTINGS_ENABLE	0x403
+@@ -115,6 +119,32 @@
  #define WCD_USBSS_USB_SS_CNTL_USB_SS_MODE_AATC		2
  #define WCD_USBSS_USB_SS_CNTL_USB_SS_MODE_USB		5
  
@@ -42,6 +49,9 @@ unchanged from v3.
 +#define WCD_USBSS_BIAS_TOP			0x2c
 +#define WCD_USBSS_EXT_LIN_EN			0x3d
 +#define WCD_USBSS_EXT_SW_CTRL_1			0x43
++#define WCD_USBSS_INT_SW_CTRL_1			0x45
++#define WCD_USBSS_INT_SW_CTRL_2			0x46
++#define WCD_USBSS_INT_SW_CTRL_3			0x47
 +#define WCD_USBSS_SW_LIN_CTRL_1			0x50
 +#define WCD_USBSS_FSM_OVERRIDE			0x63
 +#define WCD_USBSS_DC_TRIMCODE_2			0x91
@@ -51,7 +61,7 @@ unchanged from v3.
  #define WCD_USBSS_AUDIO_FSM_START		0x433
  
  #define WCD_USBSS_AUDIO_FSM_START_AUDIO_FSM_AUDIO_TRIG			BIT(0)
-@@ -197,6 +220,7 @@
+@@ -197,6 +227,7 @@
  	enum typec_orientation orientation;
  	unsigned long mode;
  	unsigned int svid;
@@ -59,7 +69,7 @@ unchanged from v3.
  };
  
  static const struct regmap_range_cfg wcd939x_usbss_ranges[] = {
-@@ -237,6 +261,138 @@
+@@ -237,6 +268,186 @@
  	{ WCD_USBSS_RATIO_SPKR_REXT_R_MSB, GENMASK(6, 0), 0x04 },
  };
  
@@ -73,7 +83,8 @@ unchanged from v3.
 + * exactly this state.  (Vendor also writes FUNCTION_ENABLE=0x05 and clears
 + * 0x415 bit7 at init; deliberately not adopted — untested on our hardware.)
 + */
-+static int wcd939x_usbss_set_hsj_route(struct wcd939x_usbss *usbss)
++static int wcd939x_usbss_setup_hsj_common(struct wcd939x_usbss *usbss,
++					  bool enable_dp)
 +{
 +	unsigned int val;
 +	int ret;
@@ -110,13 +121,6 @@ unchanged from v3.
 +		msleep(10);
 +	}
 +
-+	ret = regmap_update_bits(usbss->regmap, WCD_USBSS_USB_SS_CNTL,
-+				 WCD_USBSS_USB_SS_CNTL_USB_SS_MODE,
-+				 FIELD_PREP(WCD_USBSS_USB_SS_CNTL_USB_SS_MODE,
-+					    WCD_USBSS_USB_SS_CNTL_USB_SS_MODE_HSJ));
-+	if (ret)
-+		return ret;
-+
 +	ret = regmap_write(usbss->regmap, WCD_USBSS_PMP_EN, 0x0f);
 +	if (ret)
 +		return ret;
@@ -144,10 +148,61 @@ unchanged from v3.
 +			return ret;
 +	}
 +
-+	/* MIC->MG2, SENSE->GSBU1; AGND->MG1 */
++	/*
++	 * Route SENSE->GSBU1 via internal switch override (0x46/0x47), and
++	 * route MIC->MG2 / AGND->MG1 via 0x45 when DisplayPort AUX is not
++	 * active.  Never assert MIC_SWITCHES (BIT(1)) or AGND_SWITCHES (BIT(0))
++	 * in WCD_USBSS_SWITCH_SETTINGS_ENABLE (0x403): doing so causes the
++	 * digital FSM to assert D_AUDIO_EN_OVP (0x70 bit 1), lowering the
++	 * DP/DN OVP threshold to ~2.0V and tripping OVP_DPR (0x402 = 0x80)
++	 * whenever a USB 2.0 device pulls D+ to 3.3V.
++	 */
++	ret = regmap_set_bits(usbss->regmap, WCD_USBSS_INT_SW_CTRL_2, 0x80);
++	if (ret)
++		return ret;
++	ret = regmap_set_bits(usbss->regmap, WCD_USBSS_INT_SW_CTRL_3, 0x02);
++	if (ret)
++		return ret;
++
++	return regmap_write(usbss->regmap, WCD_USBSS_INT_SW_CTRL_1,
++			    enable_dp ? 0x00 : 0xb8);
++}
++
++static int wcd939x_usbss_set_hsj_route(struct wcd939x_usbss *usbss)
++{
++	int ret;
++
++	ret = wcd939x_usbss_setup_hsj_common(usbss, false);
++	if (ret)
++		return ret;
++
++	ret = regmap_update_bits(usbss->regmap, WCD_USBSS_USB_SS_CNTL,
++				 WCD_USBSS_USB_SS_CNTL_USB_SS_MODE,
++				 FIELD_PREP(WCD_USBSS_USB_SS_CNTL_USB_SS_MODE,
++					    WCD_USBSS_USB_SS_CNTL_USB_SS_MODE_HSJ));
++	if (ret)
++		return ret;
++
++	ret = regmap_clear_bits(usbss->regmap, WCD_USBSS_EQUALIZER1,
++				WCD_USBSS_EQUALIZER1_EQ_EN);
++	if (ret)
++		return ret;
++
++	/*
++	 * Keep DNL->DN and DPR->DP selected and enabled in idle/HSJ mode
++	 * (matching vendor wcd-usbss-i2c.c), and clear DP_AUXP/M.
++	 */
 +	ret = regmap_update_bits(usbss->regmap, WCD_USBSS_SWITCH_SELECT0,
++				 WCD_USBSS_SWITCH_SELECT0_DP_AUXP_SWITCHES |
++				 WCD_USBSS_SWITCH_SELECT0_DP_AUXM_SWITCHES |
++				 WCD_USBSS_SWITCH_SELECT0_DPR_SWITCHES |
++				 WCD_USBSS_SWITCH_SELECT0_DNL_SWITCHES |
 +				 WCD_USBSS_SWITCH_SELECT0_SENSE_SWITCHES |
 +				 WCD_USBSS_SWITCH_SELECT0_MIC_SWITCHES,
++				 FIELD_PREP(WCD_USBSS_SWITCH_SELECT0_DNL_SWITCHES,
++					    WCD_USBSS_SWITCH_SELECT0_DNL_SWITCH_DN) |
++				 FIELD_PREP(WCD_USBSS_SWITCH_SELECT0_DPR_SWITCHES,
++					    WCD_USBSS_SWITCH_SELECT0_DPR_SWITCH_DP) |
 +				 WCD_USBSS_SWITCH_SELECT0_MIC_SWITCHES);
 +	if (ret)
 +		return ret;
@@ -160,15 +215,18 @@ unchanged from v3.
 +	if (ret)
 +		return ret;
 +
-+	/* enable SENSE|MIC|AGND; vendor leaves DNL/DPR enables untouched */
 +	return regmap_update_bits(usbss->regmap,
 +				  WCD_USBSS_SWITCH_SETTINGS_ENABLE,
++				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_DP_AUXP_TO_MGX_SWITCHES |
++				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_DP_AUXM_TO_MGX_SWITCHES |
++				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_DNL_SWITCHES |
++				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_DPR_SWITCHES |
 +				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_SENSE_SWITCHES |
 +				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_MIC_SWITCHES |
 +				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_AGND_SWITCHES,
-+				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_SENSE_SWITCHES |
-+				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_MIC_SWITCHES |
-+				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_AGND_SWITCHES);
++				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_DNL_SWITCHES |
++				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_DPR_SWITCHES |
++				  WCD_USBSS_SWITCH_SETTINGS_ENABLE_SENSE_SWITCHES);
 +}
 +
 +/*
@@ -198,7 +256,7 @@ unchanged from v3.
  static int wcd939x_usbss_set(struct wcd939x_usbss *usbss)
  {
  	bool reverse = (usbss->orientation == TYPEC_ORIENTATION_REVERSE);
-@@ -245,6 +401,22 @@
+@@ -245,6 +456,22 @@
  	bool enable_dp = false;
  	int ret;
  
@@ -221,7 +279,53 @@ unchanged from v3.
  	/* USB Mode */
  	if (usbss->mode < TYPEC_STATE_MODAL ||
  	    (!usbss->svid && (usbss->mode == TYPEC_MODE_USB2 ||
-@@ -695,6 +867,12 @@
+@@ -460,6 +687,19 @@
+ 	if (ret)
+ 		return ret;
+ 
++	/*
++	 * Keep the integrated 3.5mm headset jack (HSJ) charge pump, linearizer,
++	 * and SENSE->GSBU1 path active while USB/DP cables are connected.
++	 */
++	ret = wcd939x_usbss_setup_hsj_common(usbss, enable_dp);
++	if (ret)
++		return ret;
++
++	ret = regmap_set_bits(usbss->regmap, WCD_USBSS_SWITCH_SETTINGS_ENABLE,
++			      WCD_USBSS_SWITCH_SETTINGS_ENABLE_SENSE_SWITCHES);
++	if (ret)
++		return ret;
++
+ 	/* Enable USB muxes */
+ 	if (enable_usb) {
+ 		/* Do not enable Equalizer in safe mode */
+@@ -491,11 +731,11 @@
+ 
+ 	/* Enable DP AUX muxes */
+ 	if (enable_dp) {
+-		/* Update Leakage Canceller Coefficient for AUXP pins */
++		/* Update Leakage Canceller Coefficient for AUXP pins (vendor uses 1) */
+ 		ret = regmap_update_bits(usbss->regmap, WCD_USBSS_DISP_AUXP_CTL,
+ 					 WCD_USBSS_DISP_AUXP_CTL_LK_CANCEL_TRK_COEFF,
+ 					 FIELD_PREP(WCD_USBSS_DISP_AUXP_CTL_LK_CANCEL_TRK_COEFF,
+-						    5));
++						    1));
+ 		if (ret)
+ 			return ret;
+ 
+@@ -504,6 +744,11 @@
+ 		if (ret)
+ 			return ret;
+ 
++		ret = regmap_set_bits(usbss->regmap, WCD_USBSS_DISP_AUXM_THRESH,
++				      WCD_USBSS_DISP_AUXM_THRESH_DISP_AUXM_OVPON_CM);
++		if (ret)
++			return ret;
++
+ 		if (reverse)
+ 			/* Select MG2 for AUXP and MG1 for AUXM */
+ 			ret = regmap_update_bits(usbss->regmap, WCD_USBSS_SWITCH_SELECT0,
+@@ -695,6 +940,12 @@
  	if (ret)
  		goto err_regulator_disable;
  
@@ -234,3 +338,18 @@ unchanged from v3.
  	/* Setup in SAFE mode */
  	ret = wcd939x_usbss_set(usbss);
  	if (ret)
+@@ -772,9 +1023,12 @@
+ 	if (!usbss)
+ 		return -ENODEV;
+ 
++	/*
++	 * Re-apply the current routing (which always keeps the integrated
++	 * 3.5mm HSJ charge pump, linearizer, and sense path enabled) without
++	 * clobbering any active Type-C USB or DisplayPort Alt-Mode state.
++	 */
+ 	mutex_lock(&usbss->lock);
+-	usbss->mode = enable ? TYPEC_MODE_AUDIO : TYPEC_STATE_SAFE;
+-	usbss->svid = 0;
+ 	ret = wcd939x_usbss_set(usbss);
+ 	mutex_unlock(&usbss->lock);
+ 

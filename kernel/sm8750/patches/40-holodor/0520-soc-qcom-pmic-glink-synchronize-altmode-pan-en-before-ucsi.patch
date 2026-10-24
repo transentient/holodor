@@ -1,0 +1,157 @@
+From: Holodor <holodor@bonesaw.com>
+Date: Thu, 22 Oct 2026 09:23:00 +0900
+Subject: [PATCH] soc: qcom: pmic_glink: synchronize ALTMODE_PAN_EN before ucsi_register
+
+On SM8750 (AYN Odin 3), the ADSP charger_pd UCSI handler only invokes
+dpm_request_dp_contract (which adds DisplayPort SVID 0xFF01 to svid_list and
+triggers DP Discover Modes / Enter Mode / Status Update / Configure) when
+pan_en != 0 at the moment UCSI_SET_NOTIFICATION_ENABLE is processed.
+
+1. Defer ucsi_glink_probe until the connector mode-switch and orientation-switch
+   have registered, matching pmic_glink_altmode_probe.
+2. Add pmic_glink_notify_pan_ready() / pmic_glink_wait_pan_ready() so
+   ucsi_glink_pmic_sync_state() waits for pmic_glink_altmode_enable_worker()
+   to send ALTMODE_PAN_EN (0x10) before calling ucsi_register().
+
+Signed-off-by: Holodor <holodor@bonesaw.com>
+---
+diff --git a/include/linux/soc/qcom/pmic_glink.h b/include/linux/soc/qcom/pmic_glink.h
+--- a/include/linux/soc/qcom/pmic_glink.h
++++ b/include/linux/soc/qcom/pmic_glink.h
+@@ -29,5 +29,7 @@
+ 						       void (*pdr)(void *, int),
+ 						       void *priv);
+ void pmic_glink_client_register(struct pmic_glink_client *client);
++void pmic_glink_notify_pan_ready(struct pmic_glink_client *client);
++void pmic_glink_wait_pan_ready(struct pmic_glink_client *client);
+ 
+ #endif
+diff --git a/drivers/soc/qcom/pmic_glink.c b/drivers/soc/qcom/pmic_glink.c
+--- a/drivers/soc/qcom/pmic_glink.c
++++ b/drivers/soc/qcom/pmic_glink.c
+@@ -5,6 +5,7 @@
+  */
+ #include <linux/auxiliary_bus.h>
+ #include <linux/cleanup.h>
++#include <linux/completion.h>
+ #include <linux/delay.h>
+ #include <linux/module.h>
+ #include <linux/of.h>
+@@ -50,6 +51,7 @@
+ 	/* serializing clients list updates */
+ 	spinlock_t client_lock;
+ 	struct list_head clients;
++	struct completion pan_ready;
+ };
+ 
+ static struct pmic_glink *__pmic_glink;
+@@ -118,6 +120,19 @@
+ }
+ EXPORT_SYMBOL_GPL(pmic_glink_client_register);
+ 
++void pmic_glink_notify_pan_ready(struct pmic_glink_client *client)
++{
++	complete_all(&client->pg->pan_ready);
++}
++EXPORT_SYMBOL_GPL(pmic_glink_notify_pan_ready);
++
++void pmic_glink_wait_pan_ready(struct pmic_glink_client *client)
++{
++	wait_for_completion_timeout(&client->pg->pan_ready,
++				    PMIC_GLINK_SEND_TIMEOUT);
++}
++EXPORT_SYMBOL_GPL(pmic_glink_wait_pan_ready);
++
+ int pmic_glink_send(struct pmic_glink_client *client, void *data, size_t len)
+ {
+ 	struct pmic_glink *pg = client->pg;
+@@ -225,6 +240,8 @@
+ 	}
+ 
+ 	if (new_state != pg->client_state) {
++		if (new_state == SERVREG_SERVICE_STATE_DOWN)
++			reinit_completion(&pg->pan_ready);
+ 		spin_lock_irqsave(&pg->client_lock, flags);
+ 		list_for_each_entry(client, &pg->clients, node)
+ 			client->pdr_notify(client->priv, new_state);
+@@ -313,6 +330,7 @@
+ 	INIT_LIST_HEAD(&pg->clients);
+ 	spin_lock_init(&pg->client_lock);
+ 	mutex_init(&pg->state_lock);
++	init_completion(&pg->pan_ready);
+ 
+ 	pg->data = of_device_get_match_data(&pdev->dev);
+ 	if (!pg->data)
+diff --git a/drivers/soc/qcom/pmic_glink_altmode.c b/drivers/soc/qcom/pmic_glink_altmode.c
+--- a/drivers/soc/qcom/pmic_glink_altmode.c
++++ b/drivers/soc/qcom/pmic_glink_altmode.c
+@@ -550,6 +550,7 @@
+ 	ret = pmic_glink_altmode_request(altmode, ALTMODE_PAN_EN, 0);
+ 	if (ret)
+ 		dev_err(altmode->dev, "failed to request altmode notifications: %d\n", ret);
++	pmic_glink_notify_pan_ready(altmode->client);
+ }
+ 
+ static void pmic_glink_altmode_pdr_notify(void *priv, int state)
+diff --git a/drivers/usb/typec/ucsi/ucsi_glink.c b/drivers/usb/typec/ucsi/ucsi_glink.c
+--- a/drivers/usb/typec/ucsi/ucsi_glink.c
++++ b/drivers/usb/typec/ucsi/ucsi_glink.c
+@@ -321,6 +321,14 @@
+ 	spin_unlock_irqrestore(&ucsi->state_lock, flags);
+ 
+ 	if (!ucsi->ucsi_registered && pd_running) {
++		/*
++		 * Wait for pmic_glink_altmode to send ALTMODE_PAN_EN (0x10)
++		 * before ucsi_register() sends UCSI_SET_NOTIFICATION_ENABLE:
++		 * charger_pd's UCSI handler only calls dpm_request_dp_contract
++		 * (enabling DisplayPort SVID 0xFF01) if pan_en != 0 when
++		 * UCSI_SET_NOTIFICATION_ENABLE is processed.
++		 */
++		pmic_glink_wait_pan_ready(ucsi->client);
+ 		ucsi_register(ucsi->ucsi);
+ 		ucsi->ucsi_registered = true;
+ 	} else if (ucsi->ucsi_registered && !pd_running) {
+@@ -424,6 +432,8 @@
+ 	ucsi_set_drvdata(ucsi->ucsi, ucsi);
+ 
+ 	device_for_each_child_node_scoped(dev, fwnode) {
++		struct typec_switch *typec_switch;
++		struct typec_mux *typec_mux;
+ 		struct gpio_desc *desc;
+ 		u32 port;
+ 
+@@ -438,6 +448,34 @@
+ 			continue;
+ 		}
+ 
++		/*
++		 * Defer until the connector's mode-switch and orientation-switch
++		 * suppliers (e.g. wcd939x-usbss and usb_dp_qmpphy) have registered,
++		 * matching pmic_glink_altmode_probe so ALTMODE_PAN_EN is not
++		 * blocked behind deferred probe while UCSI initializes.
++		 */
++		typec_mux = fwnode_typec_mux_get(fwnode);
++		if (IS_ERR(typec_mux))
++			return dev_err_probe(dev, PTR_ERR(typec_mux),
++					     "failed to acquire mode-switch for port: %u\n",
++					     port);
++		if (!typec_mux)
++			return dev_err_probe(dev, -EPROBE_DEFER,
++					     "mode-switch not registered yet for port: %u\n",
++					     port);
++		typec_mux_put(typec_mux);
++
++		typec_switch = fwnode_typec_switch_get(fwnode);
++		if (IS_ERR(typec_switch))
++			return dev_err_probe(dev, PTR_ERR(typec_switch),
++					     "failed to acquire orientation-switch for port: %u\n",
++					     port);
++		if (!typec_switch)
++			return dev_err_probe(dev, -EPROBE_DEFER,
++					     "orientation-switch not registered yet for port: %u\n",
++					     port);
++		typec_switch_put(typec_switch);
++
+ 		desc = devm_gpiod_get_index_optional(&adev->dev, "orientation", port, GPIOD_IN);
+ 
+ 		/* If GPIO isn't found, continue */

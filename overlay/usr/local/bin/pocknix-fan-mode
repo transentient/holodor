@@ -50,7 +50,8 @@ case "${1:-}" in
       exit 2
     fi
     mkdir -p "$(dirname "${MODE_FILE}")" 2>/dev/null
-    if ! printf '%s\n' "${1}" > "${MODE_FILE}" 2>/dev/null; then
+    if ! printf '%s\n' "${1}" > "${MODE_FILE}.tmp" 2>/dev/null || ! mv -f "${MODE_FILE}.tmp" "${MODE_FILE}" 2>/dev/null; then
+      rm -f "${MODE_FILE}.tmp" 2>/dev/null
       echo "pocknix-fan-mode: cannot write ${MODE_FILE} (run as root)" >&2
       exit 1
     fi

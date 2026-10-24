@@ -13,19 +13,6 @@
 	qcom,board-id = <0x1001f 0x00>;
 	qcom,msm-id = <0x25b 0x20000>;
 
-	backlight: backlight {
-		compatible = "pwm-backlight";
-		pwms = <&pmk8550_pwm 0 860000>;
-		brightness-levels = <1023 0>;
-		num-interpolated-steps = <1023>;
-		default-brightness-level = <600>;
-		power-supply = <&vph_pwr>;
-		enable-gpios = <&pmk8550_gpios 5 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&pwm_backlight_default>;
-		status = "okay";
-	};
-
 	vdd_disp_1v8: vdd-disp-1v8-regulator {
 		compatible = "regulator-fixed";
 		regulator-name = "vdd_disp_1v8";
@@ -44,7 +31,7 @@
 		regulator-min-microvolt = <2800000>;
 		regulator-max-microvolt = <2800000>;
 
-		gpio = <&tlmm 142 GPIO_ACTIVE_HIGH>;
+		gpio = <&tlmm 143 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
 	};
 
@@ -165,18 +152,19 @@
 
 	panel@0 {
 		reg = <0>;
-		compatible = "vtdr6130,rp6";
+		compatible = "retroidpocket,rp6-panel", "vtdr6130,rp6";
 
 		pinctrl-0 = <&dsi_p_rst_active>, <&dsi_p_te_active>;
 		pinctrl-1 = <&dsi_p_rst_suspend>, <&dsi_p_te_suspend>;
 		pinctrl-names = "default", "sleep";
 
-		vddio-supply = <&vdd_disp_1v8>;
-		avdd-supply = <&vdd_disp_2v8>;
+		vdd-supply = <&vreg_l11b_1p2>;
+		vddio-supply = <&vreg_l12b_1p8>;
+		vci-supply = <&vreg_l13b_3p0>;
+		vdd18-supply = <&vdd_disp_1v8>;
+		vdd28-supply = <&vdd_disp_2v8>;
 
 		reset-gpios = <&tlmm 133 GPIO_ACTIVE_LOW>;
-
-		backlight = <&backlight>;
 
 		rotation = <270>;
 
@@ -350,7 +338,7 @@
 	clock-frequency = <100000>;
 	status = "okay";
 	touchscreen@38 {
-		compatible = "focaltech,ft5426";
+		compatible = "focaltech,ft5452", "focaltech,ft5426";
 		reg = <0x38>;
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -362,8 +350,8 @@
 		vcc-supply = <&ts_avdd_3v0>;
 		iovcc-supply = <&ts_vddio_1v8>;
 
-		pinctrl-0 = <&ts_p_rst_default &ts_p_int_default>;
-		pinctrl-1 = <&ts_p_rst_sleep &ts_p_int_sleep>;
+		pinctrl-0 = <&ts_s_rst_default &ts_s_int_default>;
+		pinctrl-1 = <&ts_s_rst_sleep &ts_s_int_sleep>;
 		pinctrl-names = "default", "sleep";
 
 		touchscreen-size-x = <1080>;
@@ -371,11 +359,25 @@
 		touchscreen-inverted-y;
 
 		no-regmap-bulk-read;
-        };
+	};
 };
 
-&pmk8550_pwm {
-	status = "okay";
+&{/sound} {
+	model = "SM8550-RetroidPocket-I2S";
+	widgets =
+		"Microphone", "Digital Mic2",
+		"Microphone", "Digital Mic6";
+	audio-routing =
+		"IN1_HPHL", "HPHL_OUT",
+		"IN2_HPHR", "HPHR_OUT",
+		"AMIC2", "MIC BIAS2",
+		"DMIC3", "Digital Mic2",
+		"DMIC3", "MIC BIAS3",
+		"DMIC7", "Digital Mic6",
+		"DMIC7", "MIC BIAS4",
+		"TX SWR_INPUT1", "ADC2_OUTPUT",
+		"TX SWR_INPUT6", "DMIC3_OUTPUT",
+		"TX SWR_INPUT10", "DMIC7_OUTPUT";
 };
 
 &remoteproc_adsp {
@@ -385,10 +387,12 @@
 };
 
 &spk_amp_l {
+	awinic,audio-channel = <1>;
 	firmware-name = "qcom/sm8550/ayn/odin2/aw883xx_acf.bin";
 };
 
 &spk_amp_r {
+	awinic,audio-channel = <0>;
 	firmware-name = "qcom/sm8550/ayn/odin2/aw883xx_acf.bin";
 };
 

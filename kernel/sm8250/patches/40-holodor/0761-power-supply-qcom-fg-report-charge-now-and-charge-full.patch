@@ -1,0 +1,291 @@
+From: Holodor <noreply@holodor.local>
+Subject: [PATCH] power: supply: qcom_fg: report charge_now/charge_full, 3.40V cutoff scaling, and low-battery wake/poweroff
+
+1. Report charge_full and charge_now from charge_full_design_uah and forward
+   charge_control_start_threshold, charge_control_end_threshold, and
+   constant_charge_current to chip->chg_psy.
+2. Fix qcom_fg_get_capacity() so 0% is reachable and scale capacity against the
+   vendor 3.40 V cutoff (starting at 3.55 V, with ESR compensation under load)
+   instead of the PM8150B hardware 3.00 V empty threshold.
+3. Keep soc-delta armed across s2idle (IRQF_NO_SUSPEND + enable_irq_wake) so
+   long-term sleep drain wakes userland at <=5% without waking userland/display
+   at higher SoC, and trigger an orderly poweroff at <=3.38 V so the battery
+   can never drain below XBL's 3.30 V boot pre-charge threshold.
+---
+diff --git a/drivers/power/supply/qcom_fg.c b/drivers/power/supply/qcom_fg.c
+--- a/drivers/power/supply/qcom_fg.c
++++ b/drivers/power/supply/qcom_fg.c
+@@ -10,11 +10,28 @@
+ #include <linux/of_device.h>
+ #include <linux/of_irq.h>
+ #include <linux/platform_device.h>
++#include <linux/pm_wakeup.h>
+ #include <linux/power_supply.h>
++#include <linux/reboot.h>
+ #include <linux/regmap.h>
+ #include <linux/types.h>
+ #include <linux/workqueue.h>
+ 
++/*
++ * PM8150B hardware MONOTONIC_SOC is calibrated against qcom,fg-empty-voltage
++ * (3.00 V), whereas the vendor Android driver scales user-visible SoC against
++ * qcom,fg-cutoff-voltage = 3.40 V (3400 mV) starting at qcom,soc-scale-vbatt-mv
++ * = 3.55 V, and XBL's boot pre-charge threshold is 3.30 V. Scale capacity so
++ * 0% is reported at 3.40 V and trigger an orderly kernel poweroff if open-circuit
++ * cell voltage reaches 3.38 V so the battery can never drain below XBL's 3.30 V
++ * boot lockout.
++ */
++#define QCOM_FG_CUTOFF_UV		3400000
++#define QCOM_FG_SCALE_UV		3550000
++#define QCOM_FG_EMERGENCY_UV		3380000
++#define QCOM_FG_ESR_MOHM		60
++#define QCOM_FG_MAX_IR_COMP_UV		150000
++
+ /* SOC */
+ #define BATT_MONOTONIC_SOC		0x009
+ 
+@@ -93,6 +110,10 @@
+ 	struct power_supply *chg_psy;
+ 	int status;
+ 	struct delayed_work status_changed_work;
++	int soc_delta_irq;
++	bool suspended;
++	int low_vbat_count;
++	bool shutdown_triggered;
+ 
+ 	struct completion sram_access_granted;
+ 	struct completion sram_access_revoked;
+@@ -487,7 +508,8 @@
+ static int qcom_fg_get_capacity(struct qcom_fg_chip *chip, int *val)
+ {
+ 	u8 cap[2];
+-	int ret;
++	int ret, raw_soc, vbat_uv = 0, curr_ua = 0, vbat_est_uv;
++	bool discharging;
+ 
+ 	ret = qcom_fg_read(chip, cap, BATT_MONOTONIC_SOC, 2);
+ 	if (ret) {
+@@ -499,7 +521,53 @@
+ 		cap[0] = cap[0] < cap[1] ? cap[0] : cap[1];
+ 	}
+ 
+-	*val = DIV_ROUND_CLOSEST((cap[0] - 0) * 98, 0xff - 2) + 1;
++	raw_soc = DIV_ROUND_CLOSEST(cap[0] * 100, 0xff);
++
++	if (chip->ops && chip->ops->get_voltage &&
++	    !chip->ops->get_voltage(chip, &vbat_uv) && vbat_uv > 2500000) {
++		if (chip->ops->get_current)
++			chip->ops->get_current(chip, &curr_ua);
++
++		discharging = (chip->status != POWER_SUPPLY_STATUS_CHARGING) &&
++			      (curr_ua >= 0);
++		vbat_est_uv = vbat_uv;
++		if (curr_ua > 0) {
++			int ir_uv = (curr_ua / 1000) * QCOM_FG_ESR_MOHM;
++
++			vbat_est_uv += min(ir_uv, QCOM_FG_MAX_IR_COMP_UV);
++		}
++
++		if (discharging) {
++			if (vbat_est_uv <= QCOM_FG_CUTOFF_UV) {
++				raw_soc = 0;
++			} else if (vbat_est_uv < QCOM_FG_SCALE_UV) {
++				int v_soc = 1 + (vbat_est_uv - QCOM_FG_CUTOFF_UV) * 9 /
++					    (QCOM_FG_SCALE_UV - QCOM_FG_CUTOFF_UV);
++
++				raw_soc = min(raw_soc, v_soc);
++			}
++
++			if (vbat_est_uv <= QCOM_FG_EMERGENCY_UV) {
++				chip->low_vbat_count++;
++				if ((chip->low_vbat_count >= 3 ||
++				     READ_ONCE(chip->suspended)) &&
++				    !chip->shutdown_triggered) {
++					chip->shutdown_triggered = true;
++					dev_emerg(chip->dev,
++						  "Battery voltage %d uV (est %d uV) <= %d uV cutoff; powering off to prevent <3.30V XBL lockout\n",
++						  vbat_uv, vbat_est_uv,
++						  QCOM_FG_EMERGENCY_UV);
++					orderly_poweroff(true);
++				}
++			} else if (vbat_est_uv > QCOM_FG_CUTOFF_UV) {
++				chip->low_vbat_count = 0;
++			}
++		} else {
++			chip->low_vbat_count = 0;
++		}
++	}
++
++	*val = raw_soc;
+ 
+ 	return 0;
+ }
+@@ -861,6 +929,11 @@
+ 	POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN,
+ 	POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN,
+ 	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
++	POWER_SUPPLY_PROP_CHARGE_FULL,
++	POWER_SUPPLY_PROP_CHARGE_NOW,
++	POWER_SUPPLY_PROP_CHARGE_CONTROL_START_THRESHOLD,
++	POWER_SUPPLY_PROP_CHARGE_CONTROL_END_THRESHOLD,
++	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT,
+ 	POWER_SUPPLY_PROP_PRESENT,
+ 	POWER_SUPPLY_PROP_TEMP,
+ 	POWER_SUPPLY_PROP_TEMP_MIN,
+@@ -935,6 +1008,22 @@
+ 	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
+ 		val->intval = chip->batt_info->charge_full_design_uah;
+ 		break;
++	case POWER_SUPPLY_PROP_CHARGE_FULL:
++		val->intval = chip->batt_info->charge_full_design_uah;
++		break;
++	case POWER_SUPPLY_PROP_CHARGE_NOW:
++		ret = chip->ops->get_capacity(chip, &temp);
++		if (ret)
++			break;
++		val->intval = chip->batt_info->charge_full_design_uah / 100 * temp;
++		break;
++	case POWER_SUPPLY_PROP_CHARGE_CONTROL_START_THRESHOLD:
++	case POWER_SUPPLY_PROP_CHARGE_CONTROL_END_THRESHOLD:
++	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
++		if (!chip->chg_psy)
++			return -ENODEV;
++		ret = power_supply_get_property(chip->chg_psy, psp, val);
++		break;
+ 	case POWER_SUPPLY_PROP_PRESENT:
+ 		val->intval = 1;
+ 		break;
+@@ -955,12 +1044,45 @@
+ 	return ret;
+ }
+ 
++static int qcom_fg_set_property(struct power_supply *psy,
++				enum power_supply_property psp,
++				const union power_supply_propval *val)
++{
++	struct qcom_fg_chip *chip = power_supply_get_drvdata(psy);
++
++	switch (psp) {
++	case POWER_SUPPLY_PROP_CHARGE_CONTROL_START_THRESHOLD:
++	case POWER_SUPPLY_PROP_CHARGE_CONTROL_END_THRESHOLD:
++	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
++		if (!chip->chg_psy)
++			return -ENODEV;
++		return power_supply_set_property(chip->chg_psy, psp, val);
++	default:
++		return -EINVAL;
++	}
++}
++
++static int qcom_fg_property_is_writeable(struct power_supply *psy,
++					 enum power_supply_property psp)
++{
++	switch (psp) {
++	case POWER_SUPPLY_PROP_CHARGE_CONTROL_START_THRESHOLD:
++	case POWER_SUPPLY_PROP_CHARGE_CONTROL_END_THRESHOLD:
++	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
++		return 1;
++	default:
++		return 0;
++	}
++}
++
+ static const struct power_supply_desc batt_psy_desc = {
+ 	.name = "battery",
+ 	.type = POWER_SUPPLY_TYPE_BATTERY,
+ 	.properties = qcom_fg_props,
+ 	.num_properties = ARRAY_SIZE(qcom_fg_props),
+ 	.get_property = qcom_fg_get_property,
++	.set_property = qcom_fg_set_property,
++	.property_is_writeable = qcom_fg_property_is_writeable,
+ };
+ 
+ /********************
+@@ -1066,6 +1188,20 @@
+ static irqreturn_t qcom_fg_handle_soc_delta(int irq, void *data)
+ {
+ 	struct qcom_fg_chip *chip = data;
++	int cap = 100;
++
++	qcom_fg_get_capacity(chip, &cap);
++
++	if (READ_ONCE(chip->suspended)) {
++		if (cap <= 5) {
++			dev_warn(chip->dev,
++				 "Low battery during s2idle (soc=%d%%), waking system\n",
++				 cap);
++			pm_wakeup_dev_event(chip->dev, 5000, true);
++			power_supply_changed(chip->batt_psy);
++		}
++		return IRQ_HANDLED;
++	}
+ 
+ 	/* Signal change in state of charge */
+ 	power_supply_changed(chip->batt_psy);
+@@ -1295,15 +1431,20 @@
+ 			irq);
+ 		return irq;
+ 	}
++	chip->soc_delta_irq = irq;
+ 
+ 	ret = devm_request_threaded_irq(chip->dev, irq, NULL,
+ 					qcom_fg_handle_soc_delta,
+-					IRQF_ONESHOT, "soc-delta", chip);
++					IRQF_ONESHOT | IRQF_NO_SUSPEND,
++					"soc-delta", chip);
+ 	if (ret < 0) {
+ 		dev_err(&pdev->dev, "Failed to request soc-delta IRQ: %d\n", ret);
+ 		return ret;
+ 	}
+ 
++	devm_device_init_wakeup(chip->dev);
++	enable_irq_wake(chip->soc_delta_irq);
++
+ 	/* Optional: Get charger power supply for status checking */
+ 	chip->chg_psy = power_supply_get_by_reference(dev_fwnode(chip->dev),
+ 							"power-supplies");
+@@ -1334,12 +1475,36 @@
+ {
+ 	struct qcom_fg_chip *chip = platform_get_drvdata(pdev);
+ 
++	if (chip->soc_delta_irq > 0)
++		disable_irq_wake(chip->soc_delta_irq);
++
+ 	power_supply_put_battery_info(chip->batt_psy, chip->batt_info);
+ 
+ 	if(chip->sram_wq)
+ 		destroy_workqueue(chip->sram_wq);
+ }
+ 
++static int qcom_fg_suspend(struct device *dev)
++{
++	struct qcom_fg_chip *chip = dev_get_drvdata(dev);
++
++	WRITE_ONCE(chip->suspended, true);
++	return 0;
++}
++
++static int qcom_fg_resume(struct device *dev)
++{
++	struct qcom_fg_chip *chip = dev_get_drvdata(dev);
++	int cap = 100;
++
++	WRITE_ONCE(chip->suspended, false);
++	qcom_fg_get_capacity(chip, &cap);
++	power_supply_changed(chip->batt_psy);
++	return 0;
++}
++
++static SIMPLE_DEV_PM_OPS(qcom_fg_pm_ops, qcom_fg_suspend, qcom_fg_resume);
++
+ static const struct of_device_id fg_match_id_table[] = {
+ 	{ .compatible = "qcom,pmi8994-fg", .data = &ops_fg },
+ 	{ .compatible = "qcom,pmi8998-fg", .data = &ops_fg_gen3 },
+@@ -1354,6 +1519,7 @@
+ 	.driver = {
+ 		.name = "qcom-fg",
+ 		.of_match_table = fg_match_id_table,
++		.pm = &qcom_fg_pm_ops,
+ 	},
+ };
+ 

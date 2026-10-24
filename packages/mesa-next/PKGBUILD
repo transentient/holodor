@@ -54,7 +54,14 @@ pkgver=26.3.0_devel
 # patches and LOST the 2026-09-06 Cyberpunk A/B by 3.2% (docs/cyberpunk-bench-plan.md);
 # never shipped, patches parked in patches-staged/. Next pin bump: one variable at a
 # time, benched with tools/ab before it enters localrepo.
-pkgrel=10
+# pkgrel 11 (2026-10-20) = pkgrel 10 + October 2026 upstream Turnip/Freedreno/ir3 fixes:
+#  - 0006: MR !44882 QCTDD06315140 UBWC 16b/YUV-chroma workaround for a6xx gen1-gen3 (Adreno 650)
+#  - 0007: MR !44352 split large indirect draws across multiple CP_DRAW_INDIRECT_MULTI packets on A8xx (Adreno 830)
+#  - 0008: MR !44324 ir3 fix out-of-range 9-bit load_const_ir3 base offset overflow when vectors straddle 512
+#  - 0009: MR !45129 tu fix bindless descriptor invalidate sequence on A8xx and gather_push_constants early break
+# pkgrel 12 (2026-10-23) = pkgrel 11 + OUR 0010: ir3_sched only block kill/demote on same-block bary.f
+#  + tu_shader_create NULL variant guard (fixes Remedy Northlight / Control shader compile deadlock + crash).
+pkgrel=12
 _commit=bab34da4a378379e65d212b405525f50255efd31   # mesa main, 2026-08-09
 pkgdesc="Mesa trimmed for the RP6/SM8550: freedreno GL + turnip Vulkan, cortex-x3 tuned (26.1.5)"
 arch=('aarch64')
@@ -71,21 +78,36 @@ makedepends=(glslang
 )
 # upstream considers LTO broken until explicit notice (Arch mesa does the same)
 options=(!lto)
-# One source patch (a8xx 64-bit image atomics off); 0001 stays parked in patches-staged/.
+# Source patches; 0001/0003 stay parked in patches-staged/.
 source=("mesa-${_commit}.tar.gz::https://gitlab.freedesktop.org/mesa/mesa/-/archive/${_commit}/mesa-${_commit}.tar.gz"
         '0002-freedreno-a8xx-disable-64b-image-atomics.patch'
         '0004-turnip-msm-TU_NO_VM_BIND-opt-out.patch'
-        '0005-turnip-zero-UBWC-flags-at-image-bind.patch')
+        '0005-turnip-zero-UBWC-flags-at-image-bind.patch'
+        '0006-freedreno-tu-Implement-QCTDD06315140-UBWC-clear-workaround.patch'
+        '0007-tu-Split-large-indirect-draws-on-A8xx.patch'
+        '0008-ir3-Fix-potential-out-of-range-load_const_ir3-base-offset.patch'
+        '0009-tu-Fix-bindless-descriptor-invalidate-sequence-and-push-const.patch'
+        '0010-ir3-sched-only-block-kill-on-same-block-baryf.patch')
 sha256sums=('f12e8fc8b3e93ca107faf6ef6caccd99f523191d4e5cf59ff370b4e1043bcb60'
             '814bc4f091ed358d0d5621f7954552fbcd1456602273f14883b2ffc6b77e56ea'
             'ba7430c9ac266ec9d5f6cdc2c73142975cdad50ef3a522055a2a9e3c6a94aba9'
-            'ae392a73b9c9d76d9ffc23bc7ce90f6bb1c3c304bc13e10ecddaeb713631e0f9')
+            'ae392a73b9c9d76d9ffc23bc7ce90f6bb1c3c304bc13e10ecddaeb713631e0f9'
+            'ca87b3d75a852dda16fb449270c409965079f48fbcb28a4655f19563ef3c7c85'
+            'bc6f096a5198d61dc53074f3ac9ee9a125227374aee7b603aecc91ecbb095496'
+            'e25f95aaf9a8d859e9a930ffad6bf43d73125c01ee580bcb1bccd641fe60537d'
+            'f76b58e2ed1cc4619b1d9b5f39df18100fc24a7b24aa373c79ffd8285923d1ec'
+            '05b090b197eeaa17ce6af844d1549dec26eb3ff4aa88b2444f15f0c6ca8d1348')
 
 prepare() {
   cd "mesa-${_commit}"
   patch -Np1 -i "${srcdir}/0002-freedreno-a8xx-disable-64b-image-atomics.patch"
   patch -Np1 -i "${srcdir}/0004-turnip-msm-TU_NO_VM_BIND-opt-out.patch"
   patch -Np1 -i "${srcdir}/0005-turnip-zero-UBWC-flags-at-image-bind.patch"
+  patch -Np1 -i "${srcdir}/0006-freedreno-tu-Implement-QCTDD06315140-UBWC-clear-workaround.patch"
+  patch -Np1 -i "${srcdir}/0007-tu-Split-large-indirect-draws-on-A8xx.patch"
+  patch -Np1 -i "${srcdir}/0008-ir3-Fix-potential-out-of-range-load_const_ir3-base-offset.patch"
+  patch -Np1 -i "${srcdir}/0009-tu-Fix-bindless-descriptor-invalidate-sequence-and-push-const.patch"
+  patch -Np1 -i "${srcdir}/0010-ir3-sched-only-block-kill-on-same-block-baryf.patch"
   # (the 25.1.5-era c11-threads C23 patch is upstream in 26.x — dropped)
   # Include the package release in the version string so Chromium/CEF (steamwebhelper!)
   # invalidates its GPU cache across our rebuilds — same trick as Arch's mesa.

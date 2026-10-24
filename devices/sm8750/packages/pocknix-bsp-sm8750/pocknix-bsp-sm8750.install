@@ -1,8 +1,18 @@
 # pocknix-stick-leds.service animates the thumbstick rings from /var/lib/pocknix/led-mode.
 # Until 2026-09-27 nothing enabled it, so the Pocknix Control LED modes wrote a file nobody
 # read (static colours worked because `pocknix-stick-leds save` also writes the hardware).
-post_install() { _enable_leds; }
-post_upgrade() { _enable_leds; }
+post_install() { _enable_leds; _install_tplg; }
+post_upgrade() { _enable_leds; _install_tplg; }
+_install_tplg() {
+  if [ -f /usr/lib/pocknix/firmware/SM8750-AYN-tplg.bin ]; then
+    install -Dm644 /usr/lib/pocknix/firmware/SM8750-AYN-tplg.bin \
+      /usr/lib/firmware/qcom/sm8750/SM8750-AYN-tplg.bin || true
+  fi
+  if [ -f /usr/lib/pocknix/firmware/adsp.mbn ]; then
+    install -Dm644 /usr/lib/pocknix/firmware/adsp.mbn \
+      /usr/lib/firmware/qcom/sm8750/ayn/odin3/adsp.mbn || true
+  fi
+}
 _enable_leds() {
   systemctl enable pocknix-stick-leds.service pocknix-input-calibration.service >/dev/null 2>&1 || true
   # on a running system (OTA) start it now; in the image-build chroot there is no PID 1

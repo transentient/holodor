@@ -1,0 +1,101 @@
+From: Rob Clark <rob.clark@oss.qualcomm.com>
+Date: Sun, 4 Oct 2026 06:06:32 -0700
+Subject: [PATCH] freedreno,tu: Implement QCTDD06315140 UBWC 16b workaround
+
+Limit the existing UBWC clear workaround in the gallium driver to 16b
+formats on a6xx gen1-gen3 (including Adreno 650), and disable UBWC in
+Turnip for 16b formats and two-plane YUV formats with 16b (r8g8) chroma
+planes on affected GPUs.
+
+Backported from Mesa MR !44882.
+---
+--- a/src/freedreno/common/freedreno_dev_info.h
++++ b/src/freedreno/common/freedreno_dev_info.h
+@@ -480,6 +480,9 @@
+        */
+       bool has_salu_int_narrowing_quirk;
+ 
++      /* Clear ubwc flag data for 16b formats (QCTDD06315140): */
++      bool ubwc_clear_quirk;
++
+       /* Whether the device supports the image processing opcode */
+       bool has_image_processing;
+ 
+--- a/src/freedreno/common/freedreno_devices.py
++++ b/src/freedreno/common/freedreno_devices.py
+@@ -149,6 +149,7 @@
+         line_width_min = 1.0,
+         line_width_max = 1.0,
+         mov_half_shared_quirk = True,
++        ubwc_clear_quirk = True,
+         max_draw_states = 32,
+         max_texel_buffer_range_elements = 1 << 27,
+         max_storage_buffer_range_bytes = 1 << 27,
+@@ -264,6 +265,7 @@
+         # Be safe and don't enable it either.
+         # supports_linear_mipmap_threshold_in_blocks = True,
+         round_robin_errata = True,
++        ubwc_clear_quirk = False,
+     )
+ 
+ a6xx_gen1_low_magic_regs = dict(
+--- a/src/gallium/drivers/freedreno/freedreno_resource.c
++++ b/src/gallium/drivers/freedreno/freedreno_resource.c
+@@ -185,6 +185,23 @@
+    return ret;
+ }
+ 
++static bool
++needs_ubwc_clear(struct fd_screen *screen, enum pipe_format pfmt, int nr_samples)
++{
++   if (!screen->info->props.ubwc_clear_quirk)
++      return false;
++
++   if (util_format_get_blocksize(pfmt) != 2)
++      return false;
++
++   /* For r8g8 formats, only needed for MSAA 2x+ */
++   if ((util_format_get_nr_components(pfmt) == 2) && (nr_samples < 2))
++      return false;
++
++   /* Needed for all other 16b formats: */
++   return true;
++}
++
+ static void
+ realloc_bo(struct fd_resource *rsc, uint32_t size)
+ {
+@@ -217,7 +234,8 @@
+     * around the issue, but any memset value seems to.
+     */
+    if (rsc->layout.ubwc) {
+-      rsc->needs_ubwc_clear = true;
++      rsc->needs_ubwc_clear =
++         needs_ubwc_clear(screen, prsc->format, prsc->nr_samples);
+    }
+ 
+    util_range_set_empty(&rsc->valid_buffer_range);
+--- a/src/freedreno/vulkan/tu_image.cc
++++ b/src/freedreno/vulkan/tu_image.cc
+@@ -342,6 +342,21 @@
+    if (flags & VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT)
+       return false;
+ 
++   /* Workaround for QCTDD06315140 until tu implements UBWC flag clear on
++    * image transition. Note that we also need to include two-plane YUV
++    * formats with r8g8 chroma plane.
++    */
++   if (info->props.ubwc_clear_quirk) {
++      if (vk_format_get_blocksizebits(format) == 16)
++         return false;
++
++      if (vk_format_get_plane_count(format) == 2) {
++         VkFormat chroma_format = vk_format_get_plane_format(format, 1);
++         if (vk_format_get_blocksizebits(chroma_format) == 16)
++            return false;
++      }
++   }
++
+    /* no UBWC with compressed formats, E5B9G9R9, S8_UINT
+     * (S8_UINT because separate stencil doesn't have UBWC-enable bit)
+     */

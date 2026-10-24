@@ -1,0 +1,70 @@
+From: Holodor <holodor@bonesaw.com>
+Date: Thu, 22 Oct 2026 09:23:00 +0900
+Subject: [PATCH] arm64: dts: qcom: cq8725s-ayn-common: wire USB-C SS directly to usb_dp_qmpphy
+
+AYN Odin 3 does not populate an ON Semi NB7VPQ904M redriver at i2c5 0x1c
+(nb7vpq904m fails probe with -ENXIO), leaving the pmic-glink Type-C connector
+without a registered orientation-switch when routed through redriver_ss_out.
+Wire pmic_glink_ss_in directly to usb_dp_qmpphy_out.
+
+Signed-off-by: Holodor <holodor@bonesaw.com>
+---
+diff --git a/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi b/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
+--- a/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
+@@ -235,7 +235,7 @@
+ 					reg = <1>;
+ 
+ 					pmic_glink_ss_in: endpoint {
+-						remote-endpoint = <&redriver_ss_out>;
++						remote-endpoint = <&usb_dp_qmpphy_out>;
+ 					};
+ 				};
+ 
+@@ -934,37 +934,6 @@
+ 		awinic,sync-flag;
+ 		sound-name-prefix = "SPK_R";
+ 	};
+-
+-	typec_mux_redriver: typec-mux@1c {
+-		compatible = "onnn,nb7vpq904m";
+-		reg = <0x1c>;
+-
+-		vcc-supply = <&vreg_l15b_1p8>;
+-
+-		retimer-switch;
+-		orientation-switch;
+-
+-		ports {
+-			#address-cells = <1>;
+-			#size-cells = <0>;
+-
+-			port@0 {
+-				reg = <0>;
+-
+-				redriver_ss_out: endpoint {
+-					remote-endpoint = <&pmic_glink_ss_in>;
+-				};
+-			};
+-
+-			port@1 {
+-				reg = <1>;
+-
+-				redriver_ss_in: endpoint {
+-					remote-endpoint = <&usb_dp_qmpphy_out>;
+-				};
+-			};
+-		};
+-	};
+ };
+ 
+ &aoss_qmp {
+@@ -1343,7 +1312,7 @@
+ };
+ 
+ &usb_dp_qmpphy_out {
+-	remote-endpoint = <&redriver_ss_in>;
++	remote-endpoint = <&pmic_glink_ss_in>;
+ };
+ 
+ &usb_dwc3_hs {

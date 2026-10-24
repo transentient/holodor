@@ -3,8 +3,8 @@
 # Guide button, rumble, etc. We use the upstream PREBUILT aarch64 release (same as
 # ROCKNIX) — no Rust build in the chroot. RP6 device config ships in pocknix-bsp.
 pkgname=inputplumber
-pkgver=0.81.0
-pkgrel=2   # 2 (2026-09-27): package() collision guard — fail the build if upstream ships a device config for our hardware that pocknix-bsp-sm8750 does not shadow (0.79+ added 50-ayn_odin3.yaml and it stole the gamepad on RC 20260927)
+pkgver=0.82.0
+pkgrel=1   # 0.82.0 (2026-10-20): upstream v0.82.0 (new udev device classification, ROG Ally / Claw / Legion Go fixes, retains our collision guard for 50-ayn_odin3.yaml / 50-retroid_pocket6.yaml)
 # 0.77.2 -> 0.81.0 (2026-09-24, WP2 resume dead-controls, the "braces"): carries 0.78.1
 # "Resolve permission errors when unhiding devices" (#582), 0.79.1 "Prevent Legion Go 2
 # from dropping CompositeDevice on suspend", 0.80.0 "restore device node permissions on
@@ -34,8 +34,8 @@ conflicts=('inputplumber')
 # Prebuilt binary: don't strip/lto/etc.
 options=('!strip' '!debug' '!lto')
 source=("inputplumber-aarch64-${pkgver}.tar.gz::https://github.com/ShadowBlip/InputPlumber/releases/download/v${pkgver}/inputplumber-aarch64.tar.gz")
-# From the release's inputplumber-aarch64.tar.gz.sha256.txt sidecar, verified 2026-09-24.
-sha256sums=('5509a6f79bec95c240de34833639e3ba8a144752e3745e6eb978b38b8aa05a10')
+# From the release's inputplumber-aarch64.tar.gz.sha256.txt sidecar, verified 2026-10-20.
+sha256sums=('2695fc677f2ec1945a642e530029105d78be7d3058f412f31e83c37be5c9eeea')
 
 package() {
   # Release tarball lays out usr/ at the top (bin, lib/systemd, share/inputplumber, dbus,

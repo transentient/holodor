@@ -14,6 +14,6 @@ esac
 [ -d "${dir}" ] || exit 0
 for hook in "${dir}"/*; do
   [ -x "${hook}" ] || continue
-  "${hook}" "$@" 2>/dev/kmsg || echo "pocknix-sleep: ${hook##*/} failed" >/dev/kmsg
+  timeout --kill-after=3 15 "${hook}" "$@" 2>/dev/kmsg || echo "pocknix-sleep: ${hook##*/} failed (rc=$?)" >/dev/kmsg
 done
 exit 0

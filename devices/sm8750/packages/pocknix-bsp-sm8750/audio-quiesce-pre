@@ -1,0 +1,95 @@
+#!/bin/sh
+# 002-audio-quiesce (pre) — ensure Q6APM / SoundWire / LPASS_HW_MACRO / LPASS_HW_DCODEC
+# release their ADSP votes before system suspend on SM8750 (AYN Odin 3).
+#
+# Why this is needed on SM8750:
+#   1. 50-no-sink-suspend.conf keeps the Speaker and Headphones ALSA PCMs open
+#      while idle (session.suspend-timeout-seconds = 0) to avoid idle DSP pops/ticks.
+#   2. Kernel patch 0603 calls pm_runtime_forbid() (power/control = "on") on both
+#      WCD939x SoundWire slaves (sdw:2:0:0217:010e:00:4, sdw:3:0:0217:010e:00:3)
+#      so MBHC headphone jack detection works while the system is awake.
+#   Together, these hold LPASS_HW_MACRO, LPASS_HW_DCODEC, and 19.2 MHz MCLKs ON
+#      across s2idle, causing the ADSP to wake up >50 times/sec (~71% residency).
+#
+# Sequence:
+#   1. Drop ASoC pmdown_time to 0 ms, WCD939x/SoundWire autosuspend to 50 ms,
+#      and allow runtime PM (power/control = "auto") on SoundWire slaves.
+#   2. Load a temporary null sink (`pocknix_sleep_null`), move active sink-inputs
+#      to it, and suspend `alsa_output.platform-sound.*` and `alsa_input.platform-sound.*`.
+#   3. Wait up to 800 ms for LPASS_HW_MACRO == 0, LPASS_HW_DCODEC == 0, and both
+#      WCD939x SoundWire slaves to reach runtime_status == suspended (~99.97% ADSP
+#      sleep residency in s2idle).
+
+clk_macro=/sys/kernel/debug/clk/LPASS_HW_MACRO/clk_prepare_count
+clk_dcodec=/sys/kernel/debug/clk/LPASS_HW_DCODEC/clk_prepare_count
+state=/run/pocknix-audio-quiesce-state
+rm -f "${state}"
+
+before_macro=$(cat "${clk_macro}" 2>/dev/null || echo 0)
+before_dcodec=$(cat "${clk_dcodec}" 2>/dev/null || echo 0)
+
+for f in /sys/devices/platform/sound/*/pmdown_time; do
+  [ -w "${f}" ] && echo 0 > "${f}" 2>/dev/null || true
+done
+[ -w /sys/devices/platform/audio-codec/power/autosuspend_delay_ms ] && \
+  echo 50 > /sys/devices/platform/audio-codec/power/autosuspend_delay_ms 2>/dev/null || true
+for d in /sys/bus/soundwire/devices/*/power/autosuspend_delay_ms \
+         /sys/devices/platform/soc@0/*.soundwire/power/autosuspend_delay_ms; do
+  [ -w "${d}" ] && echo 50 > "${d}" 2>/dev/null || true
+done
+for c in /sys/bus/soundwire/devices/*/power/control; do
+  [ -w "${c}" ] && echo auto > "${c}" 2>/dev/null || true
+done
+
+mod_id=""
+prev_default=""
+uid=$(id -u deck 2>/dev/null || echo 1001)
+rdir="/run/user/${uid}"
+if [ -S "${rdir}/pulse/native" ]; then
+  prev_default=$(runuser -u deck -- env XDG_RUNTIME_DIR="${rdir}" \
+    timeout 2 pactl get-default-sink 2>/dev/null || true)
+  mod_id=$(runuser -u deck -- env XDG_RUNTIME_DIR="${rdir}" \
+    timeout 2 pactl load-module module-null-sink sink_name=pocknix_sleep_null 2>/dev/null || true)
+  if [ -n "${mod_id}" ]; then
+    runuser -u deck -- env XDG_RUNTIME_DIR="${rdir}" \
+      timeout 2 pactl set-default-sink pocknix_sleep_null 2>/dev/null || true
+  fi
+  for si in $(runuser -u deck -- env XDG_RUNTIME_DIR="${rdir}" \
+    timeout 2 pactl list sink-inputs short 2>/dev/null | awk '{print $1}'); do
+    runuser -u deck -- env XDG_RUNTIME_DIR="${rdir}" \
+      timeout 2 pactl move-sink-input "${si}" pocknix_sleep_null 2>/dev/null || true
+  done
+  for s in $(runuser -u deck -- env XDG_RUNTIME_DIR="${rdir}" \
+    timeout 2 pactl list sinks short 2>/dev/null | awk '/alsa_output\.platform-sound/{print $2}'); do
+    runuser -u deck -- env XDG_RUNTIME_DIR="${rdir}" \
+      timeout 2 pactl suspend-sink "${s}" 1 2>/dev/null || true
+  done
+  for src in $(runuser -u deck -- env XDG_RUNTIME_DIR="${rdir}" \
+    timeout 2 pactl list sources short 2>/dev/null | awk '/alsa_input\.platform-sound/{print $2}'); do
+    runuser -u deck -- env XDG_RUNTIME_DIR="${rdir}" \
+      timeout 2 pactl suspend-source "${src}" 1 2>/dev/null || true
+  done
+fi
+
+printf 'mod_id=%s\nprev_default=%s\n' "${mod_id}" "${prev_default}" > "${state}.tmp" && mv -f "${state}.tmp" "${state}"
+
+i=0
+after_macro="${before_macro}"
+after_dcodec="${before_dcodec}"
+sdw_rx="active"
+sdw_tx="active"
+while [ "${i}" -lt 8 ]; do
+  after_macro=$(cat "${clk_macro}" 2>/dev/null || echo 0)
+  after_dcodec=$(cat "${clk_dcodec}" 2>/dev/null || echo 0)
+  sdw_rx=$(cat /sys/bus/soundwire/devices/sdw:2:0:0217:010e:00:4/power/runtime_status 2>/dev/null || echo suspended)
+  sdw_tx=$(cat /sys/bus/soundwire/devices/sdw:3:0:0217:010e:00:3/power/runtime_status 2>/dev/null || echo suspended)
+  if [ "${after_macro:-0}" -eq 0 ] 2>/dev/null && [ "${after_dcodec:-0}" -eq 0 ] 2>/dev/null && \
+     [ "${sdw_rx}" = "suspended" ] && [ "${sdw_tx}" = "suspended" ]; then
+    break
+  fi
+  sleep 0.1
+  i=$((i + 1))
+done
+
+echo "002-audio-quiesce: LPASS_HW_MACRO ${before_macro}->${after_macro} DCODEC ${before_dcodec}->${after_dcodec} (sdw=${sdw_rx}/${sdw_tx}, mod=${mod_id:-none})" >/dev/kmsg 2>/dev/null || true
+exit 0

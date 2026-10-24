@@ -1,0 +1,76 @@
+From 2755d64a645bb84926d5c7954c9947e5aea66356 Mon Sep 17 00:00:00 2001
+From: Callum Fare <callum@igalia.com>
+Date: Thu, 27 Aug 2026 15:47:49 +0100
+Subject: [PATCH] ir3: Fix potential out-of-range load_const_ir3 base offset
+
+When handling a load_const_ir3 intrinsic, it is possible for the base offset to be
+below the 9-bit hardware limit but the resulting base offsets for some vector
+components to exceed the limit. This results in relative offsets overflowing:
+
+add.f r48.x, c<a0.x + 1>, c<a0.x + 509>
+add.f r48.y, c<a0.x + 2>, c<a0.x + 510>
+add.f r48.z, c<a0.x + 3>, c<a0.x + 511>
+(ul)add.f r48.w, c<a0.x + 4>, c<a0.x + -512>
+
+This change modifies fixup_load_const_ir3_instr to check whether the rewritten
+base offset for each vector component fits in the hardware limit. If the vector
+straddles the limit, it scalarizes the intrinsic to ensure each base offset is
+valid. This scalar form also prevents nir_opt_offsets from incorrectly
+recombining the offset additions.
+
+Fixes: 8f54028479b ("ir3: Reduce max const file indirect offset base to 9 bits")
+
+Signed-off-by: Callum Fare <callum@igalia.com>
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44324>
+---
+ .../ir3/ir3_nir_analyze_ubo_ranges.c          | 27 +++++++++++++++++--
+ 1 file changed, 25 insertions(+), 2 deletions(-)
+
+diff --git a/src/freedreno/ir3/ir3_nir_analyze_ubo_ranges.c b/src/freedreno/ir3/ir3_nir_analyze_ubo_ranges.c
+index 0c3570dbf82d..3a1a41dd194d 100644
+--- a/src/freedreno/ir3/ir3_nir_analyze_ubo_ranges.c
++++ b/src/freedreno/ir3/ir3_nir_analyze_ubo_ranges.c
+@@ -767,8 +767,9 @@ fixup_load_const_ir3_instr(struct nir_builder *b, nir_instr *instr, void *arg)
+    const unsigned base_offset_limit = (1 << 9); /* 9 bits */
+    unsigned base_offset = nir_intrinsic_base(intr);
+ 
+-   /* Or cases were base offset is lower than the hw limit: */
+-   if (base_offset < base_offset_limit)
++   /* Or cases where base offset for each component (because we scalarize the
++    * intrinsic when emitting ir3) fits in the hw limit: */
++   if (base_offset <= base_offset_limit - intr->num_components)
+       return NULL;
+ 
+    b->cursor = nir_before_instr(instr);
+@@ -795,6 +796,28 @@ fixup_load_const_ir3_instr(struct nir_builder *b, nir_instr *instr, void *arg)
+     */
+    unsigned new_base_offset = base_offset % base_offset_limit;
+ 
++   /* If the vector components straddle the hardware limit, we scalarize the
++    * intrinsic so that nir_opt_offsets is able to see which offset additions
++    * for individual components are safe to fold back into the base offset.
++    */
++   if (new_base_offset > base_offset_limit - intr->num_components) {
++      nir_def *results[NIR_MAX_VEC_COMPONENTS];
++      for (unsigned i = 0; i < intr->def.num_components; i++) {
++         unsigned component_base_offset = base_offset + i;
++         new_base_offset = component_base_offset % base_offset_limit;
++
++         results[i] = nir_load_const_ir3(
++            b, 1, intr->def.bit_size,
++            nir_iadd_imm(b, offset, component_base_offset - new_base_offset),
++            .base = new_base_offset);
++      }
++
++      nir_def *result = nir_vec(b, results, intr->def.num_components);
++
++      return result;
++   }
++
++   /* All components fit, just update the existing intrinsic: */
+    nir_intrinsic_set_base(intr, new_base_offset);
+    offset = nir_iadd_imm(b, offset, base_offset - new_base_offset);
+ 
+-- 
+GitLab
+

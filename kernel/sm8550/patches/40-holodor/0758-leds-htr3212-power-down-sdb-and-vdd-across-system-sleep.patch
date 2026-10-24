@@ -1,0 +1,75 @@
+From 6f134d5c89b471440abfd0e2a4528d570f1d5962 Mon Sep 17 00:00:00 2001
+From: Teguh Sobirin <teguh@sobir.in>
+Date: Wed, 2 Sep 2026 23:24:32 +0700
+Subject: [PATCH] leds: htr3212: add system sleep suspend/resume support
+
+Reset registers, pull SDB low, and disable VDD across system sleep
+unless the controller is marked always-on, and re-enable VDD, SDB, and
+register initialization on resume.
+
+Signed-off-by: Teguh Sobirin <teguh@sobir.in>
+---
+diff --git a/drivers/leds/leds-htr3212.c b/drivers/leds/leds-htr3212.c
+--- a/drivers/leds/leds-htr3212.c
++++ b/drivers/leds/leds-htr3212.c
+@@ -288,6 +288,52 @@
+ 	regulator_disable(priv->vdd);
+ }
+ 
++static int htr3212_suspend(struct device *dev)
++{
++	struct htr3212_priv *priv = dev_get_drvdata(dev);
++	int ret;
++
++	if (device_property_read_bool(dev, "always-on"))
++		return 0;
++
++	ret = htr3212_reset_regs(priv);
++	if (ret) {
++		dev_err(dev, "Failed to reset registers on suspend (%pe)\n",
++			ERR_PTR(ret));
++		return ret;
++	}
++
++	gpiod_set_value_cansleep(priv->sdb, 0);
++
++	regulator_disable(priv->vdd);
++
++	return 0;
++}
++
++static int htr3212_resume(struct device *dev)
++{
++	struct htr3212_priv *priv = dev_get_drvdata(dev);
++	int ret = 0;
++
++	if (device_property_read_bool(dev, "always-on"))
++		return 0;
++
++	ret = regulator_enable(priv->vdd);
++	if (ret < 0)
++		return ret;
++
++	gpiod_set_value_cansleep(priv->sdb, 1);
++	usleep_range(10000, 11000);
++
++	ret = htr3212_init_regs(priv);
++	if (ret)
++		return ret;
++
++	return 0;
++}
++
++static DEFINE_SIMPLE_DEV_PM_OPS(htr3212_pm, htr3212_suspend, htr3212_resume);
++
+ static const struct of_device_id of_htr3212_match[] = {
+ 	{ .compatible = "heroic,htr3212", },
+ 	{ /* sentinel */ }
+@@ -306,6 +352,7 @@
+ 	.driver = {
+ 		.name	= "htr3212",
+ 		.of_match_table = of_htr3212_match,
++		.pm	= pm_sleep_ptr(&htr3212_pm),
+ 	},
+ 	.probe		= htr3212_probe,
+ 	.remove		= htr3212_remove,

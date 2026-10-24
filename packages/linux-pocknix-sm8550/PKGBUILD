@@ -19,7 +19,7 @@
 # (quirk params), owned by each device's BSP (e.g. pocknix-bsp-rp6).
 pkgname=linux-pocknix-sm8550
 pkgver=7.1.2
-pkgrel=5
+pkgrel=6    # 6 (2026-10-21): RetroidPocket 7.3 integration (0527 q6apm-lpass RX port start at prepare, 0758 leds-htr3212 system sleep power-down, 0763..0765 SoundWire/MI2S/TX-macro fixes, 0820..0822 DPU MERGE_3D, single-mixer preference, and visionox-vtdr6130 RP6 60Hz+120Hz/backlight fixes, 0830..0835 ath12k stability/recovery/MHI suspend fixes, RP6 & AYN common DTS updates) + 0045 drm/msm/gem bound wait in msm_gem_close + 0516 clk-qcom-rpmh sleep state on first send.
 pkgdesc="SM8550 kernel (stock ${pkgver} + ROCKNIX patch stack, all-boards dtbs) — packaged from 'make kernel' output"
 arch=('aarch64')
 url="https://github.com/shuuri-labs/pocknix-os"

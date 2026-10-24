@@ -66,12 +66,16 @@ echo steamdeck_stable > "${STEAM}/package/beta"
 # supervisor hot-loops (black flashes). Clear any leftover Steam before launching so this instance
 # owns the session. Only ever runs at game-session START, when no legit Steam should be alive.
 uid="$(id -u)"
-if pgrep -u "${uid}" -x steam >/dev/null 2>&1 || pgrep -u "${uid}" -f steamwebhelper >/dev/null 2>&1; then
-  echo "[pocknix-steam] clearing a stale Steam from a previous session..."
+if pgrep -u "${uid}" -x steam >/dev/null 2>&1 || pgrep -u "${uid}" -f steamwebhelper >/dev/null 2>&1 || pgrep -u "${uid}" -x gamescope-wl >/dev/null 2>&1 || pgrep -u "${uid}" -x gamescope >/dev/null 2>&1; then
+  echo "[pocknix-steam] clearing a stale Steam/gamescope from a previous session..."
   env LD_LIBRARY_PATH="${LDLP}" "${CLIENT}" -shutdown >/dev/null 2>&1 || true
   for _ in $(seq 1 8); do pgrep -u "${uid}" -x steam >/dev/null 2>&1 || break; sleep 1; done
-  pkill -u "${uid}" -KILL -x steam        2>/dev/null || true
-  pkill -u "${uid}" -KILL -f steamwebhelper 2>/dev/null || true
+  pkill -u "${uid}" -KILL -x steam           2>/dev/null || true
+  pkill -u "${uid}" -KILL -f steamwebhelper  2>/dev/null || true
+  pkill -u "${uid}" -KILL -x gamescopereaper 2>/dev/null || true
+  pkill -u "${uid}" -KILL -x mangoapp        2>/dev/null || true
+  pkill -u "${uid}" -KILL -x gamescope-wl    2>/dev/null || true
+  pkill -u "${uid}" -KILL -x gamescope       2>/dev/null || true
 fi
 
 # Default compat tool: seed the GLOBAL "run other titles with" mapping to the bundled ARM

@@ -30,7 +30,7 @@
 		compatible = "simple-battery";
 
 		charge-full-design-microamp-hours = <3850000>;
-		voltage-min-design-microvolt = <3600000>;
+		voltage-min-design-microvolt = <3400000>;
 		voltage-max-design-microvolt = <4400000>;
 	};
 
@@ -400,6 +400,11 @@
 			regulator-min-microvolt = <3072000>;
 			regulator-max-microvolt = <3072000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_l3a_0p9: ldo3 {
@@ -414,6 +419,11 @@
 			regulator-min-microvolt = <880000>;
 			regulator-max-microvolt = <880000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_l6a_1p2: ldo6 {
@@ -421,6 +431,11 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <1200000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_l7a_1p7: ldo7 {
@@ -435,6 +450,11 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <1200000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_l10a_1p8: ldo10 {
@@ -484,6 +504,11 @@
 			regulator-min-microvolt = <2856000>;
 			regulator-max-microvolt = <3008000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_l18a_0p92: ldo18 {
@@ -491,6 +516,11 @@
 			regulator-min-microvolt = <800000>;
 			regulator-max-microvolt = <912000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_s5a_1p9: smps5 {
@@ -498,6 +528,11 @@
 			regulator-min-microvolt = <1904000>;
 			regulator-max-microvolt = <2000000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_s6a_0p95: smps6 {
@@ -505,6 +540,11 @@
 			regulator-min-microvolt = <920000>;
 			regulator-max-microvolt = <1128000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 	};
 
@@ -532,6 +572,11 @@
 			regulator-min-microvolt = <3008000>;
 			regulator-max-microvolt = <4000000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_AUTO>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_l1c_1p8: ldo1 {
@@ -539,6 +584,11 @@
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <1800000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_l2c_1p2: ldo2 {
@@ -574,6 +624,11 @@
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <2960000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_l7c_cam_vcm0_2p85: ldo7 {
@@ -595,6 +650,11 @@
 			regulator-min-microvolt = <2704000>;
 			regulator-max-microvolt = <2960000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_l10c_3p0: ldo10 {
@@ -610,6 +670,11 @@
 			regulator-max-microvolt = <3296000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 			regulator-always-on;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_s8c_1p3: smps8 {
@@ -617,6 +682,11 @@
 			regulator-min-microvolt = <1352000>;
 			regulator-max-microvolt = <1352000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 	};
 };
@@ -637,6 +707,12 @@
 
 &gpu {
 	status = "okay";
+};
+
+&gpucc {
+	clocks = <&rpmhcc RPMH_CXO_CLK_A>,
+		 <&gcc GCC_GPU_GPLL0_CLK_SRC>,
+		 <&gcc GCC_GPU_GPLL0_DIV_CLK_SRC>;
 };
 
 &gpu_zap_shader {
@@ -835,6 +911,16 @@
 	 * (dp_sbu_mux in the root node). tlmm 9 was this node's enable pin: it is
 	 * the AUX switch enable.
 	 */
+};
+
+&dispcc {
+	clocks = <&rpmhcc RPMH_CXO_CLK_A>,
+		 <&mdss_dsi0_phy DSI_BYTE_PLL_CLK>,
+		 <&mdss_dsi0_phy DSI_PIXEL_PLL_CLK>,
+		 <&mdss_dsi1_phy DSI_BYTE_PLL_CLK>,
+		 <&mdss_dsi1_phy DSI_PIXEL_PLL_CLK>,
+		 <&usb_1_qmpphy QMP_USB43DP_DP_LINK_CLK>,
+		 <&usb_1_qmpphy QMP_USB43DP_DP_VCO_DIV_CLK>;
 };
 
 &mdss {
@@ -1521,6 +1607,10 @@
 &ufs_mem_phy {
 	status = "okay";
 
+	clocks = <&rpmhcc RPMH_CXO_CLK_A>,
+		 <&gcc GCC_UFS_PHY_PHY_AUX_CLK>,
+		 <&gcc GCC_UFS_1X_CLKREF_EN>;
+
 	vdda-phy-supply = <&vreg_l5a_0p88>;
 	vdda-pll-supply = <&vreg_l9a_1p2>;
 };
@@ -1541,6 +1631,8 @@
 &usb_1_hsphy {
 	status = "okay";
 
+	clocks = <&rpmhcc RPMH_CXO_CLK_A>;
+
 	vdda-pll-supply = <&vreg_l5a_0p88>;
 	vdda33-supply = <&vreg_l2a_3p1>;
 	vdda18-supply = <&vreg_l12a_1p8>;
@@ -1548,6 +1640,11 @@
 
 &usb_1_qmpphy {
 	status = "okay";
+
+	clocks = <&gcc GCC_USB3_PRIM_PHY_AUX_CLK>,
+		 <&rpmhcc RPMH_CXO_CLK_A>,
+		 <&gcc GCC_USB3_PRIM_PHY_COM_AUX_CLK>,
+		 <&gcc GCC_USB3_PRIM_PHY_PIPE_CLK>;
 
 	vdda-phy-supply = <&vreg_l9a_1p2>;
 	vdda-pll-supply = <&vreg_l18a_0p92>;

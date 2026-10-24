@@ -1,0 +1,71 @@
+From 1877d7230554c26f9558b215d0349253df378f5e Mon Sep 17 00:00:00 2001
+From: Teguh Sobirin <teguh@sobir.in>
+Date: Tue, 8 Sep 2026 22:37:35 +0000
+Subject: [PATCH] wifi: ath12k: guard the link peer table against concurrent
+ teardown
+
+ath12k_dp_cleanup() destroys the peer rhashtable on a firmware crash
+while lookups reachable from userspace can still run, giving a NULL
+dereference in ath12k_dp_link_peer_find_by_addr(). Clear the pointer
+under dp_lock before the sleeping destroy, and make lookup, insert and
+remove tolerate its absence.
+
+Signed-off-by: Teguh Sobirin <teguh@sobir.in>
+---
+diff --git a/drivers/net/wireless/ath/ath12k/dp_peer.c b/drivers/net/wireless/ath/ath12k/dp_peer.c
+--- a/drivers/net/wireless/ath/ath12k/dp_peer.c
++++ b/drivers/net/wireless/ath/ath12k/dp_peer.c
+@@ -62,6 +62,10 @@
+ {
+ 	lockdep_assert_held(&dp->dp_lock);
+ 
++	/* torn down by ath12k_dp_cleanup() on a crash */
++	if (!dp->rhead_peer_addr)
++		return NULL;
++
+ 	return rhashtable_lookup_fast(dp->rhead_peer_addr, addr,
+ 				      dp->rhash_peer_addr_param);
+ }
+@@ -274,10 +278,20 @@
+ 
+ void ath12k_dp_link_peer_rhash_tbl_destroy(struct ath12k_dp *dp)
+ {
++	struct rhashtable *tbl;
++
+ 	mutex_lock(&dp->link_peer_rhash_tbl_lock);
+-	rhashtable_destroy(dp->rhead_peer_addr);
+-	kfree(dp->rhead_peer_addr);
++
++	/* clear under dp_lock; rhashtable_destroy() sleeps */
++	spin_lock_bh(&dp->dp_lock);
++	tbl = dp->rhead_peer_addr;
+ 	dp->rhead_peer_addr = NULL;
++	spin_unlock_bh(&dp->dp_lock);
++
++	if (tbl) {
++		rhashtable_destroy(tbl);
++		kfree(tbl);
++	}
+ 	mutex_unlock(&dp->link_peer_rhash_tbl_lock);
+ }
+ 
+@@ -288,6 +302,9 @@
+ 
+ 	lockdep_assert_held(&dp->dp_lock);
+ 
++	if (!dp->rhead_peer_addr)
++		return -ENOENT;
++
+ 	tmp = rhashtable_lookup_get_insert_fast(dp->rhead_peer_addr, &peer->rhash_addr,
+ 						dp->rhash_peer_addr_param);
+ 	if (!tmp)
+@@ -305,6 +322,9 @@
+ 
+ 	lockdep_assert_held(&dp->dp_lock);
+ 
++	if (!dp->rhead_peer_addr)
++		return 0;
++
+ 	ret = rhashtable_remove_fast(dp->rhead_peer_addr, &peer->rhash_addr,
+ 				     dp->rhash_peer_addr_param);
+ 	if (ret && ret != -ENOENT)

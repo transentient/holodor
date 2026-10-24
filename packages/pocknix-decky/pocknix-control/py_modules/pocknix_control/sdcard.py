@@ -26,9 +26,20 @@ def _init_ns_mountpoint(part):
     return (proc.stdout or "").strip()
 
 
+def _is_boot_disk():
+    proc = run_cmd(["findmnt", "-N", "1", "-no", "SOURCE", "/", "/flash"], timeout=5)
+    if proc is None or proc.returncode != 0:
+        return False
+    for line in (proc.stdout or "").splitlines():
+        src = line.strip()
+        if src == SD_DISK or src.startswith(SD_DISK + "p"):
+            return True
+    return False
+
+
 def detect_sdcard():
     absent = {"present": False}
-    if not Path(SD_DISK).exists():
+    if not Path(SD_DISK).exists() or _is_boot_disk():
         return absent
     # FSTYPE/LABEL come from the udev db on the shared /run tmpfs, so they stay current
     # inside the namespace even though the mount table doesn't.
@@ -59,6 +70,8 @@ def format_sdcard(label):
         raise ValueError("Label must be 1-16 characters: letters, digits, - or _")
     if not Path(SD_DISK).exists():
         raise RuntimeError("No microSD card detected")
+    if _is_boot_disk():
+        raise RuntimeError("Refusing to format the OS boot microSD card")
     if not _format_lock.acquire(blocking=False):
         raise RuntimeError("A format is already in progress")
     try:

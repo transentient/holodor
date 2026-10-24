@@ -31,6 +31,7 @@ const deleteFanCurve = (name) => call("delete_fan_curve", name);
 const getFanStatus = () => call("fan_status");
 const setPowerMode = (mode) => call("set_power_mode", mode);
 const setChargeLimit = (pct) => call("set_charge_limit", pct);
+const setBypassCharging = (enabled) => call("set_bypass_charging", enabled);
 const setLedColor = (hex) => call("set_led_color", hex);
 const setLedMode = (mode) => call("set_led_mode", mode);
 const zeroStickCenters = () => call("zero_stick_centers");
@@ -43,6 +44,7 @@ const formatSdcard = (label) => call("format_sdcard", label);
 const checkUpdates = () => call("check_updates");
 const startUpdate = () => call("start_update");
 const updateStatus = () => call("update_status");
+const rebootToAndroid = () => call("reboot_to_android");
 
 function useDebouncedSave(options) {
     const { config, field, snapshot, save, setConfig, onError, delay = 900 } = options;
@@ -375,6 +377,13 @@ const audioLatencyOptions = [
     { data: "90", label: "90 ms" },
     { data: "120", label: "120 ms" },
 ];
+const powerProfileOptions = [
+    { data: "", label: "System default" },
+    { data: "eco", label: "Eco (~60% clocks)" },
+    { data: "balanced", label: "Balanced (~80% clocks)" },
+    { data: "performance", label: "Performance (uncapped)" },
+    { data: "max", label: "Max (pinned clocks)" },
+];
 // Per-flag FEX toggles (Armada Control parity). Order and labels match their
 // panel; each overrides the selected preset's value for that flag only.
 const lsfgMultiplierOptions = [
@@ -444,6 +453,8 @@ function Games({ config, setConfig }) {
     const storedProfile = values.fexProfile;
     const fexValue = storedProfile && presets[storedProfile] ? storedProfile : "default";
     const fexOptions = Object.entries(presets).map(([id, profile]) => ({ data: id, label: profile.label }));
+    const storedPower = String(values.powerProfile ?? "");
+    const powerValue = powerProfileOptions.some((option) => option.data === storedPower) ? storedPower : "";
     const storedLatency = String(values.audioLatency ?? "");
     const audioValue = audioLatencyOptions.some((option) => option.data === storedLatency) ? storedLatency : "";
     const lsfgSettings = (values.lsfg || {});
@@ -464,7 +475,7 @@ function Games({ config, setConfig }) {
             next[key] = wanted;
         patchSettings({ fexFlags: next });
     };
-    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "GAME TWEAKS", children: [SP_JSX.jsx(SelectEdit, { label: "Game", value: game?.appid || "", options: editTargetOptions(config), onChange: setSelectedGame }), SP_JSX.jsx("div", { className: "pocknix-note", children: "Changes apply on next game launch" }), !editingDefault ? SP_JSX.jsx(DFL.ToggleField, { label: "Use Per-Game Settings", checked: perGameEnabled, onChange: setPerGameEnabled }) : null, editingDefault || perGameEnabled ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(SelectEdit, { label: "FEX Preset", value: fexValue, options: fexOptions, onChange: (id) => patchSettings({ fexProfile: id, fexFlags: {} }) }), SP_JSX.jsx(SelectEdit, { label: "Audio Buffer", value: audioValue, options: audioLatencyOptions, onChange: (id) => patchSettings({ audioLatency: id }) }), SP_JSX.jsx(DFL.ToggleField, { label: "120 Hz Screen", description: "Run the screen at 120 Hz for this game. Off: 60 Hz, which is smoother unless the game holds 120 fps.", checked: values.refresh120 === true, onChange: (on) => patchSettings({ refresh120: on }) }), SP_JSX.jsx(DFL.ToggleField, { label: "Proton Game Fixes", description: "Let Proton apply its per-game fixes on launch. Off by default: some fixes never finish on this device.", checked: values.protonfixes === true, onChange: (on) => patchSettings({ protonfixes: on }) }), SP_JSX.jsx(DFL.ToggleField, { label: "Frame Insertion (LSFG)", description: "Doubles presented fps by interpolation. Needs Lossless Scaling installed from Steam. Adds a little input latency.", checked: lsfgEnabled, onChange: (on) => patchSettings({ lsfg: { ...lsfgSettings, enabled: on } }) }), lsfgEnabled ? (SP_JSX.jsx(SelectEdit, { label: "Insertion Multiplier", value: lsfgMultiplier, options: lsfgMultiplierOptions, onChange: (m) => patchSettings({ lsfg: { ...lsfgSettings, enabled: true, multiplier: String(m) } }) })) : null, SP_JSX.jsxs("div", { className: "pocknix-note", children: ["Advanced FEX flags", Object.keys(flagOverrides).length ? " (modified)" : ""] }), fexFlagDefs.map(({ key, label }) => (SP_JSX.jsx(DFL.ToggleField, { label: label, checked: effectiveFlag(key), onChange: (on) => setFlag(key, on) }, key)))] })) : null] }), SP_JSX.jsx(AddGameSection, {})] }));
+    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "GAME TWEAKS", children: [SP_JSX.jsx(SelectEdit, { label: "Game", value: game?.appid || "", options: editTargetOptions(config), onChange: setSelectedGame }), SP_JSX.jsx("div", { className: "pocknix-note", children: "Changes apply on next game launch" }), !editingDefault ? SP_JSX.jsx(DFL.ToggleField, { label: "Use Per-Game Settings", checked: perGameEnabled, onChange: setPerGameEnabled }) : null, editingDefault || perGameEnabled ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(SelectEdit, { label: "Power Profile", value: powerValue, options: powerProfileOptions, onChange: (id) => patchSettings({ powerProfile: id }) }), SP_JSX.jsx(SelectEdit, { label: "FEX Preset", value: fexValue, options: fexOptions, onChange: (id) => patchSettings({ fexProfile: id, fexFlags: {} }) }), SP_JSX.jsx(SelectEdit, { label: "Audio Buffer", value: audioValue, options: audioLatencyOptions, onChange: (id) => patchSettings({ audioLatency: id }) }), SP_JSX.jsx(DFL.ToggleField, { label: "120 Hz Screen", description: "Run the screen at 120 Hz for this game. Off: 60 Hz, which is smoother unless the game holds 120 fps.", checked: values.refresh120 === true, onChange: (on) => patchSettings({ refresh120: on }) }), SP_JSX.jsx(DFL.ToggleField, { label: "Proton Game Fixes", description: "Let Proton apply its per-game fixes on launch. Off by default: some fixes never finish on this device.", checked: values.protonfixes === true, onChange: (on) => patchSettings({ protonfixes: on }) }), SP_JSX.jsx(DFL.ToggleField, { label: "Frame Insertion (LSFG)", description: "Doubles presented fps by interpolation. Needs Lossless Scaling installed from Steam. Adds a little input latency.", checked: lsfgEnabled, onChange: (on) => patchSettings({ lsfg: { ...lsfgSettings, enabled: on } }) }), lsfgEnabled ? (SP_JSX.jsx(SelectEdit, { label: "Insertion Multiplier", value: lsfgMultiplier, options: lsfgMultiplierOptions, onChange: (m) => patchSettings({ lsfg: { ...lsfgSettings, enabled: true, multiplier: String(m) } }) })) : null, SP_JSX.jsxs("div", { className: "pocknix-note", children: ["Advanced FEX flags", Object.keys(flagOverrides).length ? " (modified)" : ""] }), fexFlagDefs.map(({ key, label }) => (SP_JSX.jsx(DFL.ToggleField, { label: label, checked: effectiveFlag(key), onChange: (on) => setFlag(key, on) }, key)))] })) : null] }), SP_JSX.jsx(AddGameSection, {})] }));
 }
 
 const TEMP_MIN = 0;
@@ -805,6 +816,8 @@ const lavdOptions = [
 ];
 function Power({ config, setConfig, reload }) {
     const [stickMsg, setStickMsg] = SP_REACT.useState("");
+    const [confirmAndroid, setConfirmAndroid] = SP_REACT.useState(false);
+    const [androidMsg, setAndroidMsg] = SP_REACT.useState("");
     const zeroSticks = async () => {
         setStickMsg("Sampling, hands off...");
         try {
@@ -823,6 +836,20 @@ function Power({ config, setConfig, reload }) {
         }
         catch (e) {
             setStickMsg("Failed: " + (e?.message ?? String(e)));
+        }
+    };
+    const handleBootAndroid = async () => {
+        if (!confirmAndroid) {
+            setConfirmAndroid(true);
+            return;
+        }
+        setAndroidMsg("Switching boot mode and rebooting to Android...");
+        try {
+            await rebootToAndroid();
+        }
+        catch (e) {
+            setConfirmAndroid(false);
+            setAndroidMsg("Failed: " + (e?.message ?? String(e)));
         }
     };
     const applyLedMode = async (mode) => {
@@ -847,6 +874,15 @@ function Power({ config, setConfig, reload }) {
         try {
             const next = await setChargeLimit(pct);
             setConfig((current) => (current ? { ...current, chargeLimit: next.chargeLimit } : current));
+        }
+        catch (error) {
+            reload();
+        }
+    };
+    const applyBypass = async (on) => {
+        try {
+            const next = await setBypassCharging(on);
+            setConfig((current) => (current ? { ...current, bypassCharging: next.bypassCharging } : current));
         }
         catch (error) {
             reload();
@@ -890,7 +926,7 @@ function Power({ config, setConfig, reload }) {
             return;
         DFL.showModal(SP_JSX.jsx(FanCurveModal, { name: config.fanMode, curve: activeCurve, existing: config.fanCurves, onSaved: (next) => setConfig((current) => (current ? { ...current, fanMode: next.fanMode, fanCurves: next.fanCurves } : current)) }));
     };
-    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "PERFORMANCE", children: [SP_JSX.jsx(SelectEdit, { label: "Power Profile", value: config.powerMode, options: powerOptions, onChange: (mode) => applyMode(setPowerMode, mode) }), SP_JSX.jsx(SelectEdit, { label: "Charge Limit (experimental)", value: config.chargeLimit, options: chargeOptions, onChange: (pct) => applyCharge(pct) }), SP_JSX.jsx(SelectEdit, { label: "CPU Scheduler", value: config.lavdMode, options: lavdOptions, onChange: (mode) => applyMode(setLavdMode, mode) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "DOWNLOADS", children: [SP_JSX.jsx(SelectEdit, { label: "Stay awake for downloads", value: config.downloadInhibitMode || "always", options: downloadInhibitOptions, onChange: (mode) => applyMode(setDownloadInhibitMode, mode) }), SP_JSX.jsx("div", { className: "pocknix-note", children: "A download that is interrupted by sleep does not resume on its own. While one is running and this is on, the device stays awake and the power button will not put it to sleep. Below 5% on battery it powers off regardless." })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "FAN", children: [SP_JSX.jsx(SelectEdit, { label: "Fan Curve", value: config.fanMode, options: fanOptions(config), onChange: (mode) => applyMode(setFanMode, mode) }), activeCurve ? SP_JSX.jsx(FanCurveGraph, { points: parseCurve(activeCurve.curve), currentTemp: fan?.temp ?? null }) : null, SP_JSX.jsx("div", { className: "pocknix-note", children: fan && fan.temp !== null && fan.percent !== null ? `Now: ${fan.temp}°C, fan at ${fan.percent}%` : "Fan readout unavailable" }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: openEditor, disabled: !activeCurve, children: activeCurve?.factory ? "Customize this curve..." : "Edit this curve..." }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "STICKS", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", description: "Sets the resting position of both sticks as centre. Let go of the sticks first." + (config.stickCenters ? " Saved: " + config.stickCenters : ""), onClick: zeroSticks, children: "Zero stick centres" }) }), config.stickCenters && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: resetSticks, children: "Reset stick centres" }) })), stickMsg && SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "12px", opacity: 0.8 }, children: stickMsg }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "STICK LEDS", children: [SP_JSX.jsx(SelectEdit, { label: "Effect", value: config.ledMode, options: ledEffectOptions, onChange: (mode) => applyLedMode(mode) }), ledColorRelevant && (SP_JSX.jsx(ColorPalette, { colors: ledColorPresets, value: config.ledColor, onChange: (hex) => applyLed(hex) }))] })] }));
+    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "PERFORMANCE", children: [SP_JSX.jsx(SelectEdit, { label: "Power Profile", value: config.powerMode, options: powerOptions, onChange: (mode) => applyMode(setPowerMode, mode) }), SP_JSX.jsx(SelectEdit, { label: "Charge Limit", value: config.chargeLimit, options: chargeOptions, onChange: (pct) => applyCharge(pct) }), config.canBypassCharging && (SP_JSX.jsx(DFL.ToggleField, { label: "Bypass Charging (Charge Separation)", description: "Power the system directly from USB-C while pausing battery charging to reduce heat and battery wear.", checked: config.bypassCharging === true, onChange: applyBypass })), SP_JSX.jsx(SelectEdit, { label: "CPU Scheduler", value: config.lavdMode, options: lavdOptions, onChange: (mode) => applyMode(setLavdMode, mode) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "DOWNLOADS", children: [SP_JSX.jsx(SelectEdit, { label: "Stay awake for downloads", value: config.downloadInhibitMode || "always", options: downloadInhibitOptions, onChange: (mode) => applyMode(setDownloadInhibitMode, mode) }), SP_JSX.jsx("div", { className: "pocknix-note", children: "A download that is interrupted by sleep does not resume on its own. While one is running and this is on, the device stays awake and the power button will not put it to sleep. Below 5% on battery it powers off regardless." })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "FAN", children: [SP_JSX.jsx(SelectEdit, { label: "Fan Curve", value: config.fanMode, options: fanOptions(config), onChange: (mode) => applyMode(setFanMode, mode) }), activeCurve ? SP_JSX.jsx(FanCurveGraph, { points: parseCurve(activeCurve.curve), currentTemp: fan?.temp ?? null }) : null, SP_JSX.jsx("div", { className: "pocknix-note", children: fan && fan.temp !== null && fan.percent !== null ? `Now: ${fan.temp}°C, fan at ${fan.percent}%` : "Fan readout unavailable" }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: openEditor, disabled: !activeCurve, children: activeCurve?.factory ? "Customize this curve..." : "Edit this curve..." }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "STICKS", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", description: "Sets the resting position of both sticks as centre. Let go of the sticks first." + (config.stickCenters ? " Saved: " + config.stickCenters : ""), onClick: zeroSticks, children: "Zero stick centres" }) }), config.stickCenters && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: resetSticks, children: "Reset stick centres" }) })), stickMsg && SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "12px", opacity: 0.8 }, children: stickMsg }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "STICK LEDS", children: [SP_JSX.jsx(SelectEdit, { label: "Effect", value: config.ledMode, options: ledEffectOptions, onChange: (mode) => applyLedMode(mode) }), ledColorRelevant && (SP_JSX.jsx(ColorPalette, { colors: ledColorPresets, value: config.ledColor, onChange: (hex) => applyLed(hex) }))] }), config.canBootAndroid && (SP_JSX.jsxs(DFL.PanelSection, { title: "DUAL BOOT", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", description: "Sets ROCKNIX ABL boot mode to Android and restarts the device.", onClick: handleBootAndroid, children: confirmAndroid ? "Tap again to confirm Reboot to Android" : "Reboot to Android" }) }), confirmAndroid && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => setConfirmAndroid(false), children: "Cancel" }) })), androidMsg && SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "12px", opacity: 0.8 }, children: androidMsg }) })] }))] }));
 }
 
 function cardSummary(card) {

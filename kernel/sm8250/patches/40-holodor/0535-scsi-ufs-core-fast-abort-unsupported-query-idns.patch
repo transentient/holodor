@@ -1,0 +1,51 @@
+From: Holodor <noreply@holodor.local>
+Subject: [PATCH] scsi: ufs: core: fast-abort unsupported query IDNs on -EINVAL
+
+Match `ufshcd_query_descriptor_retry()` by breaking out of
+`ufshcd_query_flag_retry()` and `ufshcd_query_attr_retry()` immediately
+when the UFS device returns `-EINVAL` (e.g., `QUERY_RESULT_INVALID_IDN`),
+avoiding 3 redundant retry round-trips on unsupported attributes/flags.
+---
+ drivers/ufs/core/ufshcd.c | 18 ++++++++++++------
+ 1 file changed, 12 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/ufs/core/ufshcd.c b/drivers/ufs/core/ufshcd.c
+--- a/drivers/ufs/core/ufshcd.c
++++ b/drivers/ufs/core/ufshcd.c
+@@ -3519,12 +3519,15 @@ static int ufshcd_query_flag_retry(struct ufs_hba *hba,
+ 
+ 	for (retries = 0; retries < QUERY_REQ_RETRIES; retries++) {
+ 		ret = ufshcd_query_flag(hba, opcode, idn, index, flag_res);
+-		if (ret)
++		if (ret) {
+ 			dev_dbg(hba->dev,
+ 				"%s: failed with error %d, retries %d\n",
+ 				__func__, ret, retries);
+-		else
+-			break;
++			if (ret == -EINVAL)
++				break;
++		} else {
++			break;
++		}
+ 	}
+ 
+ 	if (ret)
+@@ -3691,11 +3694,14 @@ int ufshcd_query_attr_retry(struct ufs_hba *hba,
+ 	for (retries = QUERY_REQ_RETRIES; retries > 0; retries--) {
+ 		ret = ufshcd_query_attr(hba, opcode, idn, index,
+ 						selector, attr_val);
+-		if (ret)
++		if (ret) {
+ 			dev_dbg(hba->dev, "%s: failed with error %d, retries %d\n",
+ 				__func__, ret, retries);
+-		else
+-			break;
++			if (ret == -EINVAL)
++				break;
++		} else {
++			break;
++		}
+ 	}
+ 
+ 	if (ret)

@@ -16,4 +16,11 @@ dual boot). enable_android_updates.sh turns it back on.
 restore_backup_abl.sh puts your saved stock bootloader back (Holodor can also do
 this for you from the installer).
 
+Switching between Android and Holodor:
+- From Android -> Holodor (1-tap app): Install BootHolodor.apk once in Android,
+  then tap the "Boot to Holodor" app icon anytime to reboot straight into Holodor!
+  (Or run boot_holodor.sh via Settings > Odin settings > Run script as Root.)
+- From Holodor -> Android: Open the Decky Quick Access Menu (...) > Holodor >
+  Power > "Reboot to Android" (or use "Reboot to Android" on the Desktop).
+
 Do not edit these scripts. The runner executes them one line at a time.

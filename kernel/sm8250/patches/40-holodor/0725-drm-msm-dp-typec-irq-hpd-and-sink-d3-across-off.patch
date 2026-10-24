@@ -32,7 +32,16 @@ Compile-tested against 7.1.2 + our stack (W=1 clean). First device run: kernel 2
 ---
 --- a/drivers/gpu/drm/msm/dp/dp_display.c
 +++ b/drivers/gpu/drm/msm/dp/dp_display.c
-@@ -1633,6 +1633,10 @@
+@@ -869,6 +869,8 @@
+ 
+ 	rate = dp->link->link_params.rate;
+ 
++	dp->audio_supported = dp->msm_dp_display.connector->display_info.has_audio;
++
+ 	if (dp->audio_supported) {
+ 		dp->audio->bw_code = drm_dp_link_rate_to_bw_code(rate);
+ 		dp->audio->lane_count = dp->link->link_params.num_lanes;
+@@ -1633,6 +1635,10 @@
  
  	if (hpd_state == ST_DISPLAY_OFF) {
  		msm_dp_display_host_phy_init(msm_dp_display);
@@ -43,7 +52,7 @@ Compile-tested against 7.1.2 + our stack (W=1 clean). First device run: kernel 2
  		force_link_train = true;
  	}
  
-@@ -1683,6 +1687,19 @@
+@@ -1683,6 +1689,19 @@
  		drm_dbg_dp(dp->drm_dev, "type=%d wrong hpd_state=%d\n",
  			   dp->connector_type, hpd_state);
  
@@ -63,7 +72,7 @@ Compile-tested against 7.1.2 + our stack (W=1 clean). First device run: kernel 2
  	msm_dp_display_disable(msm_dp_display);
  
  	hpd_state =  msm_dp_display->hpd_state;
-@@ -1799,4 +1816,13 @@
+@@ -1799,4 +1818,40 @@
  		msm_dp_add_event(dp, EV_HPD_PLUG_INT, 0, 0);
  	else if (msm_dp_display->link_ready && status == connector_status_disconnected)
  		msm_dp_add_event(dp, EV_HPD_UNPLUG_INT, 0, 0);
@@ -77,3 +86,36 @@ Compile-tested against 7.1.2 + our stack (W=1 clean). First device run: kernel 2
 +		 */
 +		msm_dp_add_event(dp, EV_IRQ_HPD_INT, 0, 0);
  }
+--- a/drivers/gpu/drm/msm/dp/dp_panel.c
++++ b/drivers/gpu/drm/msm/dp/dp_panel.c
+@@ -319,11 +319,20 @@
+ int msm_dp_panel_get_modes(struct msm_dp_panel *msm_dp_panel,
+ 	struct drm_connector *connector)
+ {
++	struct msm_dp_panel_private *panel;
++
+ 	if (!msm_dp_panel) {
+ 		DRM_ERROR("invalid input\n");
+ 		return -EINVAL;
+ 	}
+ 
++	panel = container_of(msm_dp_panel, struct msm_dp_panel_private, msm_dp_panel);
++
++	if (!msm_dp_panel->drm_edid)
++		msm_dp_panel->drm_edid = drm_edid_read_ddc(connector, &panel->aux->ddc);
++
++	drm_edid_connector_update(connector, msm_dp_panel->drm_edid);
++
+ 	if (msm_dp_panel->drm_edid)
+ 		return drm_edid_connector_add_modes(connector);
+ 
+--- a/drivers/gpu/drm/msm/dp/dp_debug.c
++++ b/drivers/gpu/drm/msm/dp/dp_debug.c
+@@ -216,6 +216,7 @@
+ 
+ 	debug->link = link;
+ 	debug->panel = panel;
++	debug->connector = connector;
+ 
+ 	debugfs_create_file("dp_debug", 0444, root,
+ 			debug, &msm_dp_debug_fops);

@@ -1,0 +1,642 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Holodor Project <holodor@local>
+Date: Wed, 21 Oct 2026 02:40:00 +0900
+Subject: [PATCH] soc: qcom: sm8750: enter CESTA Mode 2 deep sleep for Display
+ and PCIe0 across s2idle
+
+On SM8750 (Pakala), AOSS sleep (aosd / XO shutdown) checks the RBSC
+hardware client status register (0x005d2310). Two CESTA instances have
+hardware power-collapse sequences programmed in their RSCC sequencers
+by XBL/ABL:
+  - DRV[10] DISPLAY (disp_cesta: disp_rsc 0x0af20000, disp_crm 0x0af21000,
+    disp_scc 0x0af30000)
+  - DRV[22] PCI0 CESTA (pcie_cesta: pcie_rsc 0x01d00000, pcie_crm 0x01d01000,
+    pcie_sm 0x01d07000)
+
+Without mainline CESTA drivers:
+1. disp_rsc remains in Mode 0 (0x0af202d0 = 0x0) when mdss_gdsc is powered
+   off by Linux, keeping DRV[10] DISPLAY = 1 in RBSC_STATUS.
+2. pcie_rsc remains in Mode 0 (0x01d002d0 = 0x0) during s2idle when the
+   PCIe link is in L1ss, keeping DRV[22] PCI0 CESTA = 1 in RBSC_STATUS.
+
+Fix both in their respective SM8750 drivers exclusively during system sleep:
+- In dispcc-sm8750, add LATE_SYSTEM_SLEEP_PM_OPS (suspend_late / resume_early)
+  that transitions disp_cesta into Mode 2 (0x0af202d0 = 0x20001001) during
+  system suspend after mdss_pm_suspend has collapsed mdss_gdsc (explicitly
+  holding disp_cc runtime PM, DISP_CC_MDSS_AHB_CLK, DISP_CC_MDSS_RSCC_AHB_CLK,
+  and an ACTIVE_ONLY interconnect vote on mdss cpu-cfg), and wakes disp_cesta
+  back to Mode 0 in resume_early before mdss_pm_resume powers on mdss_gdsc.
+  Never touch disp_cesta during boot, probe deferral, runtime PM, or reboot.
+- In pcie-qcom (for qcom,pcie-sm8750), transition pcie_cesta into Mode 2
+  (0x01d002d0 = 0x00000021) in qcom_pcie_suspend_noirq() when the link stays
+  in L1ss across s2idle, and wake pcie_cesta back to Mode 0 in
+  qcom_pcie_resume_noirq().
+
+Signed-off-by: Holodor Project <holodor@local>
+---
+diff --git a/drivers/clk/qcom/dispcc-sm8750.c b/drivers/clk/qcom/dispcc-sm8750.c
+--- a/drivers/clk/qcom/dispcc-sm8750.c
++++ b/drivers/clk/qcom/dispcc-sm8750.c
+@@ -5,15 +5,23 @@
+  */
+ 
+ #include <linux/clk-provider.h>
++#include <linux/delay.h>
+ #include <linux/err.h>
++#include <linux/interconnect.h>
++#include <linux/io.h>
+ #include <linux/kernel.h>
+ #include <linux/mod_devicetable.h>
+ #include <linux/module.h>
++#include <linux/of.h>
++#include <linux/of_platform.h>
+ #include <linux/platform_device.h>
+ #include <linux/regmap.h>
++#include <linux/pm.h>
+ #include <linux/pm_runtime.h>
++#include <linux/suspend.h>
+ 
+ #include <dt-bindings/clock/qcom,sm8750-dispcc.h>
++#include <dt-bindings/interconnect/qcom,icc.h>
+ 
+ #include "common.h"
+ #include "clk-alpha-pll.h"
+@@ -1901,6 +1909,346 @@
+ };
+ MODULE_DEVICE_TABLE(of, disp_cc_sm8750_match_table);
+ 
++static void __iomem *disp_cesta_rsc;
++static void __iomem *disp_cesta_crm;
++static void __iomem *disp_cesta_scc;
++static void __iomem *disp_cesta_cc;
++static struct icc_path *disp_cesta_cfg_icc;
++static int (*orig_mdss_gdsc_power_off)(struct generic_pm_domain *domain);
++static int (*orig_mdss_gdsc_power_on)(struct generic_pm_domain *domain);
++static bool disp_cesta_system_suspending;
++static bool disp_cesta_asleep;
++
++static void disp_cc_sm8750_ensure_cfg_icc(void)
++{
++	struct device_node *np;
++	struct platform_device *mdss_pdev;
++
++	if (disp_cesta_cfg_icc)
++		return;
++
++	np = of_find_compatible_node(NULL, NULL, "qcom,sm8750-mdss");
++	if (!np)
++		return;
++
++	mdss_pdev = of_find_device_by_node(np);
++	of_node_put(np);
++	if (!mdss_pdev)
++		return;
++
++	disp_cesta_cfg_icc = of_icc_get(&mdss_pdev->dev, "cpu-cfg");
++	put_device(&mdss_pdev->dev);
++	if (IS_ERR_OR_NULL(disp_cesta_cfg_icc)) {
++		disp_cesta_cfg_icc = NULL;
++		return;
++	}
++
++	/*
++	 * Tag with ACTIVE_ONLY so SLAVE_DISPLAY_CFG stays clocked in
++	 * ACTIVE/WAKE TCS whenever disp_cesta is accessed, while
++	 * dropping to 0 in SLEEP_TCS during s2idle.
++	 */
++	icc_set_tag(disp_cesta_cfg_icc, QCOM_ICC_TAG_ACTIVE_ONLY);
++	icc_set_bw(disp_cesta_cfg_icc, 0, 1000);
++}
++
++static void disp_cc_sm8750_sleep_cesta(void)
++{
++	int drv, ch, k, pwr, poll;
++
++	if (!disp_cesta_rsc || !disp_cesta_crm || !disp_cesta_scc || !disp_cesta_cc)
++		return;
++
++	writel_relaxed(readl_relaxed(disp_cesta_cc + 0xc00c) | 1, disp_cesta_cc + 0xc00c);
++	writel_relaxed(readl_relaxed(disp_cesta_cc + 0xc008) | 1, disp_cesta_cc + 0xc008);
++	writel_relaxed(readl_relaxed(disp_cesta_cc + 0xf000) | BIT(4), disp_cesta_cc + 0xf000);
++	wmb();
++	udelay(20);
++
++	writel_relaxed(0x00000707, disp_cesta_rsc + 0x30);
++	writel_relaxed(0x80ffffff, disp_cesta_rsc + 0x38);
++	writel_relaxed(0xffffffff, disp_cesta_rsc + 0x40);
++	writel_relaxed(0x80000001, disp_cesta_rsc + 0x48);
++	wmb();
++
++	for (drv = 0; drv < 6; drv++) {
++		writel_relaxed(1, disp_cesta_scc + 0x1000 + drv * 0x1000 + 0x08);
++		writel_relaxed(1, disp_cesta_scc + 0x40 + drv * 4);
++		writel_relaxed(0, disp_cesta_crm + 0xe0 + drv * 0x1000 + 0x100);
++	}
++	wmb();
++
++	writel_relaxed((readl_relaxed(disp_cesta_cc + 0x9000) & ~BIT(0)) | BIT(1),
++		       disp_cesta_cc + 0x9000);
++	wmb();
++	udelay(20);
++
++	for (drv = 0; drv < 6; drv++) {
++		u32 sbase = 0xe0 + drv * 0x1000;
++
++		writel_relaxed(drv == 0 ? 1 : 0, disp_cesta_crm + sbase + 0x00);
++		writel_relaxed(0, disp_cesta_crm + sbase + 0x04);
++		writel_relaxed(0, disp_cesta_crm + sbase + 0x08);
++	}
++	wmb();
++	for (poll = 0; poll < 1000; poll++) {
++		if (readl_relaxed(disp_cesta_crm + 0x6840) == 0 &&
++		    (readl_relaxed(disp_cesta_crm + 0x6818) & 7) == 1)
++			break;
++		udelay(2);
++	}
++	udelay(50);
++
++	for (drv = 0; drv < 6; drv++) {
++		u32 base = drv * 0x1000;
++		u32 sbase = 0x1000 + drv * 0x1000;
++
++		writel_relaxed(BIT(1), disp_cesta_crm + base + 0xa8);
++		for (ch = 0; ch < 2; ch++) {
++			for (pwr = 0; pwr < 2; pwr++) {
++				writel_relaxed(0, disp_cesta_crm + base + 0x00 + ch * 0x8 + pwr * 4);
++				writel_relaxed(0x60000000, disp_cesta_crm + base + 0x14 + ch * 0x8 + pwr * 4);
++				for (k = 0; k < 5; k++)
++					writel_relaxed(0x60000000, disp_cesta_crm + base + 0x28 +
++						       k * 0x14 + ch * 0x8 + pwr * 4);
++			}
++			wmb();
++			writel_relaxed(BIT(ch), disp_cesta_crm + base + 0xa4);
++			wmb();
++			writel_relaxed(0xa, disp_cesta_scc + sbase + 0x04);
++			wmb();
++			udelay(20);
++			writel_relaxed(0x2, disp_cesta_scc + sbase + 0x04);
++			wmb();
++			udelay(20);
++		}
++	}
++
++	for (drv = 0; drv < 6; drv++) {
++		u32 sbase = 0xe0 + drv * 0x1000;
++
++		for (k = 0; k < 5; k++) {
++			writel_relaxed(drv == 0 ? 0x60000001 : 0x60000000,
++				       disp_cesta_crm + sbase + 0x30 + k * 0x10 + 0x0);
++			writel_relaxed(0x60000000, disp_cesta_crm + sbase + 0x30 + k * 0x10 + 0x4);
++			writel_relaxed(0x60000000, disp_cesta_crm + sbase + 0x30 + k * 0x10 + 0x8);
++		}
++		wmb();
++		writel_relaxed(1, disp_cesta_crm + sbase + 0x100);
++		udelay(10);
++		writel_relaxed(0, disp_cesta_crm + sbase + 0x100);
++		udelay(50);
++	}
++
++	for (drv = 0; drv < 6; drv++) {
++		u32 sbase = 0xe0 + drv * 0x1000;
++
++		for (k = 0; k < 5; k++)
++			writel_relaxed(0x60000000, disp_cesta_crm + sbase + 0x30 + k * 0x10 + 0x0);
++		wmb();
++		writel_relaxed(1, disp_cesta_crm + sbase + 0x100);
++		udelay(10);
++		writel_relaxed(0, disp_cesta_crm + sbase + 0x100);
++		udelay(50);
++	}
++
++	writel_relaxed(0xe0000001, disp_cesta_crm + 0xe0 + 0x20);
++	writel_relaxed(0x60000001, disp_cesta_crm + 0xe0 + 0x24);
++	writel_relaxed(0x60000001, disp_cesta_crm + 0xe0 + 0x28);
++	wmb();
++	udelay(100);
++
++	for (drv = 0; drv < 6; drv++) {
++		u32 sbase = 0xe0 + drv * 0x1000;
++
++		writel_relaxed(0xe0000000, disp_cesta_crm + sbase + 0x20);
++		writel_relaxed(0x60000000, disp_cesta_crm + sbase + 0x24);
++		writel_relaxed(0x60000000, disp_cesta_crm + sbase + 0x28);
++		wmb();
++		udelay(50);
++	}
++	for (poll = 0; poll < 1000; poll++) {
++		if (readl_relaxed(disp_cesta_crm + 0x6aa8) == 0 &&
++		    readl_relaxed(disp_cesta_crm + 0x647c) == 0)
++			break;
++		udelay(2);
++	}
++
++	writel_relaxed(0, disp_cesta_crm + 0xe0 + 0x00);
++	wmb();
++	for (poll = 0; poll < 2000; poll++) {
++		if (readl_relaxed(disp_cesta_rsc + 0x2d0) & BIT(12))
++			break;
++		udelay(5);
++	}
++}
++
++static void disp_cc_sm8750_wake_cesta(void)
++{
++	int drv, k, poll;
++
++	if (!disp_cesta_rsc || !disp_cesta_crm || !disp_cesta_scc || !disp_cesta_cc)
++		return;
++
++	writel_relaxed(readl_relaxed(disp_cesta_cc + 0xc00c) | 1, disp_cesta_cc + 0xc00c);
++	writel_relaxed(readl_relaxed(disp_cesta_cc + 0xc008) | 1, disp_cesta_cc + 0xc008);
++	writel_relaxed(readl_relaxed(disp_cesta_cc + 0xf000) | BIT(4), disp_cesta_cc + 0xf000);
++	wmb();
++	udelay(20);
++
++	writel_relaxed((readl_relaxed(disp_cesta_cc + 0x9000) & ~BIT(0)) | BIT(1),
++		       disp_cesta_cc + 0x9000);
++	wmb();
++	udelay(10);
++
++	writel_relaxed(1, disp_cesta_crm + 0xe0 + 0x00);
++	writel_relaxed(0xe0000001, disp_cesta_crm + 0xe0 + 0x20);
++	for (k = 0; k < 5; k++)
++		writel_relaxed(0x60000001, disp_cesta_crm + 0xe0 + 0x30 + k * 0x10 + 0x0);
++	wmb();
++	writel_relaxed(1, disp_cesta_crm + 0xe0 + 0x100);
++	udelay(10);
++	writel_relaxed(0, disp_cesta_crm + 0xe0 + 0x100);
++	wmb();
++	for (poll = 0; poll < 2000; poll++) {
++		if (readl_relaxed(disp_cesta_rsc + 0x2d0) == 0 &&
++		    readl_relaxed(disp_cesta_crm + 0x6840) == 0 &&
++		    (readl_relaxed(disp_cesta_crm + 0x6818) & 7) == 1)
++			break;
++		udelay(5);
++	}
++
++	for (drv = 0; drv < 6; drv++) {
++		writel_relaxed(0, disp_cesta_scc + 0x1000 + drv * 0x1000 + 0x04);
++		writel_relaxed(0, disp_cesta_scc + 0x1000 + drv * 0x1000 + 0x08);
++		writel_relaxed(0, disp_cesta_scc + 0x40 + drv * 4);
++		writel_relaxed(0, disp_cesta_crm + drv * 0x1000 + 0xa8);
++	}
++	wmb();
++
++	writel_relaxed(readl_relaxed(disp_cesta_cc + 0x9000) & ~(BIT(0) | BIT(1)),
++		       disp_cesta_cc + 0x9000);
++	wmb();
++	for (poll = 0; poll < 2000; poll++) {
++		if (readl_relaxed(disp_cesta_cc + 0x9000) & BIT(31))
++			break;
++		udelay(5);
++	}
++}
++
++static int disp_cc_sm8750_mdss_gdsc_power_off(struct generic_pm_domain *domain)
++{
++	int ret = 0;
++
++	if (orig_mdss_gdsc_power_off)
++		ret = orig_mdss_gdsc_power_off(domain);
++	if (ret)
++		return ret;
++
++	if (disp_cesta_system_suspending && !disp_cesta_asleep) {
++		disp_cc_sm8750_ensure_cfg_icc();
++		if (disp_cesta_cfg_icc) {
++			disp_cc_sm8750_sleep_cesta();
++			disp_cesta_asleep = true;
++		}
++	}
++	return 0;
++}
++
++static int disp_cc_sm8750_mdss_gdsc_power_on(struct generic_pm_domain *domain)
++{
++	if (disp_cesta_asleep) {
++		disp_cc_sm8750_ensure_cfg_icc();
++		disp_cc_sm8750_wake_cesta();
++		disp_cesta_asleep = false;
++	}
++
++	if (orig_mdss_gdsc_power_on)
++		return orig_mdss_gdsc_power_on(domain);
++	return 0;
++}
++
++static int disp_cc_sm8750_suspend_late(struct device *dev)
++{
++	int ret;
++	u32 ahb;
++
++	disp_cc_sm8750_ensure_cfg_icc();
++	if (!disp_cesta_cfg_icc || !disp_cesta_rsc || !disp_cesta_crm ||
++	    !disp_cesta_scc || !disp_cesta_cc)
++		return 0;
++
++	disp_cesta_system_suspending = true;
++
++	/*
++	 * If mdss_gdsc was already powered off before system suspend started,
++	 * enter CESTA Mode 2 now; otherwise disp_cc_sm8750_mdss_gdsc_power_off()
++	 * will enter Mode 2 when genpd_finish_suspend powers off mdss_gdsc in
++	 * the noirq phase.
++	 */
++	if (mdss_gdsc.pd.status == GENPD_STATE_OFF && !disp_cesta_asleep) {
++		ret = pm_runtime_resume_and_get(dev);
++		if (ret < 0)
++			return 0;
++
++		ahb = readl_relaxed(disp_cesta_cc + 0x80dc);
++		writel_relaxed(ahb | BIT(0), disp_cesta_cc + 0x80dc);
++		writel_relaxed(readl_relaxed(disp_cesta_cc + 0xc00c) | BIT(0),
++			       disp_cesta_cc + 0xc00c);
++		wmb();
++		udelay(10);
++
++		disp_cc_sm8750_sleep_cesta();
++		disp_cesta_asleep = true;
++
++		if (!(ahb & BIT(0)))
++			writel_relaxed(ahb, disp_cesta_cc + 0x80dc);
++		wmb();
++
++		pm_runtime_put_sync(dev);
++	}
++
++	return 0;
++}
++
++static int disp_cc_sm8750_resume_early(struct device *dev)
++{
++	int ret;
++	u32 ahb;
++
++	disp_cesta_system_suspending = false;
++
++	if (!disp_cesta_asleep)
++		return 0;
++
++	disp_cc_sm8750_ensure_cfg_icc();
++	ret = pm_runtime_resume_and_get(dev);
++	if (ret < 0)
++		return 0;
++
++	ahb = readl_relaxed(disp_cesta_cc + 0x80dc);
++	writel_relaxed(ahb | BIT(0), disp_cesta_cc + 0x80dc);
++	writel_relaxed(readl_relaxed(disp_cesta_cc + 0xc00c) | BIT(0),
++		       disp_cesta_cc + 0xc00c);
++	wmb();
++	udelay(10);
++
++	disp_cc_sm8750_wake_cesta();
++	disp_cesta_asleep = false;
++
++	if (!(ahb & BIT(0)))
++		writel_relaxed(ahb, disp_cesta_cc + 0x80dc);
++	wmb();
++
++	pm_runtime_put_sync(dev);
++	return 0;
++}
++
++static const struct dev_pm_ops disp_cc_sm8750_pm_ops = {
++	LATE_SYSTEM_SLEEP_PM_OPS(disp_cc_sm8750_suspend_late,
++				 disp_cc_sm8750_resume_early)
++};
++
+ static int disp_cc_sm8750_probe(struct platform_device *pdev)
+ {
+ 	struct regmap *regmap;
+@@ -1937,6 +2285,19 @@
+ 	if (ret)
+ 		goto err_put_rpm;
+ 
++	disp_cesta_rsc = devm_ioremap(&pdev->dev, 0x0af20000, 0x1000);
++	disp_cesta_crm = devm_ioremap(&pdev->dev, 0x0af21000, 0x7000);
++	disp_cesta_scc = devm_ioremap(&pdev->dev, 0x0af30000, 0x7000);
++	disp_cesta_cc  = devm_ioremap(&pdev->dev, 0x0af00000, 0x20000);
++
++	if (mdss_gdsc.pd.power_off &&
++	    mdss_gdsc.pd.power_off != disp_cc_sm8750_mdss_gdsc_power_off) {
++		orig_mdss_gdsc_power_off = mdss_gdsc.pd.power_off;
++		orig_mdss_gdsc_power_on  = mdss_gdsc.pd.power_on;
++		mdss_gdsc.pd.power_off   = disp_cc_sm8750_mdss_gdsc_power_off;
++		mdss_gdsc.pd.power_on    = disp_cc_sm8750_mdss_gdsc_power_on;
++	}
++
+ 	pm_runtime_put(&pdev->dev);
+ 
+ 	return 0;
+@@ -1952,6 +2313,7 @@
+ 	.driver = {
+ 		.name = "disp_cc-sm8750",
+ 		.of_match_table = disp_cc_sm8750_match_table,
++		.pm = &disp_cc_sm8750_pm_ops,
+ 	},
+ };
+ 
+diff --git a/drivers/pci/controller/dwc/pcie-qcom.c b/drivers/pci/controller/dwc/pcie-qcom.c
+--- a/drivers/pci/controller/dwc/pcie-qcom.c
++++ b/drivers/pci/controller/dwc/pcie-qcom.c
+@@ -286,6 +286,10 @@
+ 	struct dentry *debugfs;
+ 	struct list_head ports;
+ 	bool use_pm_opp;
++	void __iomem *cesta_rsc;
++	void __iomem *cesta_crm;
++	void __iomem *cesta_sm;
++	bool cesta_asleep;
+ };
+ 
+ #define to_qcom_pcie(x)		dev_get_drvdata((x)->dev)
+@@ -1690,6 +1694,142 @@
+ 	return ret;
+ }
+ 
++static void qcom_pcie_sm8750_cesta_sleep(struct qcom_pcie *pcie)
++{
++	void __iomem *rsc = pcie->cesta_rsc;
++	void __iomem *crm = pcie->cesta_crm;
++	void __iomem *sm  = pcie->cesta_sm;
++	int drv, ch, k, pwr, poll;
++
++	if (!rsc || !crm || !sm || pcie->cesta_asleep)
++		return;
++
++	writel_relaxed(0x00000000, rsc + 0x30);
++	writel_relaxed(0x80ffffff, rsc + 0x38);
++	writel_relaxed(0xffffffff, rsc + 0x40);
++	writel_relaxed(0x80000021, rsc + 0x48);
++	wmb();
++
++	writel_relaxed(1, sm + 0x1040);
++	writel_relaxed(1, sm + 0x1048);
++	writel_relaxed(1, sm + 0x4040);
++	writel_relaxed(1, sm + 0x4048);
++	wmb();
++	udelay(50);
++
++	for (drv = 0; drv < 2; drv++) {
++		u32 base = drv * 0x1000;
++
++		for (ch = 0; ch < 2; ch++) {
++			for (k = 0; k < 2; k++) {
++				for (pwr = 0; pwr < 5; pwr++)
++					writel_relaxed(0, crm + base + 0x00 +
++						       k * 0x2c + ch * 0x14 + pwr * 4);
++			}
++			for (k = 0; k < 6; k++) {
++				for (pwr = 0; pwr < 5; pwr++)
++					writel_relaxed(0x60000000, crm + base + 0xb0 +
++						       k * 0x2c + ch * 0x14 + pwr * 4);
++			}
++			wmb();
++			writel_relaxed(BIT(ch), crm + base + 0x374);
++			wmb();
++			udelay(50);
++		}
++	}
++
++	for (drv = 0; drv < 2; drv++) {
++		u32 sbase = 0x3b0 + drv * 0x1000;
++
++		for (k = 0; k < 6; k++) {
++			writel_relaxed(0x60000001, crm + sbase + 0x60 + k * 0x10 + 0x0);
++			writel_relaxed(0x60000000, crm + sbase + 0x60 + k * 0x10 + 0x4);
++			writel_relaxed(0x60000000, crm + sbase + 0x60 + k * 0x10 + 0x8);
++		}
++		wmb();
++		writel_relaxed(1, crm + sbase + 0x270);
++		udelay(10);
++		writel_relaxed(0, crm + sbase + 0x270);
++		udelay(100);
++
++		for (k = 0; k < 6; k++)
++			writel_relaxed(0x60000000, crm + sbase + 0x60 + k * 0x10 + 0x0);
++		wmb();
++		writel_relaxed(1, crm + sbase + 0x270);
++		udelay(10);
++		writel_relaxed(0, crm + sbase + 0x270);
++		udelay(100);
++
++		writel_relaxed(0, crm + sbase + 0x00);
++		writel_relaxed(0, crm + sbase + 0x04);
++		writel_relaxed(0, crm + sbase + 0x08);
++		writel_relaxed(0, crm + sbase + 0x10);
++		writel_relaxed(0, crm + sbase + 0x14);
++		writel_relaxed(0, crm + sbase + 0x18);
++		wmb();
++	}
++
++	for (poll = 0; poll < 2000; poll++) {
++		if ((readl_relaxed(rsc + 0x2d0) & 0x21) == 0x21)
++			break;
++		udelay(5);
++	}
++
++	pcie->cesta_asleep = true;
++}
++
++static void qcom_pcie_sm8750_cesta_wake(struct qcom_pcie *pcie)
++{
++	void __iomem *rsc = pcie->cesta_rsc;
++	void __iomem *crm = pcie->cesta_crm;
++	void __iomem *sm  = pcie->cesta_sm;
++	u32 sbase = 0x3b0;
++	int ch, k, poll;
++
++	if (!rsc || !crm || !sm || !pcie->cesta_asleep)
++		return;
++
++	/* Restore HW_DRV 0 (PCIE_0) PWR_STATE 0 (D0) PERF_OL = 1 and BW_PT_VOTE = 1 */
++	for (ch = 0; ch < 2; ch++) {
++		for (k = 0; k < 2; k++)
++			writel_relaxed(1, crm + 0x00 + k * 0x2c + ch * 0x14 + 0 * 4);
++		for (k = 0; k < 6; k++)
++			writel_relaxed(0x60000001, crm + 0xb0 + k * 0x2c + ch * 0x14 + 0 * 4);
++		wmb();
++		writel_relaxed(BIT(ch), crm + 0x374);
++		wmb();
++		udelay(50);
++	}
++
++	writel_relaxed(0, sm + 0x1048);
++	writel_relaxed(0, sm + 0x1040);
++	writel_relaxed(0, sm + 0x4048);
++	writel_relaxed(0, sm + 0x4040);
++	wmb();
++
++	writel_relaxed(1, crm + sbase + 0x00);
++	writel_relaxed(1, crm + sbase + 0x10);
++	for (k = 0; k < 6; k++) {
++		writel_relaxed(0x60000001, crm + sbase + 0x60 + k * 0x10 + 0x0);
++		writel_relaxed(0x60000000, crm + sbase + 0x60 + k * 0x10 + 0x4);
++		writel_relaxed(0x60000000, crm + sbase + 0x60 + k * 0x10 + 0x8);
++	}
++	wmb();
++	writel_relaxed(1, crm + sbase + 0x270);
++	udelay(10);
++	writel_relaxed(0, crm + sbase + 0x270);
++	udelay(100);
++
++	for (poll = 0; poll < 2000; poll++) {
++		if (readl_relaxed(rsc + 0x2d0) == 0 &&
++		    (readl_relaxed(crm + 0x2824) & 7) == 1)
++			break;
++		udelay(5);
++	}
++
++	pcie->cesta_asleep = false;
++}
++
+ static int qcom_pcie_link_transition_count(struct seq_file *s, void *data)
+ {
+ 	struct qcom_pcie *pcie = (struct qcom_pcie *)dev_get_drvdata(s->private);
+@@ -2064,6 +2204,18 @@
+ 	if (of_device_is_compatible(dev->of_node, "qcom,pcie-sm8550"))
+ 		pp->skip_l23_ready = true;
+ 
++	if (of_device_is_compatible(dev->of_node, "qcom,pcie-sm8750")) {
++		pcie->cesta_rsc = devm_ioremap(dev, 0x01d00000, 0x1000);
++		pcie->cesta_crm = devm_ioremap(dev, 0x01d01000, 0x5000);
++		pcie->cesta_sm  = devm_ioremap(dev, 0x01d07000, 0x7000);
++		if (!pcie->cesta_rsc || !pcie->cesta_crm || !pcie->cesta_sm) {
++			dev_warn(dev, "Failed to map SM8750 PCIe CESTA regions\n");
++			pcie->cesta_rsc = NULL;
++			pcie->cesta_crm = NULL;
++			pcie->cesta_sm  = NULL;
++		}
++	}
++
+ 	ret = qcom_pcie_parse_ports(pcie);
+ 	if (ret) {
+ 		if (ret != -ENODEV) {
+@@ -2124,6 +2276,9 @@
+ 	if (ret)
+ 		return ret;
+ 
++	if (pm_suspend_target_state != PM_SUSPEND_MEM)
++		qcom_pcie_sm8750_cesta_sleep(pcie);
++
+ 	if (pcie->pci->suspended) {
+ 		ret = icc_disable(pcie->icc_mem);
+ 		if (ret)
+@@ -2200,6 +2355,8 @@
+ 			return ret;
+ 		}
+ 
++		qcom_pcie_sm8750_cesta_wake(pcie);
++
+ 		ret = icc_enable(pcie->icc_mem);
+ 		if (ret) {
+ 			dev_err(dev, "Failed to enable PCIe-MEM interconnect path: %d\n", ret);
+@@ -2229,6 +2386,8 @@
+ 					ret);
+ 				return ret;
+ 			}
++
++			qcom_pcie_sm8750_cesta_wake(pcie);
+ 		}
+ 	}
+ 

@@ -1,7 +1,7 @@
-import { ButtonItem, PanelSection, PanelSectionRow, showModal } from "@decky/ui";
+import { ButtonItem, PanelSection, PanelSectionRow, ToggleField, showModal } from "@decky/ui";
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { getFanStatus, setDownloadInhibitMode, setFanMode, setLavdMode, setPowerMode, setChargeLimit, setLedColor, setLedMode, zeroStickCenters, resetStickCenters } from "../backend";
+import { getFanStatus, rebootToAndroid, setBypassCharging, setDownloadInhibitMode, setFanMode, setLavdMode, setPowerMode, setChargeLimit, setLedColor, setLedMode, zeroStickCenters, resetStickCenters } from "../backend";
 import { FanCurveGraph } from "../components/FanCurveGraph";
 import { FanCurveModal } from "../components/FanCurveModal";
 import { ColorPalette, SelectEdit } from "../components/widgets";
@@ -56,6 +56,8 @@ export function Power({ config, setConfig, reload }: {
   reload: () => void;
 }) {
   const [stickMsg, setStickMsg] = useState<string>("");
+  const [confirmAndroid, setConfirmAndroid] = useState<boolean>(false);
+  const [androidMsg, setAndroidMsg] = useState<string>("");
   const zeroSticks = async () => {
     setStickMsg("Sampling, hands off...");
     try {
@@ -68,6 +70,19 @@ export function Power({ config, setConfig, reload }: {
   };
   const resetSticks = async () => {
     try { setConfig(await resetStickCenters()); setStickMsg("Centres reset"); } catch (e: any) { setStickMsg("Failed: " + (e?.message ?? String(e))); }
+  };
+  const handleBootAndroid = async () => {
+    if (!confirmAndroid) {
+      setConfirmAndroid(true);
+      return;
+    }
+    setAndroidMsg("Switching boot mode and rebooting to Android...");
+    try {
+      await rebootToAndroid();
+    } catch (e: any) {
+      setConfirmAndroid(false);
+      setAndroidMsg("Failed: " + (e?.message ?? String(e)));
+    }
   };
   const applyLedMode = async (mode: string) => {
     try {
@@ -89,6 +104,14 @@ export function Power({ config, setConfig, reload }: {
     try {
       const next = await setChargeLimit(pct);
       setConfig((current) => (current ? { ...current, chargeLimit: next.chargeLimit } : current));
+    } catch (error) {
+      reload();
+    }
+  };
+  const applyBypass = async (on: boolean) => {
+    try {
+      const next = await setBypassCharging(on);
+      setConfig((current) => (current ? { ...current, bypassCharging: next.bypassCharging } : current));
     } catch (error) {
       reload();
     }
@@ -138,7 +161,15 @@ export function Power({ config, setConfig, reload }: {
     <>
       <PanelSection title="PERFORMANCE">
         <SelectEdit label="Power Profile" value={config.powerMode} options={powerOptions} onChange={(mode) => applyMode(setPowerMode, mode)} />
-        <SelectEdit label="Charge Limit (experimental)" value={config.chargeLimit} options={chargeOptions} onChange={(pct) => applyCharge(pct as number)} />
+        <SelectEdit label="Charge Limit" value={config.chargeLimit} options={chargeOptions} onChange={(pct) => applyCharge(pct as number)} />
+        {config.canBypassCharging && (
+          <ToggleField
+            label="Bypass Charging (Charge Separation)"
+            description="Power the system directly from USB-C while pausing battery charging to reduce heat and battery wear."
+            checked={config.bypassCharging === true}
+            onChange={applyBypass}
+          />
+        )}
         <SelectEdit label="CPU Scheduler" value={config.lavdMode} options={lavdOptions} onChange={(mode) => applyMode(setLavdMode, mode)} />
       </PanelSection>
       <PanelSection title="DOWNLOADS">
@@ -178,6 +209,27 @@ export function Power({ config, setConfig, reload }: {
           <ColorPalette colors={ledColorPresets} value={config.ledColor} onChange={(hex) => applyLed(hex)} />
         )}
       </PanelSection>
+      {config.canBootAndroid && (
+        <PanelSection title="DUAL BOOT">
+          <PanelSectionRow>
+            <ButtonItem
+              layout="below"
+              description="Sets ROCKNIX ABL boot mode to Android and restarts the device."
+              onClick={handleBootAndroid}
+            >
+              {confirmAndroid ? "Tap again to confirm Reboot to Android" : "Reboot to Android"}
+            </ButtonItem>
+          </PanelSectionRow>
+          {confirmAndroid && (
+            <PanelSectionRow>
+              <ButtonItem layout="below" onClick={() => setConfirmAndroid(false)}>
+                Cancel
+              </ButtonItem>
+            </PanelSectionRow>
+          )}
+          {androidMsg && <PanelSectionRow><div style={{ fontSize: "12px", opacity: 0.8 }}>{androidMsg}</div></PanelSectionRow>}
+        </PanelSection>
+      )}
     </>
   );
 }

@@ -1,0 +1,31 @@
+From: Holodor <noreply@holodor.local>
+Subject: [PATCH] scsi: ufs: qcom: add qcom,sm8750-ufshc compatible to ufs_qcom_of_match
+
+sm8750.dtsi defines `compatible = "qcom,sm8750-ufshc", "qcom,ufshc", "jedec,ufs-2.0"`,
+but `ufs_qcom_of_match[]` only matched `qcom,sm8550-ufshc` and `qcom,sm8650-ufshc`
+to `ufs_qcom_sm8550_drvdata` (`.no_phy_retention = true`). As a result, SM8750 fell
+back to the generic `qcom,ufshc` entry with `spm_lvl = 3` (UFS_PM_LVL_3, link in
+Hibern8 with PHY powered on) instead of `spm_lvl = 5` (UFS_PM_LVL_5, link off and
+PHY powered down).
+
+Leaving `ufs_mem_phy` (`1d80000.phy`) powered on across system suspend keeps
+`RPMH_CXO_CLK` (`bi_tcxo`, which votes `xo.lvl = 0x3` in `SLEEP_TCS`) prepared and
+leaves `vreg_l1j_0p91` (213 mA), `vreg_l3g_1p2` (18 mA), `vreg_l17b_2p5` (1300 mA),
+and `vreg_bob2` enabled throughout `s2idle`, blocking AOSS/XO shutdown (`aosd`).
+
+Map `qcom,sm8750-ufshc` to `ufs_qcom_sm8550_drvdata` like SM8550 and SM8650.
+---
+ drivers/ufs/host/ufs-qcom.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/ufs/host/ufs-qcom.c b/drivers/ufs/host/ufs-qcom.c
+--- a/drivers/ufs/host/ufs-qcom.c
++++ b/drivers/ufs/host/ufs-qcom.c
+@@ -3005,6 +3005,7 @@ static const struct of_device_id ufs_qcom_of_match[] __maybe_unused = {
+ 	{ .compatible = "qcom,ufshc" },
+ 	{ .compatible = "qcom,sm8550-ufshc", .data = &ufs_qcom_sm8550_drvdata },
+ 	{ .compatible = "qcom,sm8650-ufshc", .data = &ufs_qcom_sm8550_drvdata },
++	{ .compatible = "qcom,sm8750-ufshc", .data = &ufs_qcom_sm8550_drvdata },
+ 	{ .compatible = "qcom,sa8255p-ufshc", .data = &ufs_qcom_sa8255p_drvdata },
+ 	{},
+ };

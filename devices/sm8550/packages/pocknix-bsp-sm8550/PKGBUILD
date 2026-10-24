@@ -16,12 +16,13 @@
 #                                matches devices/sm8550/profile.conf
 pkgname=pocknix-bsp-sm8550
 pkgver=0.2.0
-pkgrel=1
-pkgdesc="pocknix board support: SM8550 family (RP6, Odin 2 family) — runtime board dispatch, input map, suspend quirks, audio UCM"
+pkgrel=2
+pkgdesc="pocknix board support: SM8550 family (RP6, Odin 2 family) — runtime board dispatch, input map, suspend quirks, audio UCM & topology"
 arch=('any')
 url="https://github.com/shuuri-labs/pocknix-os"
 license=('GPL2')
 depends=('pocknix-bsp-common')
+options=('!strip' '!debug')
 # Exactly one device BSP may be installed (wrong-device guard for a shared repo).
 # 'replaces' migrates installs of the retired per-device BSPs (and the ancient
 # unified 'pocknix-bsp', carried over from the rp6 lineage).
@@ -29,16 +30,17 @@ provides=('pocknix-bsp')
 conflicts=('pocknix-bsp')
 replaces=('pocknix-bsp' 'pocknix-bsp-rp6' 'pocknix-bsp-odin2' 'pocknix-bsp-odin2mini' 'pocknix-bsp-odin2portal')
 optdepends=('inputplumber: gamepad -> Steam Input mapping (01-rsinput-controller.yaml)'
-            'alsa-ucm-conf: base UCM (codec include sequences for the AYN-Odin2 UCM)')
+            'alsa-ucm-conf: base UCM (codec include sequences for the AYN-Odin2 / SM8550-RetroidPocket-I2S UCM)')
 # NOTE: the spurious deep-sleep wake is FIXED in the kernel — kernel/sm8550/patches/20-sm8550/
 # 0502-wakeup-qcom-ipcc-remove-IRQF-NO-SUSPEND.patch masks the IPCC mailbox during suspend.
 # See docs/archive/sm8550-suspend-wake-report.md.
 source=('device.conf'
         '01-rsinput-controller.yaml' 'sm8550-gamepad.yaml'
-        'AYN-Odin2.conf' 'HiFi.conf'
+        'AYN-Odin2.conf' 'SM8550-RetroidPocket-I2S.conf' 'HiFi.conf'
+        'SM8550-RetroidPocket-I2S-tplg.bin'
         '10-pocknix-deeponly.conf' '30-pocknix-cpuidle.conf'
         'kernel-cmdline')
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   # Runtime device facts: the model dispatcher + per-board files. boards/ is
@@ -66,15 +68,24 @@ package() {
   install -Dm644 "${srcdir}/sm8550-gamepad.yaml" \
     "${pkgdir}/usr/share/inputplumber/capability_maps/sm8550-gamepad.yaml"
 
-  # ALSA UCM: every family board's sound card reports as "AYN-Odin2". The codec
-  # include sequences (/lib, /codecs/wcd938x, /codecs/qcom-lpass) come from base
-  # alsa-ucm-conf.
+  # ALSA UCM: Odin 2 family boards report card longname "AYN-Odin2", while RP6
+  # reports "SM8550-RetroidPocket-I2S". Both share the same WCD9385 + Primary MI2S
+  # + DisplayPort RX 0 routing. The codec include sequences (/lib, /codecs/wcd938x,
+  # /codecs/qcom-lpass) come from base alsa-ucm-conf.
   local ucm="${pkgdir}/usr/share/alsa/ucm2"
-  install -Dm644 "${srcdir}/AYN-Odin2.conf" "${ucm}/AYN/Odin2/AYN-Odin2.conf"
-  install -Dm644 "${srcdir}/HiFi.conf"      "${ucm}/AYN/Odin2/HiFi.conf"
-  # card-match file (matched by card longname under the sm8550 driver dir)
+  install -Dm644 "${srcdir}/AYN-Odin2.conf"                "${ucm}/AYN/Odin2/AYN-Odin2.conf"
+  install -Dm644 "${srcdir}/HiFi.conf"                     "${ucm}/AYN/Odin2/HiFi.conf"
+  install -Dm644 "${srcdir}/SM8550-RetroidPocket-I2S.conf" "${ucm}/RetroidPocket/SM8550/SM8550-RetroidPocket-I2S.conf"
+  install -Dm644 "${srcdir}/HiFi.conf"                     "${ucm}/RetroidPocket/SM8550/HiFi.conf"
+  # card-match files (matched by card longname under the sm8550 driver dir)
   install -d "${ucm}/conf.d/sm8550"
   ln -sf "../../AYN/Odin2/AYN-Odin2.conf" "${ucm}/conf.d/sm8550/AYN-Odin2.conf"
+  ln -sf "../../RetroidPocket/SM8550/SM8550-RetroidPocket-I2S.conf" "${ucm}/conf.d/sm8550/SM8550-RetroidPocket-I2S.conf"
+
+  # AudioReach topology for RP6 (MultiMedia1 -> PRIMARY_MI2S_RX / DISPLAY_PORT_RX_0,
+  # MultiMedia2 -> RX_CODEC_DMA_RX_0 / DISPLAY_PORT_RX_0, MultiMedia3 <- TX_CODEC_DMA_TX_3).
+  install -Dm644 "${srcdir}/SM8550-RetroidPocket-I2S-tplg.bin" \
+    "${pkgdir}/usr/lib/firmware/qcom/sm8550/SM8550-RetroidPocket-I2S-tplg.bin"
 
   # Kernel command line for the on-device /flash/KERNEL rebuild (pocknix-build-bootimg,
   # shipped by linux-pocknix-sm8550). One family cmdline (the retired per-device ones

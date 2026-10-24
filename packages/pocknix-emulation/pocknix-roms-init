@@ -173,4 +173,11 @@ if [ -f "${SHARE}/retroarch.cfg" ] && [ ! -f "${RA_CFG}" ]; then
       "${SHARE}/retroarch.cfg" > "${RA_CFG}" 2>/dev/null || true
 fi
 
+# --- scan any already-mounted microSD cards (ext4/exfat/vfat under /run/media/deck) ---
+# udev may mount the SD card early in boot before pocknix-roms-init runs on first login; running
+# scan here ensures shared Android/portable ROMs, BIOS files, and ps2-bios.bin are linked now.
+if [ -x /usr/bin/pocknix-sdcard-roms-sync ]; then
+  /usr/bin/pocknix-sdcard-roms-sync scan 2>/dev/null || true
+fi
+
 exit 0

@@ -32,6 +32,7 @@ for _dc in /usr/lib/pocknix/device.conf /etc/pocknix/device.conf; do
 done
 CPUS="${POCKNIX_GAME_CPUS:-auto}"
 [ "${CPUS}" = all ] && exit 0
+PIN_CPUS=1
 if [ "${CPUS}" = auto ]; then
   max=0; total=0
   for f in /sys/devices/system/cpu/cpu[0-9]*/cpu_capacity; do
@@ -44,10 +45,14 @@ if [ "${CPUS}" = auto ]; then
     c=$(cat "$f"); cpu=${f%/cpu_capacity}; cpu=${cpu##*/cpu}
     if [ $((c * 2)) -ge "$max" ]; then CPUS="${CPUS:+${CPUS},}${cpu}"; n=$((n + 1)); fi
   done
-  [ "$n" -lt "$total" ] || exit 0          # every core is fast: nothing to do
-  [ "$n" -ge 2 ] || exit 0                 # never squeeze a game onto a single core
+  if [ "$n" -ge "$total" ] || [ "$n" -lt 2 ]; then
+    # Every core has >=50% capacity (e.g. SM8750 Odin 3 / RP6 with Oryon-M 884/1024):
+    # let the kernel capacity-aware scheduler use all cores, while keeping this daemon
+    # running for Gamescope focus heal and DEFAULT_LOWEST 60 Hz FPS limit clamping.
+    PIN_CPUS=0
+  fi
 fi
-command -v taskset >/dev/null 2>&1 || exit 0
+command -v taskset >/dev/null 2>&1 || PIN_CPUS=0
 ALL_CPUS="0-$(( $(ls -d /sys/devices/system/cpu/cpu[0-9]* | wc -l) - 1 ))"
 # Threads that are better off NOT on the game's cores: DXVK's background shader compilers
 # (dxvk-shader-*) run flat out when a new scene arrives and would otherwise steal the big cores
@@ -55,12 +60,16 @@ ALL_CPUS="0-$(( $(ls -d /sys/devices/system/cpu/cpu[0-9]* | wc -l) - 1 ))"
 # Thread names are matched on /proc/<pid>/task/<tid>/comm every few seconds (threads inherit the
 # game's affinity when created, so a one-shot at launch cannot catch them).
 SIDE_THREADS="dxvk-shader"
-echo "pocknix-game-affinity: games + steamwebhelper -> cpus ${CPUS}; ${SIDE_THREADS}* threads -> cpus ${ALL_CPUS}"
+if [ "${PIN_CPUS}" = 1 ]; then
+  echo "pocknix-game-affinity: games + steamwebhelper -> cpus ${CPUS}; ${SIDE_THREADS}* threads -> cpus ${ALL_CPUS}"
+else
+  echo "pocknix-game-affinity: all cores fast (${ALL_CPUS}); running focus-heal and fps-limit sync only"
+fi
 side_threads() {  # threads of the pids under $1 whose comm starts with a SIDE_THREADS name
   for p in $(descendants "$1"); do
     for t in /proc/${p}/task/*; do
-      [ -r "${t}/comm" ] || continue
-      case "$(cat "${t}/comm" 2>/dev/null)" in ${SIDE_THREADS}*) echo "${t##*/}" ;; esac
+      read -r comm < "${t}/comm" 2>/dev/null || continue
+      case "${comm}" in ${SIDE_THREADS}*) echo "${t##*/}" ;; esac
     done
   done
 }
@@ -72,30 +81,117 @@ descendants() {  # pids under $1, including $1
           while (i <= n) { p = q[i++]; print p; m = split(kids[p], k, " "); for (j = 1; j <= m; j++) q[++n] = k[j] } }'
 }
 seen=""
+focused_reapers=""
+last_win769=""
 while :; do
   for pid in $(pgrep -x reaper 2>/dev/null); do
     case " ${seen} " in *" ${pid} "*) continue ;; esac
-    case "$(tr '\0' ' ' < /proc/${pid}/cmdline 2>/dev/null)" in
+    cmdline="$( { tr '\0' ' ' < "/proc/${pid}/cmdline"; } 2>/dev/null )" || continue
+    case "${cmdline}" in
       *"SteamLaunch AppId="*) ;;
       *) continue ;;
     esac
-    for p in $(descendants "${pid}"); do taskset -a -c -p "${CPUS}" "${p}" >/dev/null 2>&1; done
-    sleep 1                                 # the launch chain forks fast: catch what raced the first pass
-    for p in $(descendants "${pid}"); do taskset -a -c -p "${CPUS}" "${p}" >/dev/null 2>&1; done
+    case "${cmdline}" in
+      *" Install=1 "*|*"iscriptevaluator.exe"*) continue ;;
+    esac
+    if [ "${PIN_CPUS}" = 1 ]; then
+      for p in $(descendants "${pid}"); do taskset -a -c -p "${CPUS}" "${p}" >/dev/null 2>&1; done
+      sleep 1                                 # the launch chain forks fast: catch what raced the first pass
+      for p in $(descendants "${pid}"); do taskset -a -c -p "${CPUS}" "${p}" >/dev/null 2>&1; done
+      echo "pocknix-game-affinity: pinned $(printf '%s\n' "${cmdline}" | grep -o 'AppId=[0-9]*') (reaper ${pid}) to cpus ${CPUS}"
+    fi
     seen="${seen} ${pid}"
-    echo "pocknix-game-affinity: pinned $(tr '\0' ' ' < /proc/${pid}/cmdline 2>/dev/null | grep -o 'AppId=[0-9]*') (reaper ${pid}) to cpus ${CPUS}"
   done
-  # Steam UI: pin every steamwebhelper we have not seen yet (Steam sets its own mask at launch)
-  for pid in $(pgrep -x steamwebhelper 2>/dev/null); do
-    case " ${ui_seen} " in *" ${pid} "*) continue ;; esac
-    taskset -a -c -p "${CPUS}" "${pid}" >/dev/null 2>&1 && ui_seen="${ui_seen} ${pid}"
-  done
-  keep=""; for pid in ${ui_seen}; do [ -d "/proc/${pid}" ] && keep="${keep} ${pid}"; done; ui_seen="${keep}"
+  # Focus heal: when a Steam launch modal (413091) leaves GAMESCOPECTRL_BASELAYER_APPID as
+  # "413091, 769, <appid>" or "413091, <appid>, 769", gamescope/Steam can keep modal focus
+  # even after the game window maps in GAMESCOPE_FOCUSABLE_APPS (and Steam's volume OSD
+  # re-writes that stale list on every rocker press). Whenever <appid> is focusable and
+  # 413091 leads GAMESCOPECTRL_BASELAYER_APPID, promote <appid> to the front.
+  if [ -z "${last_win769}" ]; then
+    w769="$(DISPLAY=:0 xprop -root GAMESCOPE_FOCUSABLE_WINDOWS 2>/dev/null | sed -n 's/.*[= ] *\([0-9][0-9]*\), 769, .*/\1/p')"
+    [ -n "${w769}" ] && last_win769="${w769}"
+  fi
+  if [ -n "${seen}" ]; then
+    props="$(DISPLAY=:0 xprop -root GAMESCOPE_FOCUSABLE_APPS GAMESCOPE_FOCUSABLE_WINDOWS GAMESCOPECTRL_BASELAYER_APPID GAMESCOPE_FOCUSED_APP_GFX GAMESCOPE_FOCUSED_APP GAMESCOPE_FPS_LIMIT 2>/dev/null)" || props=""
+    focusable_apps="$(printf '%s\n' "${props}" | sed -n 's/^GAMESCOPE_FOCUSABLE_APPS(CARDINAL) = //p' | tr -d ',')"
+    w769="$(printf '%s\n' "${props}" | sed -n 's/.*GAMESCOPE_FOCUSABLE_WINDOWS(CARDINAL) = .* \([0-9][0-9]*\), 769, .*/\1/p')"
+    [ -z "${w769}" ] && w769="$(printf '%s\n' "${props}" | sed -n 's/.*GAMESCOPE_FOCUSABLE_WINDOWS(CARDINAL) = \([0-9][0-9]*\), 769, .*/\1/p')"
+    [ -n "${w769}" ] && last_win769="${w769}"
+    case "${props}" in
+      *"GAMESCOPECTRL_BASELAYER_APPID(CARDINAL) = 413091, "*)
+        for pid in ${seen}; do
+          [ -r "/proc/${pid}/cmdline" ] || continue
+          appid="$( { tr '\0' ' ' < "/proc/${pid}/cmdline"; } 2>/dev/null | sed -n 's/.*SteamLaunch AppId=\([0-9][0-9]*\).*/\1/p')"
+          [ -n "${appid}" ] || continue
+          case " ${focusable_apps} " in
+            *" ${appid} "*)
+              DISPLAY=:0 xprop -root -f GAMESCOPECTRL_BASELAYER_APPID 32c -set GAMESCOPECTRL_BASELAYER_APPID "${appid},769" >/dev/null 2>&1 || true
+              if [ -n "${last_win769}" ]; then
+                DISPLAY=:0 xprop -id "${last_win769}" -f STEAM_INPUT_FOCUS 32c -set STEAM_INPUT_FOCUS 0 >/dev/null 2>&1 || true
+                DISPLAY=:0 xprop -id "${last_win769}" -f STEAM_OVERLAY 32c -set STEAM_OVERLAY 0 >/dev/null 2>&1 || true
+              fi
+              echo "pocknix-game-affinity: promoted AppId=${appid} ahead of 769 in GAMESCOPECTRL_BASELAYER_APPID"
+              ;;
+          esac
+        done
+        ;;
+    esac
+    # When a newly launched game first maps in GAMESCOPE_FOCUSABLE_APPS, clear any stale
+    # STEAM_INPUT_FOCUS=1 left on Steam's 769 window from an interrupted launch modal or
+    # prior killed session. Done once per reaper (tracked in focused_reapers) so opening
+    # the Steam/QAM overlay later during gameplay is never disturbed.
+    for pid in ${seen}; do
+      case " ${focused_reapers} " in *" ${pid} "*) continue ;; esac
+      [ -r "/proc/${pid}/cmdline" ] || continue
+      appid="$( { tr '\0' ' ' < "/proc/${pid}/cmdline"; } 2>/dev/null | sed -n 's/.*SteamLaunch AppId=\([0-9][0-9]*\).*/\1/p')"
+      [ -n "${appid}" ] || continue
+      case " ${focusable_apps} " in
+        *" ${appid} "*)
+          focused_reapers="${focused_reapers} ${pid}"
+          if [ -n "${last_win769}" ]; then
+            DISPLAY=:0 xprop -id "${last_win769}" -f STEAM_INPUT_FOCUS 32c -set STEAM_INPUT_FOCUS 0 >/dev/null 2>&1 || true
+            DISPLAY=:0 xprop -id "${last_win769}" -f STEAM_OVERLAY 32c -set STEAM_OVERLAY 0 >/dev/null 2>&1 || true
+            echo "pocknix-game-affinity: cleared stale STEAM_INPUT_FOCUS=1 on Steam window ${last_win769} for AppId=${appid}"
+          fi
+          ;;
+      esac
+    done
+    if [ "${POCKNIX_GAMESCOPE_REFRESH_DEFAULT_LOWEST:-0}" = 1 ]; then
+      case "${props}" in
+        *"GAMESCOPE_FPS_LIMIT(CARDINAL) = 120"*)
+          for pid in ${seen}; do
+            [ -r "/proc/${pid}/cmdline" ] || continue
+            appid="$( { tr '\0' ' ' < "/proc/${pid}/cmdline"; } 2>/dev/null | sed -n 's/.*SteamLaunch AppId=\([0-9][0-9]*\).*/\1/p')"
+            [ -n "${appid}" ] || continue
+            if ! grep -q '"refresh120"[[:space:]]*:[[:space:]]*true' "${HOME:-/home/deck}/.config/pocknix/tweaks/${appid}.json" 2>/dev/null; then
+              DISPLAY=:0 xprop -root -f GAMESCOPE_FPS_LIMIT 32c -set GAMESCOPE_FPS_LIMIT "${POCKNIX_PANEL_REFRESH:-60}" >/dev/null 2>&1 || true
+              echo "pocknix-game-affinity: clamped GAMESCOPE_FPS_LIMIT to ${POCKNIX_PANEL_REFRESH:-60} for AppId=${appid} (default_lowest=1)"
+            fi
+          done
+          ;;
+      esac
+    fi
+  fi
+  if [ "${PIN_CPUS}" = 1 ]; then
+    # Steam UI: pin every steamwebhelper we have not seen yet (Steam sets its own mask at launch)
+    for pid in $(pgrep -x steamwebhelper 2>/dev/null); do
+      case " ${ui_seen} " in *" ${pid} "*) continue ;; esac
+      taskset -a -c -p "${CPUS}" "${pid}" >/dev/null 2>&1 && ui_seen="${ui_seen} ${pid}"
+    done
+    keep=""; for pid in ${ui_seen}; do [ -d "/proc/${pid}" ] && keep="${keep} ${pid}"; done; ui_seen="${keep}"
+  fi
   # forget reapers that are gone, so the list stays short
   keep=""; for pid in ${seen}; do [ -d "/proc/${pid}" ] && keep="${keep} ${pid}"; done; seen="${keep}"
+  keep=""; for pid in ${focused_reapers}; do [ -d "/proc/${pid}" ] && keep="${keep} ${pid}"; done; focused_reapers="${keep}"
   tick=$(( ${tick:-0} + 1 ))
-  if [ $(( tick % 5 )) = 0 ]; then
+  if [ "${PIN_CPUS}" = 1 ] && [ $(( tick % 3 )) = 0 ]; then
     for pid in ${seen}; do
+      for p in $(descendants "${pid}"); do
+        if grep -q "^Cpus_allowed_list:[[:space:]]*${ALL_CPUS}$" "/proc/${p}/status" 2>/dev/null; then
+          taskset -a -c -p "${CPUS}" "${p}" >/dev/null 2>&1
+          widened=""
+        fi
+      done
       for tid in $(side_threads "${pid}"); do
         case " ${widened} " in *" ${tid} "*) continue ;; esac
         taskset -c -p "${ALL_CPUS}" "${tid}" >/dev/null 2>&1 && widened="${widened} ${tid}"
@@ -103,5 +199,5 @@ while :; do
     done
     [ ${#widened} -gt 4000 ] && widened=""   # forget old tids now and then; a re-set is harmless
   fi
-  sleep 1
+  sleep 2
 done

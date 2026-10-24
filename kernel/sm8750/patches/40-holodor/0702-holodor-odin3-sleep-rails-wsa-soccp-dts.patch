@@ -1,0 +1,280 @@
+From: Holodor <noreply@holodor.local>
+Subject: [PATCH] arm64: dts: qcom: odin3: configure sleep rails, active-only XO clock, aoss_qmp pdc_init_table, disable unused WSA macros, and set SoCCP firmware
+
+1. Parent `bi_tcxo_div2` to `RPMH_CXO_CLK_A` (`bi_tcxo_ao`) instead of
+   `RPMH_CXO_CLK` (`bi_tcxo`): GCC, DISPCC, GPUCC, and VIDEOCC live in the
+   CX/MMCX power domains and only need the 38.4 MHz XO reference in
+   `RPMH_ACTIVE_ONLY_STATE` and `RPMH_WAKE_ONLY_STATE`. Parenting
+   `bi_tcxo_div2` to `RPMH_CXO_CLK` kept `xo.lvl = 0x3` voted in
+   `RPMH_SLEEP_STATE` (`SLEEP_TCS`) whenever any child clock remained
+   prepared (`prepare_count > 0`, e.g. `pm_clk_suspend` or RCG parents),
+   blocking AOSS/XO shutdown (`aosd`) in `s2idle`.
+2. Keep the four WCN7860 PMU supply rails (`vreg_s4d_0p85`, `vreg_s5f_0p85`,
+   `vreg_l2f_1p2`, `vreg_l3f_1p8`) always-on across suspend (re-enabling
+   them at resume when PCIe powers off across s2idle can hang the SoC) and
+   place them into `RPMH_REGULATOR_MODE_LPM` via `regulator-state-mem` so
+   they drop out of HPM/PWM mode in `SLEEP_TCS`.
+3. Configure `&aoss_qmp` `qcom,pdc_init_table` for the Sun V8 Power Grid
+   (`s5f` RF/AON rail for WCN7860).
+4. Disable the unused LPASS WSA macros (`lpass_wsamacro`, `lpass_wsa2macro`)
+   and `&ice`.
+5. Fix `pcieport0` `wake-gpios` polarity (`GPIO_ACTIVE_LOW`).
+6. Idle the codec, UFS/USB PHY, and always-on parent rails (`vreg_bob1`,
+   `vreg_bob2`, `vreg_l15b_1p8`, `vreg_l1d_1p2`, `vreg_l1j_0p91`,
+   `vreg_l2d_0p88`, `vreg_l2i_1p2`, `vreg_l3g_1p2`, `vreg_l5b_3p1`,
+   `vreg_s1d_0p97`, `vreg_s3g_1p8`, `vreg_s7i_1p2`) in LPM during s2idle.
+7. Point `remoteproc_soccp` at `qcom/sm8750/ayn/odin3/soccp.mbn` so the
+   driver reloads the SoCCP firmware and parks it in D3, allowing the SoC to
+   reach CX shutdown (`cxsd`), DDR low-power states, and AOSS sleep (`aosd`)
+   in `s2idle`.
+---
+ arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi | 45 ++++++++++++++++++--
+ arch/arm64/boot/dts/qcom/cq8725s-ayn-odin3.dts   | 90 ++++++++++++++++++++++++++++++++++++++++
+ drivers/soc/qcom/qcom_aoss.c                     | 14 +++++++
+ 3 files changed, 146 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi b/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
+--- a/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/cq8725s-ayn-common.dtsi
+@@ -78,7 +78,7 @@
+ 			compatible = "fixed-factor-clock";
+ 			#clock-cells = <0>;
+ 
+-			clocks = <&rpmhcc RPMH_CXO_CLK>;
++			clocks = <&rpmhcc RPMH_CXO_CLK_A>;
+ 			clock-mult = <1>;
+ 			clock-div = <2>;
+ 		};
+@@ -297,7 +297,7 @@
+ 		vddrfa1p2-supply = <&vreg_s7i_1p2>;
+ 		vddrfa1p8-supply = <&vreg_s3g_1p8>;
+ 
+-		clocks = <&rpmhcc RPMH_RF_CLK1>;
++		clocks = <&rpmhcc RPMH_RF_CLK1_A>;
+ 
+ 		regulators {
+ 			vreg_pmu_rfa_cmn: ldo0 {
+@@ -568,6 +568,12 @@
+ 			regulator-name = "vreg_s4d_0p85";
+ 			regulator-min-microvolt = <852000>;
+ 			regulator-max-microvolt = <1036000>;
++			regulator-always-on;
+ 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++
++			regulator-state-mem {
++				regulator-on-in-suspend;
++				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++			};
+ 		};
+ 
+@@ -616,6 +622,12 @@
+ 			regulator-name = "vreg_s5f_0p85";
+ 			regulator-min-microvolt = <852000>;
+ 			regulator-max-microvolt = <1000000>;
++			regulator-always-on;
+ 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++
++			regulator-state-mem {
++				regulator-on-in-suspend;
++				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++			};
+ 		};
+ 
+@@ -633,19 +645,31 @@
+ 			regulator-name = "vreg_l2f_1p2";
+ 			regulator-min-microvolt = <1200000>;
+ 			regulator-max-microvolt = <1200000>;
++			regulator-always-on;
+ 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+ 			regulator-allow-set-load;
+ 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
+ 						   RPMH_REGULATOR_MODE_HPM>;
++
++			regulator-state-mem {
++				regulator-on-in-suspend;
++				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++			};
+ 		};
+ 
+ 		vreg_l3f_1p8: ldo3 {
+ 			regulator-name = "vreg_l3f_1p8";
+ 			regulator-min-microvolt = <1800000>;
+ 			regulator-max-microvolt = <1800000>;
++			regulator-always-on;
+ 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+ 			regulator-allow-set-load;
+ 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
+ 						   RPMH_REGULATOR_MODE_HPM>;
++
++			regulator-state-mem {
++				regulator-on-in-suspend;
++				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++			};
+ 		};
+ 
+@@ -927,14 +951,35 @@
+ 	};
+ };
+ 
++&aoss_qmp {
++	qcom,pdc_init_table =
++		"{class: wlan_pdc, ss: rf, res: s5f.m, enable: 1}",
++		"{class: wlan_pdc, ss: rf, res: s5f.v, enable: 1}",
++		"{class: wlan_pdc, ss: rf, res: s5f.v, upval: 876}",
++		"{class: wlan_pdc, ss: rf, res: s5f.v, dwnval: 876}";
++};
++
++&ice {
++	status = "disabled";
++};
++
+ &iris {
+ 	status = "okay";
+ };
+ 
+ &lpass_vamacro {
+ 	qcom,dmic-sample-rate = <4800000>;
+ };
+ 
++/* Unused (I2S speakers); bound WSA macros keep the ADSP waking in s2idle */
++&lpass_wsa2macro {
++	status = "disabled";
++};
++
++&lpass_wsamacro {
++	status = "disabled";
++};
++
+ &mdss {
+ 	status = "okay";
+ };
+@@ -985,7 +1030,7 @@
+ };
+ 
+ &pcieport0 {
+-	wake-gpios = <&tlmm 104 GPIO_ACTIVE_HIGH>;
++	wake-gpios = <&tlmm 104 GPIO_ACTIVE_LOW>;
+ 	reset-gpios = <&tlmm 102 GPIO_ACTIVE_LOW>;
+ 
+ 	wifi@0 {
+diff --git a/arch/arm64/boot/dts/qcom/cq8725s-ayn-odin3.dts b/arch/arm64/boot/dts/qcom/cq8725s-ayn-odin3.dts
+--- a/arch/arm64/boot/dts/qcom/cq8725s-ayn-odin3.dts
++++ b/arch/arm64/boot/dts/qcom/cq8725s-ayn-odin3.dts
+@@ -350,3 +350,93 @@
+ 		};
+ 	};
+ };
++
++/* Idle active rails in LPM across s2idle */
++&vreg_bob1 {
++	regulator-state-mem {
++		regulator-on-in-suspend;
++		regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++	};
++};
++
++&vreg_bob2 {
++	regulator-state-mem {
++		regulator-on-in-suspend;
++		regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++	};
++};
++
++&vreg_l15b_1p8 {
++	regulator-state-mem {
++		regulator-on-in-suspend;
++		regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++	};
++};
++
++&vreg_l1d_1p2 {
++	regulator-state-mem {
++		regulator-on-in-suspend;
++		regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++	};
++};
++
++&vreg_l1j_0p91 {
++	regulator-state-mem {
++		regulator-on-in-suspend;
++		regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++	};
++};
++
++&vreg_l2d_0p88 {
++	regulator-state-mem {
++		regulator-on-in-suspend;
++		regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++	};
++};
++
++&vreg_l2i_1p2 {
++	regulator-state-mem {
++		regulator-on-in-suspend;
++		regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++	};
++};
++
++&vreg_l3g_1p2 {
++	regulator-state-mem {
++		regulator-on-in-suspend;
++		regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++	};
++};
++
++&vreg_l5b_3p1 {
++	regulator-state-mem {
++		regulator-on-in-suspend;
++		regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++	};
++};
++
++&vreg_s1d_0p97 {
++	regulator-state-mem {
++		regulator-on-in-suspend;
++		regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++	};
++};
++
++&vreg_s3g_1p8 {
++	regulator-state-mem {
++		regulator-on-in-suspend;
++		regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++	};
++};
++
++&vreg_s7i_1p2 {
++	regulator-state-mem {
++		regulator-on-in-suspend;
++		regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
++	};
++};
++
++/* Replaces the bootloader's early SoCCP image, which blocks SoC deep sleep */
++&remoteproc_soccp {
++	firmware-name = "qcom/sm8750/ayn/odin3/soccp.mbn";
++};
+diff --git a/drivers/soc/qcom/qcom_aoss.c b/drivers/soc/qcom/qcom_aoss.c
+--- a/drivers/soc/qcom/qcom_aoss.c
++++ b/drivers/soc/qcom/qcom_aoss.c
+@@ -611,6 +611,20 @@ static int qmp_probe(struct platform_device *pdev)
+ 	if (ret < 0)
+ 		goto err_free_mbox;
+ 
++	{
++		const char *msg;
++		struct property *prop;
++
++		of_property_for_each_string(pdev->dev.of_node,
++					    "qcom,pdc_init_table", prop, msg) {
++			ret = qmp_send(qmp, msg);
++			if (ret < 0)
++				dev_warn(&pdev->dev,
++					 "failed to send pdc_init_table '%s': %d\n",
++					 msg, ret);
++		}
++	}
++
+ 	ret = qmp_qdss_clk_add(qmp);
+ 	if (ret)
+ 		goto err_close_qmp;

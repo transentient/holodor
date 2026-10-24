@@ -163,6 +163,53 @@ def apply_protonfixes(settings):
         os.environ["PROTONFIXES_DISABLE"] = "1"
 
 
+def is_pe32_executable(args):
+    for a in args[2:]:
+        if a.lower().endswith(".exe") and os.path.isfile(a):
+            try:
+                with open(a, "rb") as f:
+                    mz = f.read(64)
+                    if len(mz) == 64 and mz[:2] == b"MZ":
+                        pe_off = int.from_bytes(mz[60:64], "little")
+                        f.seek(pe_off)
+                        pe = f.read(6)
+                        if len(pe) == 6 and pe[:4] == b"PE\x00\x00":
+                            machine = int.from_bytes(pe[4:6], "little")
+                            return machine == 0x014C  # IMAGE_FILE_MACHINE_I386
+            except OSError:
+                pass
+    return False
+
+
+def host_ram_mib():
+    try:
+        with open("/proc/meminfo", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    return int(line.split()[1]) // 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return 8192
+
+
+def apply_dxvk_config(args):
+    # Scale DXVK/vkd3d-proton DXGI reported VRAM by total UMA RAM and PE bitness:
+    # - 32-bit games (or <=12 GiB boards like 8 GB RP5 / 12 GB Odin 3): 4096 MiB cap
+    #   to prevent 32-bit signed/unsigned VRAM counter overflow and host OOM.
+    # - 64-bit games on 16 GiB boards (Odin 3 Max): 6144 MiB dedicated + 6144 MiB shared.
+    # - 64-bit games on >=20 GiB boards (24 GB Odin 3 Ultra): 8192 MiB dedicated + 8192 MiB
+    #   shared, satisfying 8 GB VRAM + 16 GB system RAM next-gen titles (e.g. Control Resonant).
+    ram_mib = host_ram_mib()
+    if is_pe32_executable(args) or ram_mib < 14000:
+        cap = 4096
+    elif ram_mib < 20000:
+        cap = 6144
+    else:
+        cap = 8192
+    if os.environ.get("DXVK_CONFIG") in (None, "", "dxgi.maxDeviceMemory = 4096; dxgi.maxSharedMemory = 4096"):
+        os.environ["DXVK_CONFIG"] = f"dxgi.maxDeviceMemory = {cap}; dxgi.maxSharedMemory = {cap}"
+
+
 FIRST_LAUNCH_GRACE = int(os.environ.get("POCKNIX_FIRST_LAUNCH_GRACE", "300"))
 
 
@@ -227,6 +274,24 @@ def wants_120hz(settings):
     return settings.get("refresh120") is True
 
 
+def wants_power_profile(settings, args):
+    if len(args) < 2 or args[1] not in ("waitforexitandrun", "run"):
+        return None
+    prof = str(settings.get("powerProfile", "") or "").strip()
+    return prof if prof in ("eco", "balanced", "performance", "max") else None
+
+
+def power_mode_ctl(*words):
+    import subprocess
+    try:
+        subprocess.run(
+            ["systemd-run", "--quiet", "--collect", "--wait", "/usr/local/bin/pocknix-power-mode", *words],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def run_with_first_launch_guard(real_proton, args):
     # Until a game has been seen running once (marker file in its compatdata), Proton is run
     # under a watchdog: it builds the prefix and (with protonfixes) may run installers before the
@@ -241,7 +306,7 @@ def run_with_first_launch_guard(real_proton, args):
     # by then and the hang (protonfixes' winetricks) happens with it in place.
     marker = pathlib.Path(compat) / "pocknix-first-run-ok" if compat else None
     first_launch = bool(pfx and exe and marker and not marker.exists())
-    if not first_launch and not RESTORE_REFRESH:
+    if not first_launch and not RESTORE_REFRESH and not RESTORE_POWER:
         os.execv(real_proton, args)
     import signal
     import shutil
@@ -290,14 +355,21 @@ def run_with_first_launch_guard(real_proton, args):
                 print(f"pocknix-proton: prefix moved to {broken}", file=sys.stderr)
             except OSError as exc:
                 print(f"pocknix-proton: could not move the prefix: {exc}", file=sys.stderr)
+            if RESTORE_REFRESH:
+                gamescopectl("dynamic_refresh_default_lowest", "1")
+            if RESTORE_POWER:
+                power_mode_ctl("restore")
             sys.exit(1)
         time.sleep(2)
     if RESTORE_REFRESH:
         gamescopectl("dynamic_refresh_default_lowest", "1")
+    if RESTORE_POWER:
+        power_mode_ctl("restore")
     sys.exit(child.returncode)
 
 
 RESTORE_REFRESH = False
+RESTORE_POWER = False
 
 
 def apply_lsfg(settings):
@@ -330,6 +402,724 @@ def apply_lsfg(settings):
 
 
 GAME_FIXES = "/usr/share/pocknix-steam/game-fixes.json"
+
+
+def _sanitize_virtual_gamepad_info():
+    # pocknix-gamepad registers a uhid device with VID=0x28de, PID=0x12f0, which causes Steam to
+    # write `VID=0x28de / PID=0x12f0 / type=unknown` into virtualgamepadinfo.txt. Winebus and
+    # SDL 2.30+ read `SteamVirtualGamepadInfo_Proton` and override the virtual XInput pad with
+    # `0x28de:0x12f0 (unknown)`, breaking games that validate controller type/VID/PID (e.g. Hades II
+    # "UNRECOGNIZED CONTROLLER"). Rewrite unknown/0x12f0 slots to standard Xbox 360 (`0x045e:0x028e`).
+    vgi_path = os.environ.get(
+        "SteamVirtualGamepadInfo_Proton",
+        os.path.expanduser("~/.local/share/Steam/config/virtualgamepadinfo.txt"),
+    )
+    if not vgi_path or not os.path.isfile(vgi_path):
+        return
+    try:
+        raw = pathlib.Path(vgi_path).read_text(encoding="utf-8", errors="ignore")
+        out_lines = []
+        for line in raw.splitlines():
+            k = line.split("=", 1)[0].strip().lower() if "=" in line else ""
+            if k == "name":
+                out_lines.append("name=Xbox 360 Controller")
+            elif k == "vid":
+                out_lines.append("VID=0x045e")
+            elif k == "pid":
+                out_lines.append("PID=0x028e")
+            elif k == "type":
+                out_lines.append("type=xbox360")
+            else:
+                out_lines.append(line)
+        sanitized = "\n".join(out_lines) + "\n"
+        orig_path = pathlib.Path(vgi_path)
+        target = orig_path.parent / "pocknix-virtualgamepadinfo.txt"
+        target.write_text(sanitized, encoding="utf-8")
+        try:
+            orig_path.write_text(sanitized, encoding="utf-8")
+        except OSError:
+            pass
+        os.environ["SteamVirtualGamepadInfo_Proton"] = str(target)
+        os.environ["SteamVirtualGamepadInfo"] = str(target)
+    except OSError:
+        pass
+
+
+def apply_engine_heuristics(args):
+    # Engine/middleware-wide automatic fixes so newly installed games work out of the box
+    # without requiring an explicit AppID entry in game-fixes.json:
+    # 1. Easy Anti-Cheat (`start_protected_game.exe`): EAC's x86_64 loader fails on ARM64/FEX
+    #    ("Failed to load the anti-cheat module"), while the sibling game binary runs cleanly
+    #    in offline/single-player mode (Elden Ring, Armored Core VI, Lords of the Fallen, etc.).
+    # 2. Bethesda Creation Engine / Gamebryo (`*Launcher.exe` next to `Data/*.esm|*.ba2|*.bsa`):
+    #    The Win32 settings launcher requires mouse/touch input on a tiny window before starting
+    #    the game (Fallout 4, Skyrim SE, Fallout NV, Fallout 3, Oblivion). Redirecting to the
+    #    main game executable boots directly into gamepad-friendly UI.
+    if os.environ.get("POCKNIX_GAME_FIXES", "1") == "0":
+        return args
+
+    # 5. VKD3D-Proton D3D12 Feature Level 12_1 default: Turnip on Adreno 6xx (SM8250 RP5) fails
+    #    vkd3d-proton's strict FL 12_0 capability gate unless VKD3D_FEATURE_LEVEL=12_1 is set.
+    os.environ.setdefault("VKD3D_FEATURE_LEVEL", "12_1")
+
+    # 5b. On SM8250 (RP5: 4x Cortex-A55 + 4x Cortex-A77), expose only the 4 out-of-order A77 cores
+    #     (host CPUs 4..7) to Windows via WINE_CPU_TOPOLOGY=4:4,5,6,7 so GetSystemInfo,
+    #     GetLogicalProcessorInformation, and GetProcessAffinityMask all consistently report 4 CPUs.
+    #     Fixes CryEngine V (Prey) CCpuFeatures::Detect reading unpopulated slots 4..7 and showing
+    #     "Unsupported CPU detected. CPU needs to support SSE, SSE2 and SSE3", while sizing engine
+    #     thread pools for 4 fast cores instead of 8.
+    if _is_sm8250():
+        os.environ.setdefault("WINE_CPU_TOPOLOGY", "4:4,5,6,7")
+
+    # 6. Sanitize SteamVirtualGamepadInfo_Proton so SDL2/Winebus games see an Xbox 360 controller
+    #    instead of `0x28de:0x12f0 (type=unknown)`.
+    _sanitize_virtual_gamepad_info()
+
+    new_args = list(args)
+    for idx, a in enumerate(new_args):
+        if idx < 2 or not a.lower().endswith(".exe") or not os.path.isfile(a):
+            continue
+        exe_path = pathlib.Path(a)
+        exe_dir = exe_path.parent
+        base_lower = exe_path.name.lower()
+
+        if base_lower == "start_protected_game.exe":
+            target = None
+            for settings_rel in ("EasyAntiCheat/Settings.json", "EasyAntiCheat/settings.json"):
+                sp = exe_dir / settings_rel
+                if sp.is_file():
+                    try:
+                        cand = json.loads(sp.read_text(encoding="utf-8", errors="ignore")).get("executable")
+                        if cand and (exe_dir / cand).is_file():
+                            target = exe_dir / cand
+                            break
+                    except (OSError, ValueError):
+                        pass
+            if target is None:
+                skip = {"start_protected_game.exe", "unitycrashhandler64.exe", "unitycrashhandler32.exe", "crashreportclient.exe"}
+                candidates = [
+                    p for p in exe_dir.glob("*.exe")
+                    if p.name.lower() not in skip and "unins" not in p.name.lower() and "crash" not in p.name.lower()
+                ]
+                if candidates:
+                    target = max(candidates, key=lambda p: p.stat().st_size)
+            if target is not None:
+                new_args[idx] = str(target)
+                print(f"pocknix-proton: engine heuristic (EAC): {exe_path.name} -> {target.name}", file=sys.stderr)
+
+        elif base_lower == "redprelauncher.exe":
+            # CD Projekt RED web launcher (The Witcher 3 Next-Gen, Cyberpunk 2077):
+            # Redirect directly to the game binary so handheld users don't get stuck on a mouse-only web window.
+            # Also chdir into the target executable's directory (e.g. bin/x64_dx12) because witcher3.exe
+            # resolves `..\gameconf.cfg` (`bin\gameconf.cfg`) relative to the process working directory.
+            dx11_w3 = exe_dir / "bin/x64/witcher3.exe"
+            dx12_w3 = exe_dir / "bin/x64_dx12/witcher3.exe"
+            target_cdpr = None
+            if dx11_w3.is_file() and os.environ.get("POCKNIX_PREFER_DX12", "0") != "1":
+                target_cdpr = dx11_w3
+            elif dx12_w3.is_file():
+                target_cdpr = dx12_w3
+            else:
+                lc = exe_dir / "launcher-configuration.json"
+                if lc.is_file():
+                    try:
+                        exes = json.loads(lc.read_text(encoding="utf-8", errors="ignore")).get("executables", [])
+                        for entry in exes:
+                            ed = entry.get("executable", {})
+                            rel_dir = ed.get("directoryPath", "").replace("\\", "/")
+                            fname = ed.get("fileName", "")
+                            cand = exe_dir / rel_dir / fname
+                            if fname and cand.is_file():
+                                target_cdpr = cand
+                                break
+                    except (OSError, ValueError):
+                        pass
+            if target_cdpr is not None:
+                new_args[idx] = str(target_cdpr)
+                try:
+                    os.chdir(target_cdpr.parent)
+                except OSError:
+                    pass
+                print(
+                    f"pocknix-proton: engine heuristic (CDPR): {exe_path.name} -> {target_cdpr} (cwd={target_cdpr.parent})",
+                    file=sys.stderr,
+                )
+
+        elif base_lower.endswith("launcher.exe"):
+            data_dir = exe_dir / "Data"
+            has_bethesda_data = data_dir.is_dir() and any(
+                data_dir.glob(pat) for pat in ("*.esm", "*.ba2", "*.bsa")
+            )
+            if has_bethesda_data:
+                stem = exe_path.name[:-len("Launcher.exe")]
+                for cand_name in (f"{stem}.exe", "TESV.exe", "Fallout3.exe"):
+                    cand = exe_dir / cand_name
+                    if cand.is_file():
+                        new_args[idx] = str(cand)
+                        print(f"pocknix-proton: engine heuristic (Bethesda): {exe_path.name} -> {cand.name}", file=sys.stderr)
+                        break
+
+        else:
+            # 3. Dual DX11/DX12 selector launcher (`<Stem>.exe` alongside `<Stem>_DX11.exe` and
+            #    `<Stem>_DX12.exe`, e.g. Remedy Northlight Engine in Control Ultimate Edition):
+            #    Defaulting to DX12 can trigger Adreno ringbuffer lockups or VKD3D descriptor
+            #    overhead, whereas `<Stem>_DX11.exe` runs cleanly under DXVK.
+            stem = exe_path.stem
+            dx11_cand = exe_dir / f"{stem}_DX11.exe"
+            dx12_cand = exe_dir / f"{stem}_DX12.exe"
+            if (
+                dx11_cand.is_file()
+                and dx12_cand.is_file()
+                and os.environ.get("POCKNIX_PREFER_DX12", "0") != "1"
+                and "-dx12" not in [x.lower() for x in new_args]
+            ):
+                new_args[idx] = str(dx11_cand)
+                print(f"pocknix-proton: engine heuristic (DX11 over DX12): {exe_path.name} -> {dx11_cand.name}", file=sys.stderr)
+
+        # 4. Coherent UI GT / JavaScriptCore (`coherentgtjs.dll` / `coherentuigt.dll`, e.g. Control,
+        #    Sea of Thieves, etc.): disable JSC's self-modifying x86_64 inline-cache JIT so it uses
+        #    the LLInt interpreter instead of faulting on polymorphic IC repatching under FEX-Emu.
+        if (exe_dir / "coherentgtjs.dll").is_file() or (exe_dir / "coherentuigt.dll").is_file():
+            os.environ.setdefault("JSC_useJIT", "false")
+            print(f"pocknix-proton: engine heuristic (CoherentGT): set JSC_useJIT=false for {exe_path.name}", file=sys.stderr)
+
+        # 7. Remedy Northlight 2 DX12 (`renderer_presets.json` / `CONTROLResonant.exe`):
+        #    Multi-queue vkd3d-proton + DXR acceleration-structure builds trigger Adreno 830
+        #    cross-ringbuffer fence deadlocks (`rb 0` vs `rb 2`). Force single Vulkan queue and
+        #    disable DXR / NvAPI / Streamline so Northlight 2 runs cleanly on Turnip.
+        if (exe_dir / "renderer_presets.json").is_file() or base_lower == "controlresonant.exe":
+            os.environ.setdefault("VKD3D_CONFIG", "single_queue,nodxr")
+            lower_existing = {x.lower() for x in new_args}
+            for flag in ("-nodxr", "-nonvapi", "-nonvstreamline"):
+                if flag not in lower_existing:
+                    new_args.append(flag)
+            print(f"pocknix-proton: engine heuristic (Northlight 2 DX12): VKD3D_CONFIG=single_queue,nodxr + -nodxr for {exe_path.name}", file=sys.stderr)
+    return new_args
+
+
+def _is_sm8250():
+    try:
+        compat = pathlib.Path("/sys/firmware/devicetree/base/compatible").read_bytes().decode("ascii", "ignore")
+        return "sm8250" in compat
+    except OSError:
+        return False
+
+
+def _upsert_ini_keys(path: pathlib.Path, sections_dict: dict):
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore") if path.exists() else ""
+        lines = text.splitlines()
+        for section, kv in sections_dict.items():
+            for key, value in kv.items():
+                out, in_sec, done = [], False, False
+                for line in lines:
+                    s = line.strip()
+                    if s.startswith("[") and s.endswith("]"):
+                        if in_sec and not done:
+                            out.append(f"{key}={value}")
+                            done = True
+                        in_sec = s[1:-1].strip().lower() == section.lower()
+                    elif in_sec and s.split("=", 1)[0].strip().lower() == key.lower():
+                        if done:
+                            continue
+                        line, done = f"{key}={value}", True
+                    out.append(line)
+                if in_sec and not done:
+                    out.append(f"{key}={value}")
+                    done = True
+                if not done:
+                    if out and out[-1].strip():
+                        out.append("")
+                    out += [f"[{section}]", f"{key}={value}"]
+                lines = out
+        new_text = "\n".join(lines) + "\n"
+        if new_text != text:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(new_text, encoding="utf-8")
+    except OSError as exc:
+        print(f"pocknix-proton: failed to seed ini {path}: {exc}", file=sys.stderr)
+
+
+def apply_engine_graphics_defaults(args, settings):
+    # Seed 1280x720 + Low graphics presets on a game's first launch so handheld users get
+    # 60 FPS out of the box without digging through menus, while preserving any subsequent
+    # user adjustments once the `pocknix-gfx-defaults-seeded` marker exists in compatdata.
+    if os.environ.get("POCKNIX_DEFAULT_720P_LOW", "1") == "0" or settings.get("default720pLow") is False:
+        return args
+    if len(args) < 2 or args[1] not in ("waitforexitandrun", "run"):
+        return args
+    compat_str = os.environ.get("STEAM_COMPAT_DATA_PATH", "")
+    if not compat_str:
+        return args
+    compat = pathlib.Path(compat_str)
+    pfx = compat / "pfx"
+    marker = compat / "pocknix-gfx-defaults-seeded"
+    first_seed = not marker.exists()
+    sm8250 = _is_sm8250()
+
+    exe_path = None
+    for a in args[2:]:
+        if a.lower().endswith(".exe") and os.path.isfile(a):
+            exe_path = pathlib.Path(a)
+            break
+    if exe_path is None:
+        return args
+
+    exe_dir = exe_path.parent
+    seeded_any = False
+
+    # 1. Unreal Engine 4 / 5 (`Engine/Binaries` sibling + `<ProjectName>/Binaries` or `Content`)
+    ue_projects = []
+    if (exe_dir / "Engine").is_dir():
+        for d in exe_dir.iterdir():
+            if d.is_dir() and d.name.lower() != "engine" and ((d / "Binaries").is_dir() or (d / "Content").is_dir()):
+                ue_projects.append(d)
+    elif exe_dir.name.lower() in ("win64", "wingdk") and exe_dir.parent.name.lower() == "binaries":
+        proj_dir = exe_dir.parent.parent
+        if (proj_dir.parent / "Engine").is_dir():
+            ue_projects.append(proj_dir)
+
+    if ue_projects:
+        ue_sections = {}
+        if first_seed:
+            ue_res_keys = {
+                "ResolutionSizeX": "1280",
+                "ResolutionSizeY": "720",
+                "LastUserConfirmedResolutionSizeX": "1280",
+                "LastUserConfirmedResolutionSizeY": "720",
+                "FullscreenMode": "0",
+                "LastConfirmedFullscreenMode": "0",
+                "PreferredFullscreenMode": "0",
+                "bUseDesiredScreenHeight": "False",
+            }
+            ue_sections["/Script/Engine.GameUserSettings"] = dict(ue_res_keys)
+            ue_sections["ScalabilityGroups"] = {
+                "sg.ResolutionQuality": "100.000000",
+                "sg.ViewDistanceQuality": "0",
+                "sg.AntiAliasingQuality": "0",
+                "sg.ShadowQuality": "0",
+                "sg.GlobalIlluminationQuality": "0",
+                "sg.ReflectionQuality": "0",
+                "sg.PostProcessQuality": "0",
+                "sg.TextureQuality": "1",
+                "sg.EffectsQuality": "0",
+                "sg.FoliageQuality": "0",
+                "sg.ShadingQuality": "0",
+            }
+        if sm8250:
+            # Adreno 650 (SM8250) crashes in UE4 D3D12RHI CreateRootSignature; force D3D11RHI.
+            ue_sections["D3DRHIPreference"] = {"bUseD3D12InGame": "False"}
+        if ue_sections:
+            appdata_local = pfx / "drive_c/users/steamuser/AppData/Local"
+            for proj in ue_projects:
+                targets = [
+                    appdata_local / proj.name / "Saved/Config/WindowsNoEditor/GameUserSettings.ini",
+                    appdata_local / proj.name / "Saved/Config/Windows/GameUserSettings.ini",
+                ]
+                for sub in ("Saved/Config/WindowsNoEditor/GameUserSettings.ini", "Saved/Config/Windows/GameUserSettings.ini"):
+                    if (proj / sub).parent.is_dir() or (proj / sub).is_file():
+                        targets.append(proj / sub)
+                win64_dir = proj / "Binaries/Win64"
+                if win64_dir.is_dir():
+                    for ship in win64_dir.glob("*-Win64-Shipping.exe"):
+                        ship_prefix = ship.name[:-len("-Win64-Shipping.exe")]
+                        if first_seed and ship_prefix:
+                            ue_sections[f"/Script/{ship_prefix}.ConfigurableGameUserSettings"] = dict(ue_res_keys)
+                        if ship_prefix and ship_prefix != proj.name:
+                            alias = appdata_local / ship_prefix
+                            if not alias.exists() and not alias.is_symlink():
+                                try:
+                                    alias.symlink_to(proj.name)
+                                except OSError:
+                                    pass
+                for t in targets:
+                    _upsert_ini_keys(t, ue_sections)
+            seeded_any = True
+            if first_seed:
+                print(f"pocknix-proton: seeded UE4/UE5 1280x720 Low defaults for {[p.name for p in ue_projects]}", file=sys.stderr)
+
+    # 2. Remedy Northlight Engine (`renderer.ini` in game dir or `AppData/Local/Remedy/<Game>/renderer.ini`)
+    renderer_ini = exe_dir / "renderer.ini"
+    remedy_inis = [renderer_ini] if renderer_ini.is_file() else []
+    remedy_appdata = pfx / "drive_c/users/steamuser/AppData/Local/Remedy"
+    if remedy_appdata.is_dir():
+        remedy_inis.extend(remedy_appdata.glob("*/renderer.ini"))
+    if first_seed and (exe_dir / "renderer_presets.json").is_file() and not remedy_inis:
+        cr_ini = remedy_appdata / exe_path.stem / "renderer.ini"
+        cr_ini.parent.mkdir(parents=True, exist_ok=True)
+        cr_ini.write_text(
+            json.dumps(
+                {
+                    "objectType": "rend::UserRendererSettings",
+                    "m_iOutputResolutionX": 1920,
+                    "m_iOutputResolutionY": 1080,
+                    "m_iRenderResolutionX": 1280,
+                    "m_iRenderResolutionY": 720,
+                    "m_eFullscreenMode": 1,
+                    "m_bVSync": False,
+                    "m_eQualityPreset": 0,
+                },
+                indent="\t",
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        seeded_any = True
+        print(f"pocknix-proton: seeded Northlight 2 1280x720 Low defaults in {cr_ini}", file=sys.stderr)
+    if first_seed and remedy_inis:
+        for r_ini in remedy_inis:
+            try:
+                data = json.loads(r_ini.read_text(encoding="utf-8", errors="ignore"))
+                if isinstance(data, dict) and data.get("objectType") == "rend::UserRendererSettings":
+                    bak = r_ini.with_name("renderer.ini.pocknix-orig")
+                    if not bak.exists():
+                        bak.write_text(r_ini.read_text(encoding="utf-8", errors="ignore"), encoding="utf-8")
+                    data["m_iOutputResolutionX"] = 1920
+                    data["m_iOutputResolutionY"] = 1080
+                    data["m_iRenderResolutionX"] = 1280
+                    data["m_iRenderResolutionY"] = 720
+                    for k in (
+                        "m_eVolumeLightQuality", "m_eVolumetricSpotLightQuality",
+                        "m_eShadowResolutionQuality", "m_eShadowFilteringQuality",
+                        "m_eTextureFilteringQuality", "m_eLodDetail",
+                        "m_eSSAOQuality", "m_eSSRQuality",
+                        "m_eEffectQuality", "m_eFoliageQuality", "m_eGIQuality",
+                        "m_eSDFQuality", "m_eMSAAQuality", "m_eQualityPreset",
+                    ):
+                        if k in data:
+                            data[k] = 0
+                    if "m_eTextureResolution" in data:
+                        data["m_eTextureResolution"] = 0
+                    r_ini.write_text(json.dumps(data, indent="\t") + "\n", encoding="utf-8")
+                    seeded_any = True
+                    print(f"pocknix-proton: seeded Northlight 1280x720 Low defaults in {r_ini}", file=sys.stderr)
+            except (OSError, ValueError):
+                pass
+
+    if renderer_ini.is_file():
+        # Ensure Remedy Northlight EULA/Privacy bytes (0x102, 0x103) are accepted in Steam userdata
+        # preferences_data so first-launch users aren't blocked on a mouse-only EULA scroll modal.
+        steam_root = compat.parent.parent.parent
+        game_id_str = appid()
+        if game_id_str and (steam_root / "userdata").is_dir():
+            for pref in (steam_root / "userdata").glob(f"*/{game_id_str}/remote/preferences_data"):
+                try:
+                    raw = bytearray(pref.read_bytes())
+                    if len(raw) >= 0x104 and (raw[0x102] == 0 or raw[0x103] == 0):
+                        raw[0x102] = 1
+                        raw[0x103] = 1
+                        pref.write_bytes(bytes(raw))
+                        print(f"pocknix-proton: accepted EULA/Privacy flags in {pref}", file=sys.stderr)
+                except OSError:
+                    pass
+
+    # 3. PlatinumGames NieR:Automata (`NieRAutomata.exe` -> `Documents/My Games/NieR_Automata/SystemData.dat`)
+    if first_seed and exe_path.name.lower() == "nierautomata.exe":
+        sys_dat = pfx / "drive_c/users/steamuser/Documents/My Games/NieR_Automata/SystemData.dat"
+        try:
+            if sys_dat.is_file():
+                raw = bytearray(sys_dat.read_bytes())
+                if len(raw) >= 0x90:
+                    raw[0x60:0x64] = (1280).to_bytes(4, "little")
+                    raw[0x64:0x68] = (720).to_bytes(4, "little")
+                    raw[0x68:0x6C] = (0).to_bytes(4, "little")     # Windowed (Gamescope scales cleanly)
+                    raw[0x70:0x74] = (0).to_bytes(4, "little")     # VSync Off
+                    raw[0x74:0x78] = (0).to_bytes(4, "little")     # AA Off
+                    raw[0x78:0x7C] = (0).to_bytes(4, "little")     # Texture Filter Low
+                    raw[0x7C:0x80] = (0).to_bytes(4, "little")     # Blur Off
+                    raw[0x80:0x84] = (0).to_bytes(4, "little")     # Shadows Low
+                    raw[0x84:0x88] = (0).to_bytes(4, "little")     # Effects Low
+                    raw[0x88:0x8C] = (0).to_bytes(4, "little")     # Ambient Occlusion Off
+                    sys_dat.write_bytes(bytes(raw))
+                    seeded_any = True
+                    print("pocknix-proton: seeded NieR:Automata 1280x720 Low in SystemData.dat", file=sys.stderr)
+        except OSError:
+            pass
+
+    # 4. FromSoftware (`eldenring.exe` / `sekiro.exe` -> `AppData/Roaming/<Game>/GraphicsConfig.xml` UTF-16)
+    fromsoft_map = {
+        "eldenring.exe": "EldenRing",
+        "sekiro.exe": "Sekiro",
+    }
+    if first_seed and exe_path.name.lower() in fromsoft_map:
+        fs_dir = fromsoft_map[exe_path.name.lower()]
+        er_xml = pfx / f"drive_c/users/steamuser/AppData/Roaming/{fs_dir}/GraphicsConfig.xml"
+        try:
+            er_xml.parent.mkdir(parents=True, exist_ok=True)
+            aa_val = "OFF" if exe_path.name.lower() == "sekiro.exe" else "DISABLE"
+            xml_content = (
+                '<?xml version="1.0" encoding="UTF-16" ?>\r\n'
+                "<config><ScreenMode>FULLSCREEN</ScreenMode>\r\n"
+                "<Resolution-WindowScreenWidth>1280</Resolution-WindowScreenWidth>\r\n"
+                "<Resolution-WindowScreenHeight>720</Resolution-WindowScreenHeight>\r\n"
+                "<Resolution-FullScreenWidth>1280</Resolution-FullScreenWidth>\r\n"
+                "<Resolution-FullScreenHeight>720</Resolution-FullScreenHeight>\r\n"
+                "<Resolution-BorderlessScreenWidth>1280</Resolution-BorderlessScreenWidth>\r\n"
+                "<Resolution-BorderlessScreenHeight>720</Resolution-BorderlessScreenHeight>\r\n"
+                "<Auto-detectBestRenderingSettings>OFF</Auto-detectBestRenderingSettings>\r\n"
+                "<QualitySetting>LOW</QualitySetting>\r\n"
+                "<TextureQuality>LOW</TextureQuality>\r\n"
+                f"<Antialiasing>{aa_val}</Antialiasing>\r\n"
+                "<SSAO>DISABLE</SSAO>\r\n"
+                "<DepthOfField>DISABLE</DepthOfField>\r\n"
+                "<MotionBlur>DISABLE</MotionBlur>\r\n"
+                "<ShadowQuality>LOW</ShadowQuality>\r\n"
+                "<LightingQuality>LOW</LightingQuality>\r\n"
+                "<EffectsQuality>LOW</EffectsQuality>\r\n"
+                "<ReflectionQuality>LOW</ReflectionQuality>\r\n"
+                "<WaterSurfaceQuality>LOW</WaterSurfaceQuality>\r\n"
+                "<ShadeQuality>LOW</ShadeQuality>\r\n"
+                "<LodQuality>LOW</LodQuality>\r\n"
+                "<VolumetricEffectQuality>LOW</VolumetricEffectQuality>\r\n"
+                "<RaytracingQuality>DISABLE</RaytracingQuality>\r\n"
+                "<GIDataQuality>LOW</GIDataQuality>\r\n"
+                "<GrassQuality>MEDIUM</GrassQuality>\r\n"
+                "</config>\r\n"
+            )
+            er_xml.write_bytes(xml_content.encode("utf-16"))
+            seeded_any = True
+            print(f"pocknix-proton: seeded {fs_dir} 1280x720 Low in GraphicsConfig.xml", file=sys.stderr)
+        except OSError:
+            pass
+
+    # 5. Unity Engine (`UnityPlayer.dll` or `<Stem>_Data`)
+    is_unity = (exe_dir / "UnityPlayer.dll").is_file() or (exe_dir / f"{exe_path.stem}_Data").is_dir()
+    if is_unity and first_seed:
+        lower_args = [x.lower() for x in args]
+        if "-screen-width" not in lower_args and "-screen-height" not in lower_args:
+            args = [*args, "-screen-width", "1280", "-screen-height", "720"]
+            seeded_any = True
+            print(f"pocknix-proton: seeded Unity 1280x720 launch args for {exe_path.name}", file=sys.stderr)
+        # Risk of Rain 2 executes userdata/*/632360/remote/UserProfiles/config.cfg after Unity
+        # parses CLI args; rewrite `resolution 1920x1080...` and heavy post-processing convars on first seed.
+        if exe_path.name.lower() == "risk of rain 2.exe":
+            steam_root = compat.parent.parent.parent
+            if (steam_root / "userdata").is_dir():
+                import re
+                ror2_overrides = {
+                    "resolution": "1280x720x60",
+                    "vsync_count": "0",
+                    "intro_skip": "1",
+                    "splash_skip": "1",
+                    "r_shadows": "Off",
+                    "r_softparticles": "0",
+                    "r_foliagewind": "0",
+                    "r_lod_bias": "2",
+                    "r_lod_max": "2",
+                    "master_texture_limit": "2",
+                    "anisotropic_filtering": "Disable",
+                    "shadow_distance": "0",
+                    "pp_aa": "Off",
+                    "pp_motionblur": "0",
+                    "pp_sobel_outline": "0",
+                    "pp_bloom": "0",
+                    "pp_ao": "0",
+                    "pp_screendistortion": "0",
+                    "corpses_max": "0",
+                    "corpses_disposal": "Immediate",
+                    "exp_and_money_effects": "0",
+                }
+                for cfg in (steam_root / "userdata").glob("*/632360/remote/UserProfiles/config.cfg"):
+                    try:
+                        txt = cfg.read_text(encoding="utf-8", errors="ignore")
+                        for k, v in ror2_overrides.items():
+                            txt = re.sub(rf"\b{k}\s+[^;]+;", f"{k} {v};", txt)
+                        cfg.write_text(txt, encoding="utf-8")
+                        print(f"pocknix-proton: seeded Risk of Rain 2 1280x720 Low in {cfg}", file=sys.stderr)
+                    except OSError:
+                        pass
+
+    # 6. Bethesda Creation Engine (`SkyrimSE.exe` -> `Documents/My Games/Skyrim Special Edition/SkyrimPrefs.ini`)
+    if first_seed and exe_path.name.lower() == "skyrimse.exe":
+        sky_ini = pfx / "drive_c/users/steamuser/Documents/My Games/Skyrim Special Edition/SkyrimPrefs.ini"
+        default_ini = exe_dir / "Skyrim/SkyrimPrefs.ini"
+        try:
+            if not sky_ini.exists() and default_ini.is_file():
+                sky_ini.parent.mkdir(parents=True, exist_ok=True)
+                sky_ini.write_bytes(default_ini.read_bytes())
+            _upsert_ini_keys(
+                sky_ini,
+                {
+                    "Display": {
+                        "iSize W": "1280",
+                        "iSize H": "720",
+                        "bFull Screen": "1",
+                        "bBorderless": "1",
+                        "iShadowMapResolution": "512",
+                        "fShadowDistance": "3000.0000",
+                        "iNumFocusShadow": "1",
+                        "bVolumetricLightingEnable": "0",
+                        "iVolumetricLightingQuality": "0",
+                        "bSAOEnable": "0",
+                        "bScreenSpaceReflectionEnabled": "0",
+                        "bIBLFEnable": "0",
+                        "bUseTAA": "0",
+                        "bFXAAEnabled": "1",
+                        "bUsePrecipitationOcclusion": "0",
+                        "bTreesReceiveShadows": "0",
+                    },
+                    "Imagespace": {
+                        "bDoDepthOfField": "0",
+                        "bLensFlare": "0",
+                    },
+                    "Water": {
+                        "bUseWaterReflections": "0",
+                    },
+                },
+            )
+            seeded_any = True
+            print(f"pocknix-proton: seeded Skyrim SE 1280x720 Low in {sky_ini}", file=sys.stderr)
+        except OSError:
+            pass
+
+    # 7. CryEngine V (`Prey.exe` -> `Saved Games/Arkane Studios/Prey/game.cfg` + `system.cfg`)
+    if first_seed and exe_path.name.lower() == "prey.exe":
+        prey_root = exe_dir.parent.parent.parent.parent
+        prey_cfgs = [
+            pfx / "drive_c/users/steamuser/Saved Games/Arkane Studios/Prey/game.cfg",
+        ]
+        for rel in ("system.cfg", "GameSDK/game.cfg"):
+            cand = prey_root / rel
+            if cand.is_file():
+                prey_cfgs.append(cand)
+        for p_cfg in prey_cfgs:
+            try:
+                p_cfg.parent.mkdir(parents=True, exist_ok=True)
+                existing = p_cfg.read_text(encoding="utf-8", errors="ignore") if p_cfg.is_file() else ""
+                lines = [
+                    ln for ln in existing.splitlines()
+                    if not ln.strip().split("=", 1)[0].strip().lower() in {
+                        "r_width", "r_height", "r_fullscreen", "r_fullscreenwindow", "sys_spec", "r_vsync",
+                        "r_antialiasingmode", "r_motionblur", "r_ssdo", "r_ssreflections",
+                    }
+                ]
+                lines.extend([
+                    "r_Width = 1280",
+                    "r_Height = 720",
+                    "r_Fullscreen = 1",
+                    "r_FullscreenWindow = 0",
+                    "r_VSync = 0",
+                    "sys_spec = 1",
+                    "r_AntialiasingMode = 0",
+                    "r_MotionBlur = 0",
+                    "r_ssdo = 0",
+                    "r_SSReflections = 0",
+                ])
+                p_cfg.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                seeded_any = True
+            except OSError:
+                pass
+        print("pocknix-proton: seeded Prey 1280x720 Low in game.cfg", file=sys.stderr)
+
+    # 8. Hello Games No Man's Sky (`NMS.exe` -> `Binaries/SETTINGS/TKGRAPHICSSETTINGS.MXML`)
+    if first_seed and exe_path.name.lower() == "nms.exe":
+        nms_xml = exe_dir / "SETTINGS/TKGRAPHICSSETTINGS.MXML"
+        if nms_xml.is_file():
+            try:
+                import re
+                txt = nms_xml.read_text(encoding="utf-8", errors="ignore")
+                txt = re.sub(r'(<Property name="ResolutionWidth" value=")\d+(")', r"\g<1>1280\2", txt)
+                txt = re.sub(r'(<Property name="ResolutionHeight" value=")\d+(")', r"\g<1>720\2", txt)
+                txt = re.sub(r'(<Property name="FullScreen" value=")[a-z]+(")', r"\g<1>true\2", txt)
+                txt = re.sub(r'(<Property name="Borderless" value=")[a-z]+(")', r"\g<1>false\2", txt)
+                txt = re.sub(r'(<Property name="GraphicDetail" value=")[A-Za-z]+(")', r"\g<1>Low\2", txt)
+                txt = re.sub(r'(<Property name="AmbientOcclusion" value=")[A-Za-z0-9_]+(")', r"\g<1>Off\2", txt)
+                txt = re.sub(r'(<Property name="AntiAliasing" value=")[A-Za-z0-9_]+(")', r"\g<1>FFXSR2\2", txt)
+                txt = re.sub(r'(<Property name="VsyncEx" value=")[A-Za-z0-9_]+(")', r"\g<1>Off\2", txt)
+                txt = re.sub(r'(<Property name="NumHighThreads" value=")\d+(")', r"\g<1>4\2", txt)
+                txt = re.sub(r'(<Property name="NumLowThreads" value=")\d+(")', r"\g<1>2\2", txt)
+                txt = re.sub(r'(<Property name="MotionBlurStrength" value=")[0-9.]+(")', r"\g<1>0.000000\2", txt)
+                nms_xml.write_text(txt, encoding="utf-8")
+                seeded_any = True
+                print(f"pocknix-proton: seeded No Man's Sky 1280x720 Low in {nms_xml}", file=sys.stderr)
+            except OSError:
+                pass
+
+    # 9. CD Projekt RED REDengine 3 (`witcher3.exe` -> `Documents/The Witcher 3/user.settings` & `dx12user.settings`)
+    if first_seed and exe_path.name.lower() == "witcher3.exe":
+        w3_dir = pfx / "drive_c/users/steamuser/Documents/The Witcher 3"
+        w3_sections = {
+            "General": {
+                "ConfigVersion": "7",
+            },
+            "StartupFlow": {
+                "LaunchCounter": "1",
+                "LastGameVersion": "500",
+            },
+            "Hidden": {
+                "HasSetup": "true",
+            },
+            "Viewport": {
+                "Resolution": '"1280x720"',
+                "FullScreenMode": "2",
+                "VSync": "false",
+            },
+            "Rendering": {
+                "ShouldDetectEditorGraphicsPreset": "false",
+                "ShouldRefetchUpscaler": "false",
+                "GrassDensity": "800",
+                "DecalsSpawnDistanceCutoff": "10",
+                "TextureStreamingQuality": "0",
+                "TextureDownscale": "2",
+                "DetailTextureDownscale": "2",
+                "AtlasTextureDownscale": "2",
+                "DetailLevel": "0",
+                "MaxCascadeCount": "2",
+                "CascadeShadowMapSize": "512",
+                "CascadeShadowDistanceScale0": "0.5",
+                "CascadeShadowDistanceScale1": "0.5",
+                "CascadeShadowDistanceScale2": "0.5",
+                "CascadeShadowDistanceScale3": "0.5",
+                "CascadeShadowQuality": "0",
+                "MaxCubeShadowSize": "256",
+                "MaxSpotShadowSize": "256",
+                "FoliageDistanceScale": "0.5",
+                "FoliageShadowDistanceScale": "4",
+                "TerrainScreenSpaceErrorThreshold": "4",
+                "TerrainScreenSpaceErrorThresholdFar": "8",
+                "SSREnabled": "false",
+                "EnableTemporalAA": "false",
+                "HairWorksLevel": "0",
+                "HairWorksAA": "0",
+                "UseHairWorks": "false",
+                "EnableRayTracing": "false",
+            },
+            "Rendering/SpeedTree": {
+                "FoliageDistanceScale": "0.5",
+                "GrassDistanceScale": "0.5",
+                "FoliageShadowDistanceScale": "4",
+            },
+            "Rendering/Shadows": {
+                "ScreenShadows": "false",
+            },
+            "PostProcess": {
+                "AAMode": "4",
+                "FSR2Quality": "2",
+                "SSAOEnabled": "0",
+                "AllowLensEffects": "false",
+                "MotionBlurIntensity": "0",
+                "AllowBloom": "false",
+                "AllowShafts": "false",
+                "AllowAntialias": "false",
+                "AllowBlur": "false",
+                "AllowDOF": "false",
+                "AllowVignette": "false",
+                "AllowMotionBlur": "false",
+                "SSAOVersion": "0",
+            },
+        }
+        for fname in ("user.settings", "dx12user.settings"):
+            _upsert_ini_keys(w3_dir / fname, w3_sections)
+        seeded_any = True
+        print(f"pocknix-proton: seeded The Witcher 3 1280x720 Low in {w3_dir}", file=sys.stderr)
+
+    if first_seed and seeded_any:
+        try:
+            compat.mkdir(parents=True, exist_ok=True)
+            marker.write_text("1\n", encoding="utf-8")
+        except OSError:
+            pass
+    return args
 
 
 def apply_game_fixes(game_id, args):
@@ -420,10 +1210,18 @@ def main():
     apply_audio_driver()
     apply_protonfixes(settings)
     args = apply_game_fixes(game_id, args)
+    args = apply_engine_heuristics(args)
+    args = apply_engine_graphics_defaults(args, settings)
+    apply_dxvk_config(args)
     if wants_120hz(settings):
         global RESTORE_REFRESH
         RESTORE_REFRESH = True
         gamescopectl("dynamic_refresh_default_lowest", "0")
+    power_prof = wants_power_profile(settings, args)
+    if power_prof:
+        global RESTORE_POWER
+        RESTORE_POWER = True
+        power_mode_ctl("--transient", power_prof)
     try:
         apply_lsfg(settings)
     except Exception as exc:

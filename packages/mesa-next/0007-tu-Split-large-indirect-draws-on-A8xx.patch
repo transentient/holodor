@@ -1,0 +1,103 @@
+From: Vamsi Chitta <vamschit@qti.qualcomm.com>
+Date: Wed, 2 Sep 2026 15:25:17 +0530
+Subject: [PATCH] tu: Split large indirect draws on A8xx
+
+On A8xx GPUs, large indirect draws may trigger GPU faults.
+
+Split them across multiple CP_DRAW_INDIRECT_MULTI packets,
+deriving the per-packet draw count from the command stride.
+
+Backported from Mesa MR !44352.
+---
+--- a/src/freedreno/vulkan/tu_cmd_buffer.cc
++++ b/src/freedreno/vulkan/tu_cmd_buffer.cc
+@@ -9020,6 +9020,21 @@
+    cmd->state.renderpass_cache.pending_flush_bits &= ~TU_CMD_FLAG_WAIT_FOR_ME;
+ }
+ 
++template <chip CHIP>
++static uint32_t
++tu_indirect_draw_max_count(uint32_t stride)
++{
++   if (CHIP < A8XX)
++      return UINT32_MAX;
++
++   if (stride == 0)
++      return UINT32_MAX;
++
++   const uint32_t max_fetch_size = ((1 << 20) - 1) * 4;
++   /* Emit at least one draw per packet, even when stride exceeds max_fetch_size. */
++   return MAX2(max_fetch_size / stride, 1);
++}
++
+ template <chip CHIP>
+ VKAPI_ATTR void VKAPI_CALL
+ tu_CmdDrawIndirect(VkCommandBuffer commandBuffer,
+@@ -9039,13 +9054,24 @@
+ 
+    tu6_draw_common<CHIP>(cmd, cs, false, 0);
+ 
+-   tu_cs_emit_pkt7(cs, CP_DRAW_INDIRECT_MULTI, 6);
+-   tu_cs_emit(cs, tu_draw_initiator(cmd, DI_SRC_SEL_AUTO_INDEX));
+-   tu_cs_emit(cs, A6XX_CP_DRAW_INDIRECT_MULTI_1_OPCODE(INDIRECT_OP_NORMAL) |
+-                  A6XX_CP_DRAW_INDIRECT_MULTI_1_DST_OFF(vs_params_offset(cmd)));
+-   tu_cs_emit(cs, drawCount);
+-   tu_cs_emit_qw(cs, vk_buffer_address(&buf->vk, offset));
+-   tu_cs_emit(cs, stride);
++   const uint32_t dst_off = vs_params_offset(cmd);
++   const uint32_t limit = tu_indirect_draw_max_count<CHIP>(stride);
++   uint32_t remaining = drawCount;
++   uint64_t indirect_va = vk_buffer_address(&buf->vk, offset);
++   do {
++      uint32_t chunk = MIN2(remaining, limit);
++
++      tu_cs_emit_pkt7(cs, CP_DRAW_INDIRECT_MULTI, 6);
++      tu_cs_emit(cs, tu_draw_initiator(cmd, DI_SRC_SEL_AUTO_INDEX));
++      tu_cs_emit(cs, A6XX_CP_DRAW_INDIRECT_MULTI_1_OPCODE(INDIRECT_OP_NORMAL) |
++                     A6XX_CP_DRAW_INDIRECT_MULTI_1_DST_OFF(dst_off));
++      tu_cs_emit(cs, chunk);
++      tu_cs_emit_qw(cs, indirect_va);
++      tu_cs_emit(cs, stride);
++
++      remaining -= chunk;
++      indirect_va += (uint64_t)chunk * stride;
++   } while (remaining > 0);
+ 
+    trace_end_draw(&cmd->rp_trace, cs);
+ }
+@@ -9070,15 +9096,26 @@
+ 
+    tu6_draw_common<CHIP>(cmd, cs, true, 0);
+ 
+-   tu_cs_emit_pkt7(cs, CP_DRAW_INDIRECT_MULTI, 9);
+-   tu_cs_emit(cs, tu_draw_initiator(cmd, DI_SRC_SEL_DMA));
+-   tu_cs_emit(cs, A6XX_CP_DRAW_INDIRECT_MULTI_1_OPCODE(INDIRECT_OP_INDEXED) |
+-                  A6XX_CP_DRAW_INDIRECT_MULTI_1_DST_OFF(vs_params_offset(cmd)));
+-   tu_cs_emit(cs, drawCount);
+-   tu_cs_emit_qw(cs, cmd->state.index_va);
+-   tu_cs_emit(cs, cmd->state.max_index_count);
+-   tu_cs_emit_qw(cs, vk_buffer_address(&buf->vk, offset));
+-   tu_cs_emit(cs, stride);
++   const uint32_t dst_off = vs_params_offset(cmd);
++   const uint32_t limit = tu_indirect_draw_max_count<CHIP>(stride);
++   uint32_t remaining = drawCount;
++   uint64_t indirect_va = vk_buffer_address(&buf->vk, offset);
++   do {
++      uint32_t chunk = MIN2(remaining, limit);
++
++      tu_cs_emit_pkt7(cs, CP_DRAW_INDIRECT_MULTI, 9);
++      tu_cs_emit(cs, tu_draw_initiator(cmd, DI_SRC_SEL_DMA));
++      tu_cs_emit(cs, A6XX_CP_DRAW_INDIRECT_MULTI_1_OPCODE(INDIRECT_OP_INDEXED) |
++                     A6XX_CP_DRAW_INDIRECT_MULTI_1_DST_OFF(dst_off));
++      tu_cs_emit(cs, chunk);
++      tu_cs_emit_qw(cs, cmd->state.index_va);
++      tu_cs_emit(cs, cmd->state.max_index_count);
++      tu_cs_emit_qw(cs, indirect_va);
++      tu_cs_emit(cs, stride);
++
++      remaining -= chunk;
++      indirect_va += (uint64_t)chunk * stride;
++   } while (remaining > 0);
+ 
+    trace_end_draw(&cmd->rp_trace, cs);
+ }

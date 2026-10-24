@@ -38,7 +38,10 @@ matching subfolder and they are picked up automatically the next time ES-DE star
 Saves and save-states live in ~/Emulation/Saves and ~/Emulation/States, so a single
 copy of this ~/Emulation folder is fully self-contained and portable.
 
-MOVING YOUR ROMS (e.g. to an SD card): ES-DE Menu -> Other Settings -> ROM directory,
-pick the new location, move the files there. Everything else follows automatically.
+5. SHARED ANDROID / MICROSD CARDS (PLUG AND PLAY)
+   Insert any exFAT, FAT32, or ext4 microSD card containing a ROMs/<system>/ (or
+   Emulation/ROMs/<system>/) and BIOS/ folder — including cards shared with Android
+   (ES-DE, Daijisho, Beacon, EmuDeck). Games and BIOS files on the card are linked
+   into ~/Emulation automatically on insert, and cleaned up on removal.
 
 You (and only you) are responsible for supplying game and BIOS files you legally own.

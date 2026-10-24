@@ -125,7 +125,7 @@ a higher rate still switches up.
  static int g_nCombinedAppRefreshCycleOverride[gamescope::GAMESCOPE_SCREEN_TYPE_COUNT] = { 0, 0 };
  bool g_nCombinedAppRefreshCycleChangeRefresh[gamescope::GAMESCOPE_SCREEN_TYPE_COUNT] = { true, true };
  bool g_nCombinedAppRefreshCycleChangeFPS[gamescope::GAMESCOPE_SCREEN_TYPE_COUNT] = { true, true };
-@@ -983,6 +992,31 @@
+@@ -983,6 +992,33 @@
  	{
  		auto rates = GetBackend()->GetCurrentConnector()->GetValidDynamicRefreshRates();
  
@@ -135,10 +135,12 @@ a higher rate still switches up.
 +		static const bool s_bPreferLowest = env_to_bool( getenv( "GAMESCOPE_DYNAMIC_REFRESH_PREFER_LOWEST" ) );
 +		// Steam's default per-game profile asks for the panel's highest rate (120 fps cap +
 +		// refresh switching), the same request as a user picking 120. With the convar on, treat
-+		// a highest-rate target as "no preference" and keep the lowest rate.
++		// a highest-rate target as "no preference" and keep the lowest rate (and match the FPS cap).
 +		if ( cv_dynamic_refresh_default_lowest && rates.size() > 1 && target_fps == (int)rates[ rates.size() - 1 ] )
 +		{
 +			g_nDynamicRefreshRate[ type ] = rates[ 0 ];
++			if ( g_nCombinedAppRefreshCycleChangeFPS[ type ] )
++				g_nSteamCompMgrTargetFPS = rates[ 0 ];
 +			return;
 +		}
 +
@@ -157,7 +159,7 @@ a higher rate still switches up.
  		// Find highest mode to do refresh doubling with.
  		for ( auto rate = rates.rbegin(); rate != rates.rend(); rate++ )
  		{
-@@ -1008,6 +1042,8 @@
+@@ -1008,6 +1044,8 @@
  	g_nCombinedAppRefreshCycleOverride[ type ] = override_fps;
  	g_nCombinedAppRefreshCycleChangeRefresh[ type ] = change_refresh;
  	g_nCombinedAppRefreshCycleChangeFPS[ type ] = change_fps_cap;

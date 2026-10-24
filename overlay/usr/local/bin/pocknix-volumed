@@ -30,13 +30,16 @@
 #    rsinput-gamepad, not the rocker, so the virtual device never actually emits the rocker's
 #    volume events -> no double-counting.)
 #  - wpctl runs with a TIMEOUT so a stuck PipeWire call can never block key handling (the freeze).
-import sys, os, time, select, subprocess
+import sys, os, pwd, time, select, subprocess
 try:
     from evdev import InputDevice, list_devices, ecodes
 except ImportError:
     sys.exit("pocknix-volumed: python-evdev not installed")
 
-DECK_UID = "1001"
+try:
+    DECK_UID = str(pwd.getpwnam("deck").pw_uid)
+except KeyError:
+    DECK_UID = "1001"
 SINK = "@DEFAULT_AUDIO_SINK@"
 STEP = "5%"
 REPEAT_DELAY = 0.35      # hold this long before auto-repeat kicks in (keyboard-like)
