@@ -215,6 +215,9 @@ install_local_packages() {
       fpr="$(gpg --show-keys --with-colons "${POCKNIX_REPO_PUBKEY}" 2>/dev/null | awk -F: '/^fpr/{print $10; exit}')"
       [ -n "${fpr}" ] || die "could not read the key fingerprint from ${POCKNIX_REPO_PUBKEY} (host gpg missing?)"
       chroot "${root}" pacman-key --lsign-key "${fpr}"
+      # pacman-key --lsign-key only marks trustdb.gpg dirty; libalpm/GPGME reads
+      # trustdb.gpg without rebuilding it, so force a trustdb check before imaging.
+      chroot "${root}" gpg --homedir /etc/pacman.d/gnupg --check-trustdb
       log "repo key trusted: ${fpr}"
     fi
   fi
