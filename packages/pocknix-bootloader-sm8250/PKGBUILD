@@ -25,11 +25,12 @@
 # via Retroid's "run script as root". Keep the stock ABL backup (abl_a/abl_b.img).
 pkgname=pocknix-bootloader-sm8250
 pkgver=1.1.9              # kept at 1.1.9 with bumped pkgrel for monotonic pacman upgrade ordering
-pkgrel=6   # 6 (2026-10-20): ship Holodor ABL (OpenABL v1.1 built from source with Holodor splash wordmark, devinfo OablSettings + legacy BootMode sync, and single-DTB fallback). 5 (2026-10-19): BootHolodor.apk and boot_holodor.sh support OpenABL v1.1 (SettingsStorePack 'ROCKNIX\0\0' at devinfo+0x990) in addition to ROCKNIX ABL (BootMode at offset+56). 4 (2026-10-19): add BootHolodor.apk (1-tap Android launcher app to reboot into Holodor via PServerBinder/su) + boot_holodor.sh. 2 (2026-10-07): flash_abl.sh refuses to run on a different chip
+pkgrel=10  # 10 (2026-10-26): harden flash_abl.sh, backup_abl.sh, and restore_backup_abl.sh with device allowlist, ELF size verification, and automatic pre-flash stock ABL backup preservation. 9 (2026-10-26): support internal UFS installs (/dev/block/by-name/HOLODOR + BootSource reset) in BootHolodor.apk, boot_holodor.sh, and flash_abl.sh. 8 (2026-10-26): auto-export Android saved Wi-Fi to /flash/wifi.txt on the Holodor SD card in BootHolodor.apk, boot_holodor.sh, and flash_abl.sh. 7 (2026-10-25): add Vol-Down Fastboot escape hatch in Early/RunBoot + direct PMIC button polling + safe SD rail power-cycle. 6 (2026-10-20): ship Holodor ABL (OpenABL v1.1 built from source with Holodor splash wordmark, devinfo OablSettings + legacy BootMode sync, and single-DTB fallback). 5 (2026-10-19): BootHolodor.apk and boot_holodor.sh support OpenABL v1.1 (SettingsStorePack 'ROCKNIX\0\0' at devinfo+0x990) in addition to ROCKNIX ABL (BootMode at offset+56). 4 (2026-10-19): add BootHolodor.apk (1-tap Android launcher app to reboot into Holodor via PServerBinder/su) + boot_holodor.sh. 2 (2026-10-07): flash_abl.sh refuses to run on a different chip
 pkgdesc="SM8250 Holodor ABL kit (OpenABL v1.1 ELF + Android-side flash/boot scripts and BootHolodor.apk) for the qcom-abl boot contract"
 arch=('any')
 url="https://github.com/OpenHandheldCollective/OpenABL"
 license=('GPL-2.0-only')
+options=('!strip')
 source=('abl_signed-SM8250.elf'
         'abl_signed-SM8250.elf.sha256'
         'backup_abl.sh'
@@ -38,7 +39,7 @@ source=('abl_signed-SM8250.elf'
         'boot_holodor.sh'
         'BootHolodor.apk'
         'README.rocknix_abl')
-sha256sums=('33dda2196b14043f2ce4bec6e83fef47cd56890f2082c6481ab54b3090a633d6' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('896b2b4bffcc965a9b49d2ead752d65b3a1f022da1f889a4ee8a61aa6c0eae37' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 prepare() {
   # the vendored ELF must be the release binary named above

@@ -1,0 +1,6 @@
+post_install() { _enable_leds; }
+post_upgrade() { _enable_leds; }
+_enable_leds() {
+  systemctl enable pocknix-stick-leds.service pocknix-input-calibration.service >/dev/null 2>&1 || true
+  [ -d /run/systemd/system ] && systemctl start pocknix-stick-leds.service >/dev/null 2>&1 || true
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# pocknix-stick-ledsd — animates the Odin 3 thumbstick RGB rings (HTR3212).
+# pocknix-stick-ledsd — animates the thumbstick RGB rings (HTR3212 / leds-group-multicolor).
 # Reads /var/lib/pocknix/led-mode (off|static|rainbow|breathe) and led-color (RRGGBB).
 # Static/off idle cheaply; rainbow/breathe animate ~15fps. Files re-read each loop so
 # the plugin's writes take effect live with no restart.
@@ -10,28 +10,61 @@ MODE_F = "/var/lib/pocknix/led-mode"
 COLOR_F = "/var/lib/pocknix/led-color"
 FPS = 15
 
-# discover the RGB channel files once: {(side,zone): {'r':path,'g':path,'b':path}}
+# Prefer leds-group-multicolor (/sys/class/leds/rgb:{r,l}*) when present:
+# leds_group_multicolor calls led_sysfs_disable() on the underlying monochromatic LEDs,
+# making direct writes to /sys/class/leds/{r,l}:{r,g,b}*/brightness fail with EBUSY.
+mc_groups = []
+for f in sorted(glob.glob(f"{L}/rgb:r*") + glob.glob(f"{L}/rgb:l*")):
+    if os.path.exists(f + "/multi_intensity") and os.path.exists(f + "/multi_index"):
+        try:
+            idx = open(f + "/multi_index").read().strip().split()
+            mb = int(open(f + "/max_brightness").read().strip())
+        except Exception:
+            idx, mb = ["red", "green", "blue"], 255
+        mc_groups.append((f, idx, mb))
+
+# Fallback: discover monochromatic RGB channel files: {(side,zone): {'r':path,'g':path,'b':path}}
 chans, maxb = {}, {}
-for f in glob.glob(f"{L}/r:*") + glob.glob(f"{L}/l:*"):
-    base = os.path.basename(f)              # e.g. r:g3
-    side_c, z = base.split(":")[0], base[-1]
-    color = base.split(":")[1][0]           # r/g/b
-    key = (side_c, z)
-    chans.setdefault(key, {})[color] = f + "/brightness"
-    try: maxb[f + "/brightness"] = int(open(f + "/max_brightness").read())
-    except Exception: maxb[f + "/brightness"] = 255
+if not mc_groups:
+    for f in glob.glob(f"{L}/r:*") + glob.glob(f"{L}/l:*"):
+        base = os.path.basename(f)              # e.g. r:g3
+        side_c, z = base.split(":")[0], base[-1]
+        color = base.split(":")[1][0]           # r/g/b
+        key = (side_c, z)
+        chans.setdefault(key, {})[color] = f + "/brightness"
+        try: maxb[f + "/brightness"] = int(open(f + "/max_brightness").read())
+        except Exception: maxb[f + "/brightness"] = 255
 
 def readf(p, d):
     try: return open(p).read().strip()
     except OSError: return d
 
 def write_all(r, g, b):
+    if mc_groups:
+        for f, idx, mb in mc_groups:
+            cmap = {
+                "red": r * mb // 255,
+                "green": g * mb // 255,
+                "blue": b * mb // 255,
+            }
+            vals = " ".join(str(cmap.get(c, 0)) for c in idx)
+            try:
+                with open(f + "/multi_intensity", "w") as fh:
+                    fh.write(vals)
+                with open(f + "/brightness", "w") as fh:
+                    fh.write(str(mb if (r or g or b) else 0))
+            except OSError:
+                pass
+        return
     for ch in chans.values():
         for c, v in (("r", r), ("g", g), ("b", b)):
             p = ch.get(c)
             if not p: continue
-            try: open(p, "w").write(str(v * maxb[p] // 255))
-            except OSError: pass
+            try:
+                with open(p, "w") as fh:
+                    fh.write(str(v * maxb[p] // 255))
+            except OSError:
+                pass
 
 def hex_rgb(h):
     h = h.lstrip("#")

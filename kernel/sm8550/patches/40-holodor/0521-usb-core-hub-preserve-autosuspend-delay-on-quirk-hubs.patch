@@ -1,0 +1,28 @@
+From: Holodor <holodor@bonesaw.com>
+Date: Thu, 22 Oct 2026 11:42:00 +0900
+Subject: [PATCH] usb: core: hub: preserve default autosuspend delay on HUB_QUIRK_CHECK_PORT_AUTOSUSPEND
+
+Genesys Logic USB 2.1 hubs (05e3:0610, commonly used in USB-C HDMI/Ethernet
+docks) take ~200 ms after hub_power_on() to check downstream ports before
+reporting port connect status. Setting autosuspend_delay to 0 in hub_probe()
+causes the hub to runtime-suspend 125 ms after hub_power_on(), resulting in an
+infinite 0.83s resume -> port connect -> reset loop.
+
+Keep the default 2000 ms autosuspend_delay on hubs carrying
+HUB_QUIRK_CHECK_PORT_AUTOSUSPEND in id->driver_info.
+
+Signed-off-by: Holodor <holodor@bonesaw.com>
+---
+diff --git a/drivers/usb/core/hub.c b/drivers/usb/core/hub.c
+--- a/drivers/usb/core/hub.c
++++ b/drivers/usb/core/hub.c
+@@ -1919,7 +1919,8 @@
+ 	 *   usbcore.autosuspend = -1 then keep autosuspend disabled.
+ 	 */
+ #ifdef CONFIG_PM
+-	if (hdev->dev.power.autosuspend_delay >= 0)
++	if (hdev->dev.power.autosuspend_delay >= 0 &&
++	    !(id->driver_info & HUB_QUIRK_CHECK_PORT_AUTOSUSPEND))
+ 		pm_runtime_set_autosuspend_delay(&hdev->dev, 0);
+ #endif
+ 

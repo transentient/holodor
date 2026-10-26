@@ -19,8 +19,11 @@
 # (quirk params), owned by each device's BSP (e.g. pocknix-bsp-rp6).
 pkgname=linux-pocknix-sm8550
 pkgver=7.1.2
-pkgrel=6    # 6 (2026-10-21): RetroidPocket 7.3 integration (0527 q6apm-lpass RX port start at prepare, 0758 leds-htr3212 system sleep power-down, 0763..0765 SoundWire/MI2S/TX-macro fixes, 0820..0822 DPU MERGE_3D, single-mixer preference, and visionox-vtdr6130 RP6 60Hz+120Hz/backlight fixes, 0830..0835 ath12k stability/recovery/MHI suspend fixes, RP6 & AYN common DTS updates) + 0045 drm/msm/gem bound wait in msm_gem_close + 0516 clk-qcom-rpmh sleep state on first send.
-pkgdesc="SM8550 kernel (stock ${pkgver} + ROCKNIX patch stack, all-boards dtbs) — packaged from 'make kernel' output"
+pkgrel=11   # 11 (2026-10-27): SM8550 s2idle deep-sleep parity, audio graph/LPASS/SoundWire suspend, live AudioReach PGA gain, USB-C UCSI/AltMode/hub fixes, qcom-battmgr units, qcom-hv-haptics atomic-sleep fix + 140-250 Hz LRA f0 range + 2600 mV vmax on RP6/RP Nova, and RSInput 250 Hz report rate + UART frame reassembly + vdd_mcu_3v3 suspend power-down. 10 (2026-10-26): RP Nova display, backlight, touchscreen, and haptics fixes: lock il97680a panel to 120Hz (num_modes=1), add missing DSI on-sequence commands + brightness programming in init_sequence + luminance-linear backlight LUT (patches 0810+0812), remove leftover Odin 2 pwm-backlight node from qcs8550-retroidpocket-rpnova.dts, enable 400 kHz I2C + bulk reads on ft5452 touchscreen, and configure pm8550b_hv_haptics for 1.3V LRA motor. 9 (2026-10-26): add sdhci_msm_shutdown to power off removable SD slot vdd/vdd-io regulators on reboot (patch 0213) so UHS-I 1.8V cards reset cleanly across warm reboots. 8 (2026-10-25): add Retroid Pocket Nova (qcs8550-retroidpocket-rpnova.dtb + panel-il97680a driver) and Holodor CLUT224 static boot logo (patches 0800+0801). 7 (2026-10-24): trim /boot/dtbs and /flash/KERNEL to the 6 SM8550 board dtbs (qcs8550-retroidpocket-*.dtb, qcs8550-ayn-*.dtb), embed Adreno 740 GPU firmware (a740_sqe.fw, gmu_gen70200.bin, a740_zap.mbn) in pocknix-build-bootimg initramfs, and keep vtdr6130-rp6 num_modes=1 (120Hz) in 0822. 6 (2026-10-21): RetroidPocket 7.3 integration (0527 q6apm-lpass RX port start at prepare, 0758 leds-htr3212 system sleep power-down, 0763..0765 SoundWire/MI2S/TX-macro fixes, 0820..0822 DPU MERGE_3D, single-mixer preference, and visionox-vtdr6130 RP6 fixes, 0830..0835 ath12k stability/recovery/MHI suspend fixes, RP6 & AYN common DTS updates) + 0045 drm/msm/gem bound wait in msm_gem_close + 0516 clk-qcom-rpmh sleep state on first send.
+pkgdesc="SM8550 kernel (stock ${pkgver} + ROCKNIX patch stack, board dtbs: RP6 / RP Nova, RP Duo, Odin 2 family) — packaged from 'make kernel' output"
+# dtbs shipped to /boot/dtbs = the dtbs appended to /flash/KERNEL by pocknix-build-bootimg.
+# Keep in sync with BOOTIMG_DTB_GLOBS in scripts/build-kernel.sh (the SD image's KERNEL).
+_dtb_globs=('qcs8550-retroidpocket-*.dtb' 'qcs8550-ayn-*.dtb')
 arch=('aarch64')
 url="https://github.com/shuuri-labs/pocknix-os"
 license=('GPL-2.0-only')
@@ -47,10 +50,18 @@ package() {
   fi
   local kver; kver="$(cat "${out}/kernelrelease")"
 
-  # kernel image + device trees
+  # kernel image + the board device trees (see _dtb_globs)
   install -Dm644 "${out}/Image" "${pkgdir}/boot/Image"
   install -d "${pkgdir}/boot/dtbs"
-  cp "${out}/dtbs/"*.dtb "${pkgdir}/boot/dtbs/"
+  local g d n=0
+  for g in "${_dtb_globs[@]}"; do
+    for d in "${out}/dtbs/"${g}; do
+      [ -f "${d}" ] || continue
+      install -m644 "${d}" "${pkgdir}/boot/dtbs/"; n=$((n+1))
+    done
+  done
+  [ "${n}" -gt 0 ] || { echo "${pkgname}: no dtb in ${out}/dtbs matches ${_dtb_globs[*]}" >&2; return 1; }
+  echo "${pkgname}: shipping ${n} dtb(s): $(ls "${pkgdir}/boot/dtbs")"
 
   # modules (already depmod'd by modules_install during `make kernel`; the .install re-runs depmod
   # post-transaction so modules.dep is correct against the live /usr/lib/modules path).

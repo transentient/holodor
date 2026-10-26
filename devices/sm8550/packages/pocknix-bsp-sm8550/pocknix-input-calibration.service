@@ -1,0 +1,13 @@
+[Unit]
+Description=pocknix: re-apply the saved stick calibration to the rsinput driver
+ConditionPathExists=/etc/pocknix/input-calibration.conf
+Before=inputplumber.service
+DefaultDependencies=no
+After=sysinit.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pocknix-input-calibration apply
+
+[Install]
+WantedBy=multi-user.target

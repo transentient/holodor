@@ -1,10 +1,12 @@
 #!/bin/bash
-# pocknix-wifi-import — import Wi-Fi credentials from /flash/wifi.txt (root, boot-time).
+# pocknix-wifi-import — import Wi-Fi credentials from /flash/wifi.txt (root, boot-time)
+# or interactively via `pocknix-wifi-import --apply <ssid> <psk> [country]` (from pocknix-wifi-tui).
 #
 # Seedless first boot has NO Steam UI until the client downloads — and downloading needs
 # Wi-Fi. This closes the loop keyboard-free: the user writes wifi.txt onto the FAT boot
-# partition from any PC (it's the small partition every OS can see), reboots, and this
-# imports it before the network stack starts. Format (order-free, one per line):
+# partition from any PC (or Android's BootHolodor.apk / flash_abl.sh exports it automatically,
+# or the user selects their Wi-Fi with the gamepad in pocknix-wifi-tui), and this
+# imports it into both NetworkManager and iwd. Format (order-free, one per line):
 #     ssid=YourNetworkName
 #     password=YourWifiPassword
 #     country=US            # optional; without it 5 GHz won't associate (world regdom)
@@ -32,43 +34,57 @@ ERR="${FLASH}/wifi-import-error.txt"
 log() { echo "pocknix-wifi-import: $*"; }
 bail() {
   log "ERROR: $*"
-  { echo "Holodor could not import wifi.txt: $*"
-    echo ""
-    echo "Expected format (edit wifi.txt and reboot):"
-    echo "    ssid=YourNetworkName"
-    echo "    password=YourWifiPassword"
-    echo "    country=US        (optional, needed for 5 GHz)"
-  } > "${ERR}" 2>/dev/null
+  if [ "${APPLY_LIVE:-0}" -eq 0 ]; then
+    { echo "Holodor could not import wifi.txt: $*"
+      echo ""
+      echo "Expected format (edit wifi.txt and reboot):"
+      echo "    ssid=YourNetworkName"
+      echo "    password=YourWifiPassword"
+      echo "    country=US        (optional, needed for 5 GHz)"
+    } > "${ERR}" 2>/dev/null
+  fi
   exit 1
 }
 
-[ -f "${SRC}" ] || exit 0
-
-# Parse defensively: the file comes from Notepad as often as from vim — strip CRLF and a
-# UTF-8 BOM, take everything after the FIRST '=' (values may contain '='), trim outer
-# whitespace, drop optional surrounding quotes. Last occurrence of a key wins.
+APPLY_LIVE=0
 SSID="" PSK="" COUNTRY=""
-while IFS= read -r line || [ -n "${line}" ]; do
-  line="${line#$'\xef\xbb\xbf'}"; line="${line%$'\r'}"
-  case "${line}" in ''|'#'*) continue ;; esac
-  key="${line%%=*}"; val="${line#*=}"
-  # trim whitespace around key and value
-  key="$(echo "${key}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
-  val="$(echo "${val}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-  case "${val}" in \"*\") val="${val#\"}"; val="${val%\"}" ;; \'*\') val="${val#\'}"; val="${val%\'}" ;; esac
-  case "${key}" in
-    ssid)              SSID="${val}" ;;
-    password|psk)      PSK="${val}" ;;
-    country)           COUNTRY="$(echo "${val}" | tr '[:lower:]' '[:upper:]')" ;;
-    *) log "ignoring unknown key '${key}'" ;;
-  esac
-done < "${SRC}"
 
-[ -n "${SSID}" ] || bail "no 'ssid=' line found"
-[ -n "${PSK}" ]  || bail "no 'password=' line found"
-# WPA-PSK passphrase rules: 8-63 printable chars, or exactly 64 hex digits (raw key).
+if [ "${1:-}" = "--apply" ]; then
+  APPLY_LIVE=1
+  SSID="${2:-}"
+  PSK="${3:-}"
+  COUNTRY="$(echo "${4:-}" | tr '[:lower:]' '[:upper:]')"
+  [ -n "${SSID}" ] || bail "no SSID specified"
+else
+  [ -f "${SRC}" ] || exit 0
+  # Parse defensively: the file comes from Notepad as often as from vim — strip CRLF and a
+  # UTF-8 BOM, take everything after the FIRST '=' (values may contain '='), trim outer
+  # whitespace, drop optional surrounding quotes. Last occurrence of a key wins.
+  while IFS= read -r line || [ -n "${line}" ]; do
+    line="${line#$'\xef\xbb\xbf'}"; line="${line%$'\r'}"
+    case "${line}" in ''|'#'*) continue ;; esac
+    key="${line%%=*}"; val="${line#*=}"
+    # trim whitespace around key and value
+    key="$(echo "${key}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+    val="$(echo "${val}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    case "${val}" in \"*\") val="${val#\"}"; val="${val%\"}" ;; \'*\') val="${val#\'}"; val="${val%\'}" ;; esac
+    case "${key}" in
+      ssid)              SSID="${val}" ;;
+      password|psk)      PSK="${val}" ;;
+      country)           COUNTRY="$(echo "${val}" | tr '[:lower:]' '[:upper:]')" ;;
+      *) log "ignoring unknown key '${key}'" ;;
+    esac
+  done < "${SRC}"
+  [ -n "${SSID}" ] || bail "no 'ssid=' line found"
+  [ -n "${PSK}" ]  || bail "no 'password=' line found"
+fi
+
+# WPA-PSK passphrase rules: 8-63 printable chars, or exactly 64 hex digits (raw key),
+# or empty (0 chars) when APPLY_LIVE=1 for an open network.
 n=${#PSK}
-if [ "${n}" -eq 64 ]; then
+if [ "${APPLY_LIVE}" -eq 1 ] && [ "${n}" -eq 0 ]; then
+  :
+elif [ "${n}" -eq 64 ]; then
   case "${PSK}" in *[!0-9a-fA-F]*) bail "a 64-character password must be all hex digits" ;; esac
 elif [ "${n}" -lt 8 ] || [ "${n}" -gt 63 ]; then
   bail "password must be 8-63 characters (yours is ${n})"
@@ -83,7 +99,26 @@ fi
 # every connection iwd starts (RP5, 2026-10-03..05: wifi dead after sleep until a reboot).
 install -d -m 700 "${NM_DIR}"
 NMFILE="${NM_DIR}/wifi-import.nmconnection"
-cat > "${NMFILE}" <<EOF
+if [ "${n}" -eq 0 ]; then
+  cat > "${NMFILE}" <<EOF
+[connection]
+id=${SSID}
+type=wifi
+autoconnect=true
+autoconnect-retries=0
+
+[wifi]
+mode=infrastructure
+ssid=${SSID}
+
+[ipv4]
+method=auto
+
+[ipv6]
+method=auto
+EOF
+else
+  cat > "${NMFILE}" <<EOF
 [connection]
 id=${SSID}
 type=wifi
@@ -104,17 +139,22 @@ method=auto
 [ipv6]
 method=auto
 EOF
+fi
 chmod 600 "${NMFILE}"
 
 # --- iwd KnownNetwork credential ---
 # iwd filename rule: plain <SSID>.psk when the SSID is only [A-Za-z0-9_-]; otherwise
 # '=<hex-of-ssid>.psk' (covers spaces and every other character).
 install -d -m 700 "${IWD_DIR}"
+EXT="psk"
+[ "${n}" -eq 0 ] && EXT="open"
 case "${SSID}" in
-  *[!A-Za-z0-9_-]*) IWDFILE="${IWD_DIR}/=$(printf '%s' "${SSID}" | od -An -tx1 | tr -d ' \n').psk" ;;
-  *)                IWDFILE="${IWD_DIR}/${SSID}.psk" ;;
+  *[!A-Za-z0-9_-]*) IWDFILE="${IWD_DIR}/=$(printf '%s' "${SSID}" | od -An -tx1 | tr -d ' \n').${EXT}" ;;
+  *)                IWDFILE="${IWD_DIR}/${SSID}.${EXT}" ;;
 esac
-if [ "${n}" -eq 64 ]; then
+if [ "${n}" -eq 0 ]; then
+  printf '[Settings]\nAutoConnect=true\n' > "${IWDFILE}"
+elif [ "${n}" -eq 64 ]; then
   printf '[Security]\nPreSharedKey=%s\n' "${PSK}" > "${IWDFILE}"
 else
   printf '[Security]\nPassphrase=%s\n' "${PSK}" > "${IWDFILE}"
@@ -124,12 +164,32 @@ chmod 600 "${IWDFILE}"
 # --- regdom (5 GHz) ---
 # /etc/iwd/main.conf is build-managed ([General] + EnableNetworkConfiguration=false);
 # only touch the Country line, and only when the user asked for one.
+COUNTRY_CHANGED=0
 if [ -n "${COUNTRY}" ] && [ -f "${IWD_MAIN}" ] && ! grep -q "^Country=${COUNTRY}\$" "${IWD_MAIN}"; then
   sed -i -e '/^Country=/d' -e "s/^\[General\]$/[General]\nCountry=${COUNTRY}/" "${IWD_MAIN}"
+  COUNTRY_CHANGED=1
   log "set iwd regdom Country=${COUNTRY}"
 fi
 
-mv -f "${SRC}" "${SRC}.imported"
-rm -f "${ERR}"
-sync -f "${FLASH}" 2>/dev/null || true
+if [ "${APPLY_LIVE}" -eq 0 ]; then
+  mv -f "${SRC}" "${SRC}.imported"
+  rm -f "${ERR}"
+  sync -f "${FLASH}" 2>/dev/null || true
+fi
+
+# If called live (when NetworkManager / iwd are already running, and not in an off-device test),
+# reload iwd + NetworkManager and trigger immediate association.
+if [ -z "${POCKNIX_NM_DIR:-}" ] && systemctl is-active --quiet NetworkManager.service 2>/dev/null; then
+  [ "${COUNTRY_CHANGED}" -eq 1 ] && systemctl restart iwd.service 2>/dev/null || true
+  nmcli connection reload 2>/dev/null || true
+  WDEV="$(nmcli -t -f DEVICE,TYPE device status 2>/dev/null | awk -F: '$2=="wifi"{print $1; exit}')"
+  : "${WDEV:=wlan0}"
+  if [ "${n}" -eq 0 ]; then
+    iwctl station "${WDEV}" connect "${SSID}" >/dev/null 2>&1 || true
+  else
+    iwctl --passphrase="${PSK}" station "${WDEV}" connect "${SSID}" >/dev/null 2>&1 || true
+  fi
+  nmcli connection up "${SSID}" >/dev/null 2>&1 || true
+fi
+
 log "imported Wi-Fi credentials for SSID '${SSID}'${COUNTRY:+ (country ${COUNTRY})}"

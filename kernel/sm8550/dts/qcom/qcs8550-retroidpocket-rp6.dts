@@ -118,6 +118,49 @@
 	axis-range = <1024>;
 };
 
+&pm8550b_hv_haptics {
+	/delete-property/ qcom,use-erm;
+	qcom,vmax-mv = <2600>;
+
+	effect_0 {
+		qcom,wf-pattern-data =  <0x11f 0x00 0x00>,
+					<0x13f 0x00 0x00>,
+					<0x15f 0x00 0x00>,
+					<0x17f 0x00 0x00>,
+					<0x17f 0x00 0x00>,
+					<0x15f 0x00 0x00>,
+					<0x13f 0x00 0x00>,
+					<0x11f 0x00 0x00>;
+		qcom,wf-vmax-mv = <2600>;
+		qcom,wf-auto-res-disable;
+	};
+
+	effect_1 {
+		qcom,wf-vmax-mv = <2600>;
+		qcom,wf-auto-res-disable;
+	};
+
+	effect_2 {
+		qcom,wf-vmax-mv = <2600>;
+		qcom,wf-auto-res-disable;
+	};
+
+	effect_3 {
+		qcom,wf-vmax-mv = <2600>;
+		qcom,wf-auto-res-disable;
+	};
+
+	effect_4 {
+		qcom,wf-vmax-mv = <2600>;
+		qcom,wf-auto-res-disable;
+	};
+
+	effect_5 {
+		qcom,wf-vmax-mv = <2600>;
+		qcom,wf-auto-res-disable;
+	};
+};
+
 &{/gpio-keys} {
 	pinctrl-0 = <&volume_up_n>, <&paddle_keys_default>;
 

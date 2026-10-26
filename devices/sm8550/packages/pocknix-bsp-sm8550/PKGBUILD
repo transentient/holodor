@@ -1,94 +1,90 @@
-# pocknix-bsp-sm8550 — board support for the SM8550 FAMILY: Retroid Pocket 6
-# (+TOP-DPAD), AYN Odin 2 / Mini / Portal. ONE package serves every board on
-# the SoC (same shape as pocknix-bsp-sm8250): runtime board facts live in
-# /usr/lib/pocknix/boards/<board>.conf, /usr/lib/pocknix/device.conf is a
-# sourced DISPATCHER picking one by devicetree model, and the InputPlumber
-# config is dt-model gated. Successor to the retired per-device BSPs
-# (pocknix-bsp-{rp6,odin2,odin2mini,odin2portal}), whose contents were
-# identical apart from the board facts — 'replaces' migrates installed
-# devices on their next pacman -Syu.
-#
-# SoC-wide quirks (identical on every board, verified on the RP6):
-#   * 10-pocknix-deeponly.conf — pin deep-only suspend (s2idle can wedge on SM8550)
-#   * 30-pocknix-cpuidle.conf  — disable cpu0 idle state1 (GMU issues; ROCKNIX 096-cpuidle)
-#   * kernel-cmdline           — the family cmdline for the on-device /flash/KERNEL
-#                                rebuild (qcom-abl); build-packages.sh asserts it
-#                                matches devices/sm8550/profile.conf
+# pocknix-bsp-sm8550 — board support for the SM8550 FAMILY: Retroid Pocket Nova,
+# Retroid Pocket 6 (+TOP-DPAD), AYN Odin 2 / Mini / Portal.
 pkgname=pocknix-bsp-sm8550
 pkgver=0.2.0
-pkgrel=2
-pkgdesc="pocknix board support: SM8550 family (RP6, Odin 2 family) — runtime board dispatch, input map, suspend quirks, audio UCM & topology"
+pkgrel=5
+pkgdesc="pocknix board support: SM8550 family (RP Nova, RP6, Odin 2 family) — runtime board dispatch, input map, suspend quirks, audio UCM & topology"
 arch=('any')
 url="https://github.com/shuuri-labs/pocknix-os"
 license=('GPL2')
-depends=('pocknix-bsp-common')
+depends=('pocknix-bsp-common' 'libpulse')
+install=pocknix-bsp-sm8550.install
 options=('!strip' '!debug')
-# Exactly one device BSP may be installed (wrong-device guard for a shared repo).
-# 'replaces' migrates installs of the retired per-device BSPs (and the ancient
-# unified 'pocknix-bsp', carried over from the rp6 lineage).
 provides=('pocknix-bsp')
 conflicts=('pocknix-bsp')
 replaces=('pocknix-bsp' 'pocknix-bsp-rp6' 'pocknix-bsp-odin2' 'pocknix-bsp-odin2mini' 'pocknix-bsp-odin2portal')
 optdepends=('inputplumber: gamepad -> Steam Input mapping (01-rsinput-controller.yaml)'
             'alsa-ucm-conf: base UCM (codec include sequences for the AYN-Odin2 / SM8550-RetroidPocket-I2S UCM)')
-# NOTE: the spurious deep-sleep wake is FIXED in the kernel — kernel/sm8550/patches/20-sm8550/
-# 0502-wakeup-qcom-ipcc-remove-IRQF-NO-SUSPEND.patch masks the IPCC mailbox during suspend.
-# See docs/archive/sm8550-suspend-wake-report.md.
 source=('device.conf'
         '01-rsinput-controller.yaml' 'sm8550-gamepad.yaml'
         'AYN-Odin2.conf' 'SM8550-RetroidPocket-I2S.conf' 'HiFi.conf'
         'SM8550-RetroidPocket-I2S-tplg.bin'
         '10-pocknix-deeponly.conf' '30-pocknix-cpuidle.conf'
-        'kernel-cmdline')
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+        '50-no-sink-suspend.conf' '52-pocknix-default-volume.conf'
+        '99-wcd938x-nosleep.rules'
+        'audio-quiesce-pre' 'audio-quiesce-post'
+        'kernel-cmdline'
+        'pocknix-stick-leds' 'pocknix-stick-ledsd' 'pocknix-stick-leds.service'
+        '50-holodor-ip-stub.yaml'
+        'pocknix-input-calibration' 'pocknix-input-calibration.service')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
-  # Runtime device facts: the model dispatcher + per-board files. boards/ is
-  # not in source= (makepkg local sources are flat); taken from startdir,
-  # which build-packages.sh populates with the whole package dir.
   install -Dm644 "${srcdir}/device.conf" "${pkgdir}/usr/lib/pocknix/device.conf"
   local b
   for b in "${startdir}/boards/"*.conf; do
     install -Dm644 "${b}" "${pkgdir}/usr/lib/pocknix/boards/$(basename "${b}")"
   done
 
-  # Pin deep-only suspend (drop systemd's mem->standby->freeze fall-through; s2idle
-  # can wedge on SM8550). systemd reads sleep.conf drop-ins from this vendor dir.
   install -Dm644 "${srcdir}/10-pocknix-deeponly.conf" \
     "${pkgdir}/usr/lib/systemd/sleep.conf.d/10-pocknix-deeponly.conf"
-  # cpuidle quirk: disable cpu0 idle state1 (GMU issues) — ROCKNIX SM8550 096-cpuidle,
-  # re-asserted every boot via systemd-tmpfiles.
+  install -Dm644 "${srcdir}/50-no-sink-suspend.conf" \
+    "${pkgdir}/usr/share/wireplumber/wireplumber.conf.d/50-no-sink-suspend.conf"
+  install -Dm644 "${srcdir}/52-pocknix-default-volume.conf" \
+    "${pkgdir}/usr/share/wireplumber/wireplumber.conf.d/52-pocknix-default-volume.conf"
   install -Dm644 "${srcdir}/30-pocknix-cpuidle.conf" \
     "${pkgdir}/usr/lib/tmpfiles.d/30-pocknix-cpuidle.conf"
 
-  # InputPlumber composite-device config (dt-model gated, one for the family) +
-  # the shared capability_map for the RSInput MCU + gpio-keys paddles.
   install -Dm644 "${srcdir}/01-rsinput-controller.yaml" \
     "${pkgdir}/usr/share/inputplumber/devices/01-rsinput-controller.yaml"
   install -Dm644 "${srcdir}/sm8550-gamepad.yaml" \
     "${pkgdir}/usr/share/inputplumber/capability_maps/sm8550-gamepad.yaml"
 
-  # ALSA UCM: Odin 2 family boards report card longname "AYN-Odin2", while RP6
-  # reports "SM8550-RetroidPocket-I2S". Both share the same WCD9385 + Primary MI2S
-  # + DisplayPort RX 0 routing. The codec include sequences (/lib, /codecs/wcd938x,
-  # /codecs/qcom-lpass) come from base alsa-ucm-conf.
   local ucm="${pkgdir}/usr/share/alsa/ucm2"
   install -Dm644 "${srcdir}/AYN-Odin2.conf"                "${ucm}/AYN/Odin2/AYN-Odin2.conf"
   install -Dm644 "${srcdir}/HiFi.conf"                     "${ucm}/AYN/Odin2/HiFi.conf"
   install -Dm644 "${srcdir}/SM8550-RetroidPocket-I2S.conf" "${ucm}/RetroidPocket/SM8550/SM8550-RetroidPocket-I2S.conf"
   install -Dm644 "${srcdir}/HiFi.conf"                     "${ucm}/RetroidPocket/SM8550/HiFi.conf"
-  # card-match files (matched by card longname under the sm8550 driver dir)
   install -d "${ucm}/conf.d/sm8550"
   ln -sf "../../AYN/Odin2/AYN-Odin2.conf" "${ucm}/conf.d/sm8550/AYN-Odin2.conf"
   ln -sf "../../RetroidPocket/SM8550/SM8550-RetroidPocket-I2S.conf" "${ucm}/conf.d/sm8550/SM8550-RetroidPocket-I2S.conf"
 
-  # AudioReach topology for RP6 (MultiMedia1 -> PRIMARY_MI2S_RX / DISPLAY_PORT_RX_0,
-  # MultiMedia2 -> RX_CODEC_DMA_RX_0 / DISPLAY_PORT_RX_0, MultiMedia3 <- TX_CODEC_DMA_TX_3).
   install -Dm644 "${srcdir}/SM8550-RetroidPocket-I2S-tplg.bin" \
     "${pkgdir}/usr/lib/firmware/qcom/sm8550/SM8550-RetroidPocket-I2S-tplg.bin"
 
-  # Kernel command line for the on-device /flash/KERNEL rebuild (pocknix-build-bootimg,
-  # shipped by linux-pocknix-sm8550). One family cmdline (the retired per-device ones
-  # were byte-identical); build-packages.sh asserts it matches the family profile.
+  install -Dm755 "${srcdir}/pocknix-stick-leds" \
+    "${pkgdir}/usr/local/bin/pocknix-stick-leds"
+  install -Dm755 "${srcdir}/pocknix-stick-ledsd" \
+    "${pkgdir}/usr/local/bin/pocknix-stick-ledsd"
+  install -Dm644 "${srcdir}/pocknix-stick-leds.service" \
+    "${pkgdir}/usr/lib/systemd/system/pocknix-stick-leds.service"
+
+  install -Dm755 "${srcdir}/pocknix-input-calibration" "${pkgdir}/usr/local/bin/pocknix-input-calibration"
+  install -Dm644 "${srcdir}/pocknix-input-calibration.service" \
+    "${pkgdir}/usr/lib/systemd/system/pocknix-input-calibration.service"
+
+  # Shadow InputPlumber's built-in configs (same filenames, /etc wins): our
+  # 01-rsinput-controller.yaml owns this family.
+  local stub
+  for stub in 50-retroid_pocket_nova.yaml 50-retroid_pocket6.yaml 50-ayn_odin2.yaml 50-ayn_odin2_mini.yaml 50-ayn_odin3.yaml; do
+    install -Dm644 "${srcdir}/50-holodor-ip-stub.yaml" "${pkgdir}/etc/inputplumber/devices.d/${stub}"
+  done
+
   install -Dm644 "${srcdir}/kernel-cmdline" "${pkgdir}/usr/lib/pocknix/kernel-cmdline"
+  install -Dm644 "${srcdir}/99-wcd938x-nosleep.rules" \
+    "${pkgdir}/usr/lib/udev/rules.d/99-wcd938x-nosleep.rules"
+  install -Dm755 "${srcdir}/audio-quiesce-pre" \
+    "${pkgdir}/usr/lib/pocknix/sleep.d/pre/002-audio-quiesce"
+  install -Dm755 "${srcdir}/audio-quiesce-post" \
+    "${pkgdir}/usr/lib/pocknix/sleep.d/post/002-audio-quiesce"
 }

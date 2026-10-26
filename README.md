@@ -97,11 +97,12 @@ The repo is the build system (forked from `pocknix-os`). Run `make kernel`, `mak
 
 This project stands on the shoulders of giants. Thanks to:
 
-- **[ROCKNIX](https://github.com/ROCKNIX)**: The SM8750 and SM8250 kernel bring-up, device trees, bootloader, and the gamescope rotation patches.
+- **[ROCKNIX](https://github.com/ROCKNIX)**: The SM8750, SM8550, and SM8250 kernel bring-up, device trees, bootloader foundations, and the gamescope rotation patches.
+- **[OpenHandheldCollective/OpenABL](https://github.com/OpenHandheldCollective/OpenABL)**: The graphical Qualcomm ABL bootloader (GPL-3.0-or-later). Holodor's modified `OpenABL v1.1` fork (adding QUPv3 GENI UART gamepad navigation, Retroid Pocket Nova support, Volume-Down Fastboot escape hatch, and `devinfo` settings sync) is published at **[transentient/OpenABL](https://github.com/transentient/OpenABL)** as well as in [`scripts/holodor-openabl-v1.1.patch`](scripts/holodor-openabl-v1.1.patch) and [`scripts/build-openabl.sh`](scripts/build-openabl.sh). The 1-tap `BootHolodor.apk` reboot-to-Linux launcher is built from source by [`scripts/build-boot-holodor-apk.py`](scripts/build-boot-holodor-apk.py).
 - **[Valve](https://store.steampowered.com) & [Collabora](https://www.collabora.com)**: For Holo Core itself.
 - **[ArmadaOS](https://github.com/armada-os)**: The original Odin SteamOS pioneers. We use their haptics work, suspend fixes, and fan curve editor.
 - **[batocera.pocket](https://github.com/darkplace/batocera.pocket)** (lukemotion/suckbluefrog): The stick-LED driver and Wi-Fi fixes.
-- **[shuuri-labs/pocknix-os](https://github.com/shuuri-labs/pocknix-os)**: The build harness this repo is forked from.
+- **[shuuri-labs/pocknix-os](https://github.com/shuuri-labs/pocknix-os)**: The build harness this repo is forked from (forked at **[transentient/pocknix-os](https://github.com/transentient/pocknix-os)**).
 - **Teguh Sobirin**: Odin 3 and Retroid Pocket audio UCM.
 - The devs behind **FEX-Emu**, **Mesa/Turnip**, and **InputPlumber**.
 - **[CachyOS](https://github.com/CachyOS)**: The ARM64 Proton build Holodor ships.
@@ -110,6 +111,6 @@ This project stands on the shoulders of giants. Thanks to:
 
 ## License
 
-GPL-2.0 (see [LICENSE](LICENSE)). Same as the upstream projects. Boot art by **ssalmon** (CC-BY 4.0).
+GPL-2.0 (see [LICENSE](LICENSE)); OpenABL bootloader components are GPL-3.0-or-later ([transentient/OpenABL](https://github.com/transentient/OpenABL)). Boot art by **ssalmon** (CC-BY 4.0).
 
 *Disclaimer: Not affiliated with Valve or AYN. Steam is Valve's trademark. Installing to internal storage will factory-reset your Android partition. Flash at your own risk.*

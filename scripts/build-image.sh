@@ -297,61 +297,13 @@ install_packages() {
 FW_SRC="${VENDOR_DIR}/${FW_SRC_REL}"
 install_firmware() {
   local root="$1"
+  mkdir -p "${root}/usr/lib/firmware"
   if [ -d "${FW_SRC}" ] && [ -n "$(ls -A "${FW_SRC}" 2>/dev/null)" ]; then
     log "installing ${SOC} device firmware -> rootfs /usr/lib/firmware ($(du -sh "${FW_SRC}" | cut -f1))"
-    mkdir -p "${root}/usr/lib/firmware"
     # --chown=root:root: the vendor firmware tree is owned by the host build user (uid 1000); plain
     # rsync -a would bake that into the rootfs as 'alarm'-owned firmware (and re-own /usr). Force root.
     rsync -a --chown=root:root "${FW_SRC}/" "${root}/usr/lib/firmware/"
-  elif [ "${SOC}" = "sm8250" ]; then
-    # Expected: ROCKNIX ships NO firmware overlay for SM8250 — every blob in
-    # kernel/sm8250/config/kernel-firmware.dat (a650 GPU, adsp/cdsp, ath11k,
-    # BT) comes from upstream linux-firmware, which ALARM's linux-firmware/
-    # linux-firmware-qcom packages already put in the rootfs.
-    # HOLODOR (2026-09-24, RP5 bring-up): checked against the Holo Core snapshot's
-    # linux-firmware-qcom + linux-firmware-atheros (20251111): every manifest entry is
-    # present (.zst) EXCEPT rtl_nic/rtl8153a-4.fw (USB_RTL8152 ethernet dongles; Holo has
-    # no realtek split). Reconcile against the manifest like the sm8750 branch does, with
-    # two differences: comment lines and GLOB entries (ath11k/QCA6390/hw2.0/*.bin,
-    # .../RB5/slpi*) are handled (globs are only checked, never fetched), and a miss only
-    # warns - nothing boot-critical is fetched here, so a CDN hiccup must not fail the build.
-    local dat="${KERNEL_DIR}/config/kernel-firmware.dat" fetched=0 missing=0 f fwdir
-    fwdir="${root}/usr/lib/firmware"
-    if [ -f "${dat}" ]; then
-      log "no ${SOC} firmware overlay — reconciling rootfs against ${dat} (Holo linux-firmware + upstream gaps)"
-      while IFS= read -r f || [ -n "$f" ]; do
-        f="${f%%#*}"; f="$(echo "$f" | tr -d '[:space:]')"; [ -z "$f" ] && continue
-        case "$f" in
-          *[\*\?]*)
-            if ! compgen -G "${fwdir}/${f}" >/dev/null && ! compgen -G "${fwdir}/${f}.zst" >/dev/null; then
-              warn "  nothing in the rootfs matches ${f}"; missing=$((missing+1))
-            fi
-            continue ;;
-        esac
-        if [ -e "${fwdir}/${f}" ] || [ -e "${fwdir}/${f}.zst" ]; then
-          continue
-        fi
-        mkdir -p "${fwdir}/$(dirname "${f}")"
-        if curl -fsSL --retry 3 --max-time 120 -o "${fwdir}/${f}" \
-             "https://web.git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/${f}"; then
-          chown root:root "${fwdir}/${f}"; chmod 644 "${fwdir}/${f}"
-          log "  fetched ${f}"
-          fetched=$((fetched+1))
-        else
-          warn "  could NOT fetch ${f} — device may lack this firmware"
-          missing=$((missing+1))
-        fi
-      done < "${dat}"
-      log "firmware reconciled (${fetched} fetched, ${missing} missing)"
-    else
-      log "no ${SOC} firmware overlay and no manifest at ${dat} — relying on the Holo linux-firmware packages"
-    fi
-  else
-    # HOLODOR: SM8750 also ships NO overlay — its manifest blobs live in RECENT
-    # upstream linux-firmware, which Holo Core's pinned snapshot predates (the
-    # gen80000 A830 GPU firmware — shipped an image with no GPU once). Fetch
-    # every manifest entry that the rootfs doesn't already have (checking the
-    # .zst-compressed form Holo's packages use; the kernel loads either).
+  elif [ "${SOC}" != "sm8250" ]; then
     # HOLODOR: ROCKNIX keeps the per-SoC vendor blobs (WCN7860 wifi, qca BT,
     # adsp/cdsp, audio topology, vpu) in a SEPARATE repo — ROCKNIX/extra-firmware,
     # under SM8750/**. They are NOT in upstream linux-firmware at all, so the
@@ -374,32 +326,42 @@ install_firmware() {
     else
       die "ROCKNIX extra-firmware has no ${ROCKNIX_SOC}/ tree — wifi/bt/dsp would be missing"
     fi
+  fi
 
-    local dat="${KERNEL_DIR}/config/kernel-firmware.dat" fetched=0 missing=0 f
-    if [ -f "${dat}" ]; then
-      log "no ${SOC} firmware overlay — reconciling rootfs against ${dat} (fetching gaps from upstream linux-firmware)"
-      while IFS= read -r f || [ -n "$f" ]; do
-        f="$(echo "$f" | tr -d '[:space:]')"; [ -z "$f" ] && continue
-        if [ -e "${root}/usr/lib/firmware/${f}" ] || [ -e "${root}/usr/lib/firmware/${f}.zst" ]; then
-          continue
-        fi
-        mkdir -p "${root}/usr/lib/firmware/$(dirname "${f}")"
-        if curl -fsSL --retry 3 --max-time 120 \
-             -o "${root}/usr/lib/firmware/${f}" \
-             "https://web.git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/${f}"; then
-          chown root:root "${root}/usr/lib/firmware/${f}"; chmod 644 "${root}/usr/lib/firmware/${f}"
-          log "  fetched ${f}"
-          fetched=$((fetched+1))
-        else
-          warn "  could NOT fetch ${f} — device may lack this firmware"
-          missing=$((missing+1))
-        fi
-      done < "${dat}"
-      [ "${missing}" -gt 0 ] && die "firmware manifest incomplete (${missing} unfetchable) — refusing to build a blind image"
-      log "firmware reconciled (${fetched} fetched)"
-    else
-      warn "ROCKNIX firmware overlay not at ${FW_SRC} and no manifest at ${dat} — wifi/gpu/audio firmware may be missing"
+  # Reconcile kernel/${SOC}/config/kernel-firmware.dat against the rootfs and fetch any
+  # upstream linux-firmware blobs missing from Holo Core's pinned linux-firmware snapshot
+  # (e.g. Adreno a740/a830 GPU firmware on sm8550/sm8750, rtl8153a-4.fw across all SoCs).
+  local dat="${KERNEL_DIR}/config/kernel-firmware.dat" fetched=0 missing=0 f fwdir
+  fwdir="${root}/usr/lib/firmware"
+  if [ -f "${dat}" ]; then
+    log "reconciling rootfs against ${dat} (Holo linux-firmware + upstream gaps)"
+    while IFS= read -r f || [ -n "$f" ]; do
+      f="${f%%#*}"; f="$(echo "$f" | tr -d '[:space:]')"; [ -z "$f" ] && continue
+      case "$f" in
+        *[\*\?]*)
+          if ! compgen -G "${fwdir}/${f}" >/dev/null && ! compgen -G "${fwdir}/${f}.zst" >/dev/null; then
+            warn "  nothing in the rootfs matches ${f}"; missing=$((missing+1))
+          fi
+          continue ;;
+      esac
+      if [ -e "${fwdir}/${f}" ] || [ -e "${fwdir}/${f}.zst" ]; then
+        continue
+      fi
+      mkdir -p "${fwdir}/$(dirname "${f}")"
+      if curl -fsSL --retry 3 --max-time 120 -o "${fwdir}/${f}" \
+           "https://web.git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/${f}"; then
+        chown root:root "${fwdir}/${f}"; chmod 644 "${fwdir}/${f}"
+        log "  fetched ${f}"
+        fetched=$((fetched+1))
+      else
+        warn "  could NOT fetch ${f} — device may lack this firmware"
+        missing=$((missing+1))
+      fi
+    done < "${dat}"
+    if [ "${SOC}" != "sm8250" ] && [ "${missing}" -gt 0 ]; then
+      die "firmware manifest incomplete (${missing} unfetchable) — refusing to build a blind image"
     fi
+    log "firmware reconciled (${fetched} fetched, ${missing} missing)"
   fi
 }
 

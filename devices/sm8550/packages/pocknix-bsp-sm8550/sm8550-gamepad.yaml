@@ -34,26 +34,27 @@ mapping:
 
   - name: South Button
     source_events:
-      - evdev: { event_type: KEY, event_code: BTN_SOUTH, value_type: button }
+      - evdev: { event_type: KEY, event_code: BTN_EAST, value_type: button }
     target_event:
       gamepad: { button: South }
 
   - name: East Button
     source_events:
-      - evdev: { event_type: KEY, event_code: BTN_EAST, value_type: button }
+      - evdev: { event_type: KEY, event_code: BTN_SOUTH, value_type: button }
     target_event:
       gamepad: { button: East }
 
-  # X/Y swap: physical X reports BTN_NORTH -> West; physical Y reports BTN_WEST -> North.
-  - name: West Button (physical X)
+  # X/Y: STRAIGHT-THROUGH — end-to-end wiretap-verified (evdev tap on Steam's
+  # virtual x360 pad while pressing labelled buttons in-game).
+  - name: West Button (label Y, west position)
     source_events:
-      - evdev: { event_type: KEY, event_code: BTN_NORTH, value_type: button }
+      - evdev: { event_type: KEY, event_code: BTN_WEST, value_type: button }
     target_event:
       gamepad: { button: West }
 
-  - name: North Button (physical Y)
+  - name: North Button (label X, north position)
     source_events:
-      - evdev: { event_type: KEY, event_code: BTN_WEST, value_type: button }
+      - evdev: { event_type: KEY, event_code: BTN_NORTH, value_type: button }
     target_event:
       gamepad: { button: North }
 

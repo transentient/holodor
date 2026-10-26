@@ -23,12 +23,11 @@ import sys
 TOOL_NAME = sys.argv[1] if len(sys.argv) > 1 else "proton-cachyos"
 CONFIG = pathlib.Path.home() / ".local/share/Steam/config/config.vdf"
 
-# GUARD: never seed a default that points at a tool that isn't installed — on an upgraded
-# older install the proton-cachyos package may not be present (it postdates some images),
-# and a mapping to a missing tool breaks every game without a per-game override. The
-# launcher retries every session start, so the default appears once the tool does.
-if not pathlib.Path("/usr/share/steam/compatibilitytools.d", TOOL_NAME).exists():
-    sys.exit(0)
+# GUARD: never seed a default compat tool that points at a tool that isn't installed — on an
+# upgraded older install the proton-cachyos package may not be present (it postdates some images),
+# and a mapping to a missing tool breaks every game without a per-game override. The launcher
+# retries every session start, so the default appears once the tool does.
+HAS_COMPAT_TOOL = pathlib.Path("/usr/share/steam/compatibilitytools.d", TOOL_NAME).exists()
 
 
 def find_block(lines, key, start, end):
@@ -53,6 +52,15 @@ def require_block(lines, key, start, end):
     return block
 
 
+def has_key_in_block(lines, key, start, end):
+    prefix = f'"{key}"'
+    for index in range(start + 2, end):
+        s = lines[index].strip()
+        if s.startswith(prefix) and len(s) > len(prefix) and s[len(prefix)] in (" ", "\t"):
+            return True
+    return False
+
+
 def main():
     if not CONFIG.exists():
         CONFIG.parent.mkdir(parents=True, exist_ok=True)
@@ -65,36 +73,62 @@ def main():
         )
 
     lines = CONFIG.read_text().splitlines(keepends=True)
+    changed = False
 
+    # Seed BigPicture/LoggedOutHapticsEnabled = 1 in InstallConfigStore so that
+    # CSteamUIInputController::TriggerSimpleHapticEvent fires on the first-boot
+    # Login Window (before any Steam user has logged in) when touching keys on
+    # the On-Screen Keyboard.
     _, root_end = require_block(lines, "InstallConfigStore", 0, len(lines))
-    software_start, software_end = require_block(lines, "Software", 0, root_end)
-    valve_start, valve_end = require_block(lines, "Valve", software_start, software_end)
-    steam_start, steam_end = require_block(lines, "Steam", valve_start, valve_end)
-
-    entry = [
-        '\t\t\t\t\t"0"\n',
-        "\t\t\t\t\t{\n",
-        f'\t\t\t\t\t\t"name"\t\t"{TOOL_NAME}"\n',
-        '\t\t\t\t\t\t"config"\t\t""\n',
-        '\t\t\t\t\t\t"priority"\t\t"250"\n',
-        "\t\t\t\t\t}\n",
-    ]
-
-    mapping = find_block(lines, "CompatToolMapping", steam_start, steam_end)
-    if mapping is None:
-        lines[steam_end:steam_end] = [
-            '\t\t\t\t"CompatToolMapping"\n',
-            "\t\t\t\t{\n",
-            *entry,
-            "\t\t\t\t}\n",
+    bp = find_block(lines, "BigPicture", 0, root_end)
+    if bp is None:
+        lines[root_end:root_end] = [
+            '\t"BigPicture"\n',
+            "\t{\n",
+            '\t\t"LoggedOutHapticsEnabled"\t\t"1"\n',
+            "\t}\n",
         ]
-    elif find_block(lines, "0", mapping[0], mapping[1]) is None:
-        lines[mapping[0] + 2:mapping[0] + 2] = entry
-    else:
-        return  # seed-once: a global default already exists (ours or the user's) — keep it
+        changed = True
+        print("[pocknix-steam] seeded BigPicture/LoggedOutHapticsEnabled = 1")
+    elif not has_key_in_block(lines, "LoggedOutHapticsEnabled", bp[0], bp[1]):
+        lines[bp[0] + 2:bp[0] + 2] = [
+            '\t\t"LoggedOutHapticsEnabled"\t\t"1"\n',
+        ]
+        changed = True
+        print("[pocknix-steam] seeded BigPicture/LoggedOutHapticsEnabled = 1")
 
-    CONFIG.write_text("".join(lines))
-    print(f"[pocknix-steam] seeded default compat tool: {TOOL_NAME}")
+    if HAS_COMPAT_TOOL:
+        _, root_end = require_block(lines, "InstallConfigStore", 0, len(lines))
+        software_start, software_end = require_block(lines, "Software", 0, root_end)
+        valve_start, valve_end = require_block(lines, "Valve", software_start, software_end)
+        steam_start, steam_end = require_block(lines, "Steam", valve_start, valve_end)
+
+        entry = [
+            '\t\t\t\t\t"0"\n',
+            "\t\t\t\t\t{\n",
+            f'\t\t\t\t\t\t"name"\t\t"{TOOL_NAME}"\n',
+            '\t\t\t\t\t\t"config"\t\t""\n',
+            '\t\t\t\t\t\t"priority"\t\t"250"\n',
+            "\t\t\t\t\t}\n",
+        ]
+
+        mapping = find_block(lines, "CompatToolMapping", steam_start, steam_end)
+        if mapping is None:
+            lines[steam_end:steam_end] = [
+                '\t\t\t\t"CompatToolMapping"\n',
+                "\t\t\t\t{\n",
+                *entry,
+                "\t\t\t\t}\n",
+            ]
+            changed = True
+            print(f"[pocknix-steam] seeded default compat tool: {TOOL_NAME}")
+        elif find_block(lines, "0", mapping[0], mapping[1]) is None:
+            lines[mapping[0] + 2:mapping[0] + 2] = entry
+            changed = True
+            print(f"[pocknix-steam] seeded default compat tool: {TOOL_NAME}")
+
+    if changed:
+        CONFIG.write_text("".join(lines))
 
 
 if __name__ == "__main__":

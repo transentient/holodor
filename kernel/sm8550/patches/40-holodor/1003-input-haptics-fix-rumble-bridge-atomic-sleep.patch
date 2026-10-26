@@ -1,0 +1,244 @@
+From: Armada <noreply@armada.local>
+Subject: [PATCH] input: haptics: fix atomic-context sleeps in the rumble bridge and widen LRA f0 spec
+
+1. Make the qcom_spmi_haptics_global_* bridge process-context only, serialized
+   with a mutex instead of event_lock, and defer RSInput's atomic playback
+   callback to a work item on system_freezable_wq.
+2. Widen LRA_SPEC_MIN_FREQUENCY..LRA_SPEC_MAX_FREQUENCY from 185..215 Hz to
+   140..250 Hz so 160-170 Hz handheld LRAs (e.g. RP6 / RP Nova at 164 Hz) are
+   not rejected by the b/339117433 workaround and forced to 205 Hz. Fall back
+   to chip->config.t_lra_us if calibration is still out of range.
+---
+--- a/drivers/input/misc/qcom-hv-haptics.c
++++ b/drivers/input/misc/qcom-hv-haptics.c
+@@ -365,8 +365,8 @@
+ // b/311643110
+ // The spec of LRA's f0 is 200 ± 10%
+ // But there is a 5 Hz shift in SW value compared to the f0 measured by IMU.
+-#define LRA_SPEC_MIN_FREQUENCY 185
+-#define LRA_SPEC_MAX_FREQUENCY 215
++#define LRA_SPEC_MIN_FREQUENCY 140
++#define LRA_SPEC_MAX_FREQUENCY 250
+ #define LRA_SPEC_DEFAULT_FREQUENCY 205
+ #define LRA_SPEC_DEFAULT_PERIOD_US (USEC_PER_SEC / LRA_SPEC_DEFAULT_FREQUENCY)
+ 
+@@ -671,6 +671,12 @@
+ 
+ static struct haptics_chip *global_haptics = NULL;
+ 
++/*
++ * Guards global_haptics against remove and serializes the exported bridge; the
++ * bridged ff callbacks sleep, so bridge callers must be in process context.
++ */
++static DEFINE_MUTEX(haptics_global_lock);
++
+ static inline int get_max_fifo_samples(struct haptics_chip *chip)
+ {
+ 	int val = 0;
+@@ -3406,12 +3412,13 @@
+ 
+ 	if (cl_f_lra < LRA_SPEC_MIN_FREQUENCY ||
+ 			cl_f_lra > LRA_SPEC_MAX_FREQUENCY) {
+-		// HACK: forced set the frequency
+-		rc = haptics_config_openloop_lra_period(chip, LRA_SPEC_DEFAULT_PERIOD_US);
+-		chip->config.cl_t_lra_us = LRA_SPEC_DEFAULT_PERIOD_US;
++		u32 fallback_t_lra_us = chip->config.t_lra_us ?
++			chip->config.t_lra_us : LRA_SPEC_DEFAULT_PERIOD_US;
++		rc = haptics_config_openloop_lra_period(chip, fallback_t_lra_us);
++		chip->config.cl_t_lra_us = fallback_t_lra_us;
+ 		dev_err(chip->dev,
+-			"lra frequency is still out of range, forced set to %d Hz, ret: %d\n",
+-			LRA_SPEC_DEFAULT_FREQUENCY, rc);
++			"lra frequency is still out of range, forced set to %u Hz, ret: %d\n",
++			USEC_PER_SEC / fallback_t_lra_us, rc);
+ 	}
+ 
+ 	rc = haptics_init_preload_pattern_effect(chip);
+@@ -6079,7 +6086,9 @@
+ 		dev_err(chip->dev, "Creating debugfs failed, rc=%d\n", rc);
+ #endif
+ 
++	mutex_lock(&haptics_global_lock);
+ 	global_haptics = chip;
++	mutex_unlock(&haptics_global_lock);
+ 
+ 	return 0;
+ destroy_ff:
+@@ -6094,8 +6103,10 @@
+ 	if (chip->pbs_node)
+ 		of_node_put(chip->pbs_node);
+ 
++	mutex_lock(&haptics_global_lock);
+ 	if (global_haptics == chip)
+ 		global_haptics = NULL;
++	mutex_unlock(&haptics_global_lock);
+ 
+ 	unregister_hboost_event_notifier(&chip->hboost_nb);
+ 	class_unregister(&chip->hap_class);
+@@ -6151,6 +6162,10 @@
+ 	struct haptics_play_info *play = &chip->play;
+ 	int rc;
+ 
++	/* Pending workers must not fire into the resume path */
++	cancel_work_sync(&chip->set_gain_work);
++	cancel_delayed_work_sync(&chip->stop_work);
++
+ 	mutex_lock(&play->lock);
+ 	if ((play->pattern_src == FIFO) &&
+ 			atomic_read(&play->fifo_status.is_busy)) {
+@@ -6298,14 +6313,16 @@
+ int qcom_spmi_haptics_global_upload(struct ff_effect *effect) {
+ 	int ret;
+ 
+-	if (!global_haptics)
+-		return -ENODEV;
++	mutex_lock(&haptics_global_lock);
+ 
+-	spin_lock_irq(&global_haptics->input_dev->event_lock);
++	if (!global_haptics) {
++		mutex_unlock(&haptics_global_lock);
++		return -ENODEV;
++	}
+ 
+ 	ret = global_haptics->input_dev->ff->upload(global_haptics->input_dev, effect, NULL);
+ 
+-	spin_unlock_irq(&global_haptics->input_dev->event_lock);
++	mutex_unlock(&haptics_global_lock);
+ 
+ 	return ret;
+ }
+@@ -6313,10 +6330,12 @@
+ int qcom_spmi_haptics_global_playback(int effect_id, int val) {
+ 	int ret;
+ 
+-	if (!global_haptics)
+-		return -ENODEV;
++	mutex_lock(&haptics_global_lock);
+ 
+-	spin_lock_irq(&global_haptics->input_dev->event_lock);
++	if (!global_haptics) {
++		mutex_unlock(&haptics_global_lock);
++		return -ENODEV;
++	}
+ 
+ 	if (val != 0)
+ 		ret = global_haptics->input_dev->ff->playback(global_haptics->input_dev, effect_id, val);
+@@ -6326,23 +6345,25 @@
+ 	if (ret)
+ 		pr_warn("%s called for %s, error in return (%d)\n", __func__, (val!=0 ? "Playback" : "Erase"), ret);
+ 
+-	spin_unlock_irq(&global_haptics->input_dev->event_lock);
++	mutex_unlock(&haptics_global_lock);
+ 
+ 	return ret;
+ }
+ 
+ int qcom_spmi_haptics_global_set_gain(u16 gain) {
+-	if (!global_haptics)
+-		return -ENODEV;
++	mutex_lock(&haptics_global_lock);
+ 
+-	spin_lock_irq(&global_haptics->input_dev->event_lock);
++	if (!global_haptics) {
++		mutex_unlock(&haptics_global_lock);
++		return -ENODEV;
++	}
+ 
+ 	//max is 0x7fff, and minimum is 0x4000 the same values android uses
+ 	gain = clamp(gain, 0x4000, 0x7fff);
+ 
+ 	global_haptics->input_dev->ff->set_gain(global_haptics->input_dev, gain);
+ 
+-	spin_unlock_irq(&global_haptics->input_dev->event_lock);
++	mutex_unlock(&haptics_global_lock);
+ 
+ 	return 0;
+ }
+--- a/drivers/input/joystick/rsinput.c
++++ b/drivers/input/joystick/rsinput.c
+@@ -20,6 +20,7 @@
+ #include <linux/serdev.h>
+ #include <linux/slab.h>
+ #include <linux/platform_device.h>
++#include <linux/workqueue.h>
+ #include <uapi/linux/sched/types.h>
+ 
+ static int update_params=0;
+@@ -161,6 +162,9 @@
+      * handshake cannot falsely complete the wait.
+      */
+     bool version_ack_pending;
++    struct work_struct rumble_work;
++    int rumble_effect_id;
++    int rumble_val;
+ };
+ 
+ static bool rumble_enable = true;
+@@ -524,17 +528,36 @@
+ extern int qcom_spmi_haptics_global_upload(struct ff_effect *effect);
+ extern int qcom_spmi_haptics_global_playback(int effect_id, int val);
+ 
++static void rsinput_rumble_work(struct work_struct *work)
++{
++	struct rsinput_driver *drv =
++		container_of(work, struct rsinput_driver, rumble_work);
++
++	qcom_spmi_haptics_global_playback(READ_ONCE(drv->rumble_effect_id),
++					  READ_ONCE(drv->rumble_val));
++}
++
+ static int rsinput_rumble_upload(struct input_dev *dev, struct ff_effect *effect, struct ff_effect *old) {
+ 	if (!rumble_enable)
+ 		return 0;
+ 
+ 	return qcom_spmi_haptics_global_upload(effect);
+ }
+ static int rsinput_rumble_play(struct input_dev *dev, int effect_id, int val) {
++	struct rsinput_driver *drv = input_get_drvdata(dev);
++
+ 	if (!rumble_enable)
+ 		return 0;
+ 
+-	return qcom_spmi_haptics_global_playback(effect_id, val);
++	/*
++	 * Called under dev->event_lock and the bridge sleeps; latest request
++	 * wins, and the freezable queue keeps it off a suspending chip.
++	 */
++	WRITE_ONCE(drv->rumble_effect_id, effect_id);
++	WRITE_ONCE(drv->rumble_val, val);
++	queue_work(system_freezable_wq, &drv->rumble_work);
++
++	return 0;
+ }
+ 
+ //Show and store for rumble_enable
+@@ -702,6 +724,8 @@
+     input_set_abs_params(drv->input, ABS_Z, 0, trigger_left_max - trigger_left_antideadzone, 0, 30);
+     input_set_abs_params(drv->input, ABS_RZ, 0, trigger_right_max - trigger_right_antideadzone, 0, 30);
+ 
++    input_set_drvdata(drv->input, drv);
++    INIT_WORK(&drv->rumble_work, rsinput_rumble_work);
+     input_set_capability(drv->input, EV_FF, FF_PERIODIC);
+ 
+     error = input_ff_create(drv->input, 1);
+@@ -733,6 +757,9 @@
+ 
+     serdev_device_close(serdev);
+     input_unregister_device(drv->input);
++    /* flush, not cancel: unregister queues the final rumble stop */
++    if (drv->rumble_work.func)
++        flush_work(&drv->rumble_work);
+     if (drv->enable_gpio)
+         gpiod_set_value_cansleep(drv->enable_gpio, 0);
+ 
+@@ -746,6 +773,10 @@
+ {
+     struct rsinput_driver *drv = dev_get_drvdata(dev);
+ 
++    /* a pending rumble start must not fire into or after haptics suspend */
++    if (drv->rumble_work.func)
++        cancel_work_sync(&drv->rumble_work);
++
+     /*
+      * The MCU streams gamepad reports continuously over the UART. If it keeps
+      * sending across the system-suspend teardown, the geni-serial RX interrupt

@@ -491,6 +491,9 @@ fi
 
 sync
 cleanup_mnt; trap - ERR
+# Ensure devinfo BootMode is Linux and any SD-pinned BootSource is reset to Auto
+# so removing the SD card after install boots the new internal install seamlessly.
+pocknix-boot-target set-linux >/dev/null 2>&1 || true
 say "Done. New layout on $DEVICE:"
 parted -s "$DEVICE" print | awk 'NR>6'
 if [ "$BOOT_STYLE" = "arm-efi" ]; then

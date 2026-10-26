@@ -138,10 +138,14 @@ PANEL_MM="${POCKNIX_PANEL_MM:-177x100}"
 # picture rotate together in either mode.
 ROTATION="${POCKNIX_ROTATION:-shader}"
 case "${ROTATION}" in
-  hw)     GS_ROTATE_ARGS="" ;;
-  shader) GS_ROTATE_ARGS="--use-rotation-shader" ;;
-  *)      echo "[pocknix-steam] POCKNIX_ROTATION='${ROTATION}' unknown (shader|hw) — using shader"
-          GS_ROTATE_ARGS="--use-rotation-shader" ;;
+  none|hw) GS_ROTATE_ARGS="" ;;
+  shader)  GS_ROTATE_ARGS="--use-rotation-shader" ;;
+  *)       echo "[pocknix-steam] POCKNIX_ROTATION='${ROTATION}' unknown (none|shader|hw) — using shader"
+           GS_ROTATE_ARGS="--use-rotation-shader" ;;
+esac
+case "${ORIENT}" in
+  ""|none|normal) GS_ORIENT_ARGS="" ;;
+  *)              GS_ORIENT_ARGS="--force-orientation ${ORIENT}" ;;
 esac
 
 # (2026-10-05: measured on the RP5/SM8250 this is NOT true there: every scheduler put game threads on
@@ -218,6 +222,6 @@ env -u WAYLAND_DISPLAY \
   ${POCKNIX_GAMESCOPE_REFRESH_PREFER_LOWEST:+GAMESCOPE_DYNAMIC_REFRESH_PREFER_LOWEST=${POCKNIX_GAMESCOPE_REFRESH_PREFER_LOWEST}} \
   ${POCKNIX_GAMESCOPE_REFRESH_DEFAULT_LOWEST:+GAMESCOPE_DYNAMIC_REFRESH_DEFAULT_LOWEST=${POCKNIX_GAMESCOPE_REFRESH_DEFAULT_LOWEST}} \
   gamescope -W "${W}" -H "${H}" ${POCKNIX_GAMESCOPE_REFRESH:+-r ${POCKNIX_GAMESCOPE_REFRESH}} --xwayland-count 2 --mangoapp --backend drm \
-    --force-orientation "${ORIENT}" ${GS_ROTATE_ARGS} -e -- \
+    ${GS_ORIENT_ARGS} ${GS_ROTATE_ARGS} -e -- \
     env LD_LIBRARY_PATH="${LDLP}" "${CLIENT}" -gamepadui -steamos3 -steampal -steamdeck -noverifyfiles -noshaders \
   >"${GS_LOG}" 2>&1

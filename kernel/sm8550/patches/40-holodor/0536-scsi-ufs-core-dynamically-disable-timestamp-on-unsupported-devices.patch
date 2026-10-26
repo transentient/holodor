@@ -1,0 +1,28 @@
+From: Holodor <noreply@holodor.local>
+Subject: [PATCH] scsi: ufs: core: dynamically disable timestamp on unsupported devices
+
+When a UFS 4.0+ device rejects `QUERY_ATTR_IDN_TIMESTAMP` with `-EINVAL`,
+set `UFS_DEVICE_QUIRK_NO_TIMESTAMP_SUPPORT` so `ufshcd_set_timestamp_attr()`
+does not repeatedly fail and log errors on every system resume and RTC
+update work tick.
+---
+ drivers/ufs/core/ufshcd.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/ufs/core/ufshcd.c b/drivers/ufs/core/ufshcd.c
+--- a/drivers/ufs/core/ufshcd.c
++++ b/drivers/ufs/core/ufshcd.c
+@@ -9234,9 +9234,12 @@ static void ufshcd_set_timestamp_attr(struct ufs_hba *hba)
+ 
+ 	err = ufshcd_exec_dev_cmd(hba, DEV_CMD_TYPE_QUERY, dev_cmd_timeout);
+ 
+-	if (err)
++	if (err) {
+ 		dev_err(hba->dev, "%s: failed to set timestamp %d\n",
+ 			__func__, err);
++		if (err == -EINVAL)
++			hba->dev_quirks |= UFS_DEVICE_QUIRK_NO_TIMESTAMP_SUPPORT;
++	}
+ 
+ 	ufshcd_dev_man_unlock(hba);
+ }

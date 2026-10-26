@@ -1,0 +1,3 @@
+# Disable runtime PM for WCD938x SoundWire RX/TX while awake to fix MBHC jack detection
+# (002-audio-quiesce sets power/control="auto" before s2idle sleep and restores "on" on wake).
+ACTION=="bind", SUBSYSTEM=="soundwire", KERNEL=="sdw:*:0217:010d:*", ATTR{power/control}="on"

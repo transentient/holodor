@@ -220,19 +220,12 @@ diff --git a/drivers/gpu/drm/panel/panel-visionox-vtdr6130-cog.c b/drivers/gpu/d
  
  	return dsi_ctx.accum_err;
  }
-@@ -231,14 +211,9 @@
- 
- static struct panel_desc vtdr6130_rp6_desc = {
- 	.modes = vtdr6130_rp6_modes,
--	/*
--	 * 120Hz only: init_sequence guesses the active mode at prepare() time
--	 * and races when more than one mode is exposed (60Hz programming vs
--	 * 120Hz DPU timings kills TE -> every commit times out). See 1021.
--	 */
--	.num_modes = 1,
+@@ -236,8 +216,8 @@
+ 	 * 120Hz DPU timings kills TE -> every commit times out). See 1021.
+ 	 */
+ 	.num_modes = 1,
 -	.width_mm = 120,
 -	.height_mm = 68,
-+	.num_modes = ARRAY_SIZE(vtdr6130_rp6_modes),
 +	.width_mm = 68,
 +	.height_mm = 120,
  	.bpc = 8,

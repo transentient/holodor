@@ -32,7 +32,7 @@
 # ELF here to refuse a backup that was taken AFTER the flash.
 pkgname=pocknix-bootloader-sm8750
 pkgver=1.1.8            # kept at 1.1.8 with bumped pkgrel for monotonic pacman upgrade ordering
-pkgrel=6   # 6 (2026-10-20): ship Holodor ABL (OpenABL v1.1 built from source with Holodor splash wordmark, devinfo OablSettings + legacy BootMode sync, and single-DTB fallback). 5 (2026-10-19): BootHolodor.apk and boot_holodor.sh support OpenABL v1.1 (SettingsStorePack 'ROCKNIX\0\0' at devinfo+0x990) in addition to ROCKNIX ABL (BootMode at offset+56). 4 (2026-10-19): add BootHolodor.apk (1-tap Android launcher app to reboot into Holodor via PServerBinder/su) + boot_holodor.sh. 2 (2026-10-07): flash_abl.sh refuses to run on a different chip
+pkgrel=10  # 10 (2026-10-26): harden flash_abl.sh, backup_abl.sh, and restore_backup_abl.sh with device allowlist, ELF size verification, and automatic pre-flash stock ABL backup preservation. 9 (2026-10-26): support internal UFS installs (/dev/block/by-name/HOLODOR + BootSource reset) in BootHolodor.apk, boot_holodor.sh, and flash_abl.sh. 8 (2026-10-26): auto-export Android saved Wi-Fi to /flash/wifi.txt on the Holodor SD card in BootHolodor.apk, boot_holodor.sh, and flash_abl.sh. 7 (2026-10-25): add Vol-Down Fastboot escape hatch in Early/RunBoot + direct PMIC button polling + safe SD rail power-cycle. 6 (2026-10-20): ship Holodor ABL (OpenABL v1.1 built from source with Holodor splash wordmark, devinfo OablSettings + legacy BootMode sync, and single-DTB fallback). 5 (2026-10-19): BootHolodor.apk and boot_holodor.sh support OpenABL v1.1 (SettingsStorePack 'ROCKNIX\0\0' at devinfo+0x990) in addition to ROCKNIX ABL (BootMode at offset+56). 4 (2026-10-19): add BootHolodor.apk (1-tap Android launcher app to reboot into Holodor via PServerBinder/su) + boot_holodor.sh. 2 (2026-10-07): flash_abl.sh refuses to run on a different chip
 pkgdesc="SM8750 (AYN Odin 3) Holodor ABL (OpenABL v1.1) payload + Android-side backup/flash/restore scripts and BootHolodor.apk"
 arch=('any')
 url="https://github.com/OpenHandheldCollective/OpenABL"
@@ -48,7 +48,7 @@ source=('abl_signed-SM8750.elf'
         'disable_android_updates.sh'
         'enable_android_updates.sh'
         'README.txt')
-sha256sums=('4362c527cc07e2a871b996c0d18557869a76570dad182bc1c89d46e956939721'
+sha256sums=('6ca641d5b94ca802abf09c8ced5ad93c2c0b844a0cf8bb538651307c9df87824'
             'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {

@@ -27,6 +27,7 @@ polkit.addRule(function(action, subject) {
          action.lookup("program") == "/usr/local/bin/pocknix-restore-stock-abl" ||  // validated + read-back-verified
          action.lookup("program") == "/usr/local/bin/pocknix-boot-target" ||        // devinfo BootMode toggle
          action.lookup("program") == "/usr/local/bin/pocknix-power-mode" ||         // per-game power profile
+         action.lookup("program") == "/usr/bin/pocknix-wifi-import" ||              // first-boot Wi-Fi TUI / wifi.txt import
          action.lookup("program") == "/usr/local/bin/pocknix-update")) {
         return polkit.Result.YES;
     }

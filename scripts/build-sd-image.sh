@@ -124,7 +124,7 @@ populate_arm_efi_boot() {
 populate_qcom_abl_boot() {
   local mnt="$1" bl="${ROOTFS_DIR}/usr/share/bootloader/rocknix_abl"
   if [ ! -d "${bl}" ]; then
-    case "${SOC}" in sm8750|sm8250) die "qcom-abl: ${bl#${ROOTFS_DIR}} missing from the rootfs — is pocknix-bootloader-${SOC} built and installed? (make packages PKG=pocknix-bootloader-${SOC} + make build)";; esac
+    case "${SOC}" in sm8750|sm8550|sm8250) die "qcom-abl: ${bl#${ROOTFS_DIR}} missing from the rootfs — is pocknix-bootloader-${SOC} built and installed? (make packages PKG=pocknix-bootloader-${SOC} + make build)";; esac
     warn "no ${bl#${ROOTFS_DIR}} in the rootfs — SD boot FAT ships without the ROCKNIX ABL folder"
     return 0
   fi
@@ -174,15 +174,37 @@ EOF
 
   # DEV-ONLY Wi-Fi preseed: any *.nmconnection in config/local/ (GITIGNORED — holds the PSK)
   # is baked in so a dev image comes up on the network without OOBE — invaluable while the
-  # session is unstable and SSH is the only debug path. Release/polished images: empty the
-  # directory first (known open work).
-  if [ "${HOLODOR_RELEASE:-0}" = "1" ] && compgen -G "${POCKNIX_ROOT}/config/local/*.nmconnection" >/dev/null; then
-    log "RELEASE build: refusing to bake config/local Wi-Fi profiles (dev-only)"
+  # session is unstable and SSH is the only debug path.
+  if [ "${HOLODOR_RELEASE:-0}" = "1" ]; then
+    log "RELEASE build: scrubbing any Wi-Fi credentials, SSH host keys, and dev markers"
+    rm -rf "${root}/etc/NetworkManager/system-connections"/* \
+           "${root}/var/lib/iwd"/* \
+           "${root}/etc/ssh/ssh_host_"* \
+           "${root}/etc/holodor-dev-image" 2>/dev/null || true
+    date -u +%FT%TZ > "${root}/etc/holodor-release-image"
   elif compgen -G "${POCKNIX_ROOT}/config/local/*.nmconnection" >/dev/null; then
     log "preseeding Wi-Fi profiles from config/local/ (DEV image — not for release)"
+    rm -f "${root}/etc/holodor-release-image"
+    date -u +%FT%TZ > "${root}/etc/holodor-dev-image"
     install -d -m 755 "${root}/etc/NetworkManager/system-connections"
     install -m 600 -o root -g root "${POCKNIX_ROOT}"/config/local/*.nmconnection \
       "${root}/etc/NetworkManager/system-connections/"
+    install -d -m 700 "${root}/var/lib/iwd"
+    for nmf in "${POCKNIX_ROOT}"/config/local/*.nmconnection; do
+      local _ssid _psk
+      _ssid="$(sed -n 's/^ssid=//p' "${nmf}" | head -n1 | tr -d '\r')"
+      _psk="$(sed -n 's/^psk=//p' "${nmf}" | head -n1 | tr -d '\r')"
+      if [ -n "${_ssid}" ] && [ -n "${_psk}" ]; then
+        cat > "${root}/var/lib/iwd/${_ssid}.psk" <<EOF
+[Security]
+Passphrase=${_psk}
+EOF
+        chmod 600 "${root}/var/lib/iwd/${_ssid}.psk"
+      fi
+    done
+  else
+    rm -f "${root}/etc/holodor-release-image"
+    date -u +%FT%TZ > "${root}/etc/holodor-dev-image"
   fi
 
   # install the committed test-image overlay (diag dump, autologin, NM conf, fan/volume helpers)
@@ -344,6 +366,7 @@ EOF
   chroot "${root}" systemctl mask systemd-networkd-wait-online.service >/dev/null 2>&1 || true
 
   if [ -n "${SD_WIFI_SSID}" ]; then
+    [ "${HOLODOR_RELEASE:-0}" != "1" ] || die "HOLODOR_RELEASE=1 refuses SD_WIFI_SSID='${SD_WIFI_SSID}' (release images must never carry pre-seeded Wi-Fi credentials)"
     # Guard: a Wi-Fi SSID with no password silently ships an unusable image (the SSID is logged but
     # an empty PSK only surfaces as a boot-time association failure). Fail the build instead.
     [ -n "${SD_WIFI_PSK}" ] || die "SD_WIFI_SSID='${SD_WIFI_SSID}' is set but SD_WIFI_PSK is empty. Pass SD_WIFI_PSK='<password>' (note: 'sudo VAR=… make' must not drop it)."
@@ -488,6 +511,11 @@ main() {
   # systemd-timedated (couldn't write /etc/localtime -> timezone changes had no effect). Fail loudly.
   leaked="$(find "${MNT}" -xdev \( -uid 1000 -o -gid 1000 \) ! -path "${MNT}/home/*" -print -quit)"
   [ -z "${leaked}" ] || die "host-owned (uid/gid 1000) path leaked into the image: ${leaked#${MNT}} — a host->rootfs rsync needs --chown=root:root"
+  if [ "${HOLODOR_RELEASE:-0}" = "1" ]; then
+    leaked_wifi="$(find "${MNT}/etc/NetworkManager/system-connections" "${MNT}/var/lib/iwd" -maxdepth 1 -type f 2>/dev/null | head -n1)"
+    [ -z "${leaked_wifi}" ] || die "RELEASE gate failed: Wi-Fi credential leaked into release image: ${leaked_wifi#${MNT}}"
+    [ ! -e "${MNT}/etc/systemd/system/multi-user.target.wants/sshd.service" ] || die "RELEASE gate failed: sshd.service is enabled in release image"
+  fi
   sync; umount "${MNT}"; rmdir "${MNT}"; MNT=""
   losetup -d "${LOOP}"; LOOP=""
   trap - EXIT

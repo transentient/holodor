@@ -195,6 +195,13 @@ def set_boot_mode(path: str, android: bool) -> dict:
                 oabl_val = bytearray(slots["OablSettings"][1].ljust(32, b"\x00"))
                 bits = struct.unpack_from("<Q", oabl_val, 2)[0]
                 bits = (bits & ~0x3) | (2 if android else 1)
+                if not android and (
+                    os.path.exists("/dev/disk/by-partlabel/HOLODOR")
+                    or os.path.exists("/dev/disk/by-partlabel/ROCKNIX")
+                ):
+                    src_code = (bits >> 16) & 0x7
+                    if src_code == 3:  # BOOT_SOURCE_SD -> reset to BOOT_SOURCE_AUTO
+                        bits = (bits & ~(0x7 << 16)) | (1 << 16)
                 struct.pack_into("<Q", oabl_val, 2, bits)
                 write_slot(buf, "OablSettings", bytes(oabl_val))
                 if "BootMode" in slots:

@@ -1,0 +1,19 @@
+From: Holodor <holodor@bonesaw.com>
+Subject: [PATCH] input: rsinput: program the MCU for 250 Hz status with 1-count analog resolution
+
+Program the MCU parameter pair to 6 / 2 instead of 40 / 7 so analog stick
+reports arrive at 250 Hz with 1-count resolution instead of ~4% steps.
+
+--- a/drivers/input/joystick/rsinput.c
++++ b/drivers/input/joystick/rsinput.c
+@@ -245,8 +245,8 @@
+     static const uint8_t mcu_params[] = {
+         DATA_COMMOD_SET_PAR,
+         0x01,
+-        0x00, 0x00, 0x00, 0x28,
+-        0x00, 0x00, 0x00, 0x07
++        0x00, 0x00, 0x00, 0x06,
++        0x00, 0x00, 0x00, 0x02
+     };
+     unsigned long timeout = msecs_to_jiffies(MCU_VERSION_ACK_TIMEOUT_MS);
+     int attempt;

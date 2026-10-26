@@ -1,0 +1,651 @@
+#!/usr/bin/env python3
+"""
+pocknix-wifi-tui — Gamepad + USB keyboard Wi-Fi selector and On-Screen Keyboard
+for Holodor first-boot setup (pocknix-steam-bootstrap).
+
+Uses only the Python 3 standard library and reads /dev/input/event* directly
+(deck is in the 'input' group) plus tty stdin fallback so a customer can connect
+to Wi-Fi using the handheld's built-in D-pad / analog stick / A-B-X-Y buttons
+without needing a USB keyboard or removing the SD card to create wifi.txt.
+"""
+
+import fcntl
+import glob
+import os
+import select
+import struct
+import subprocess
+import sys
+import termios
+import time
+import tty
+
+# Linux input event constants (64-bit: struct timeval (16B) + type(H) + code(H) + value(i) = 24B)
+EVENT_FMT = "<llHHi"
+EVENT_SIZE = struct.calcsize(EVENT_FMT)
+
+EV_KEY = 0x01
+EV_ABS = 0x03
+
+# Key / Button codes
+KEY_ESC = 1
+KEY_BACKSPACE = 14
+KEY_TAB = 15
+KEY_ENTER = 28
+KEY_KPENTER = 96
+KEY_UP = 103
+KEY_LEFT = 105
+KEY_RIGHT = 106
+KEY_DOWN = 108
+KEY_VOLUMEDOWN = 114
+KEY_VOLUMEUP = 115
+KEY_POWER = 116
+
+# Gamepad buttons (Linux Gamepad Spec; note on Nintendo/Retroid layout A=EAST, B=SOUTH,
+# X=NORTH, Y=WEST — we accept BOTH South and East as Confirm on the network list, and map
+# clearly labeled buttons on the OSK).
+BTN_SOUTH = 0x130  # Xbox A / Nintendo B
+BTN_EAST = 0x131   # Xbox B / Nintendo A
+BTN_NORTH = 0x133  # Xbox X / Nintendo Y (0x133 is BTN_NORTH/X in Linux input-event-codes.h)
+BTN_WEST = 0x134   # Xbox Y / Nintendo X (0x134 is BTN_WEST/Y)
+BTN_TL = 0x136     # L1
+BTN_TR = 0x137     # R1
+BTN_SELECT = 0x13A
+BTN_START = 0x13B
+BTN_DPAD_UP = 0x220
+BTN_DPAD_DOWN = 0x221
+BTN_DPAD_LEFT = 0x222
+BTN_DPAD_RIGHT = 0x223
+
+ABS_X = 0x00
+ABS_Y = 0x01
+ABS_HAT0X = 0x10
+ABS_HAT0Y = 0x11
+
+OSK_LAYERS = [
+    # Layer 0: lowercase + digits
+    [
+        ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "="],
+        ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "[", "]"],
+        ["a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "'", "\\"],
+        ["z", "x", "c", "v", "b", "n", "m", ",", ".", "/", "_", "SPC"],
+    ],
+    # Layer 1: uppercase + shifted symbols
+    [
+        ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+"],
+        ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "{", "}"],
+        ["A", "S", "D", "F", "G", "H", "J", "K", "L", ":", '"', "|"],
+        ["Z", "X", "C", "V", "B", "N", "M", "<", ">", "?", "~", "SPC"],
+    ],
+    # Layer 2: symbols & punctuation
+    [
+        ["~", "`", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")"],
+        ["-", "_", "=", "+", "[", "]", "{", "}", "\\", "|", ";", ":"],
+        ["'", '"', ",", ".", "<", ">", "/", "?", "!", "@", "#", "$"],
+        ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "SPC"],
+    ],
+]
+ACTION_ROW = ["[ABC/Sym]", "[Bksp]", "[Clear]", "[Cancel]", "[CONNECT]"]
+
+
+def EVIOCGABS(axis: int) -> int:
+    # _IOR('E', 0x40 + axis, struct input_absinfo (24 bytes)) -> 0x80184540 + axis
+    return 0x80184540 + axis
+
+
+class InputPoller:
+    def __init__(self, tty_in_fd: int | None):
+        self.tty_in_fd = tty_in_fd
+        self.ev_fds: dict[str, int] = {}
+        self.abs_ranges: dict[tuple[int, int], tuple[int, int]] = {}
+        self.hat_state: dict[tuple[int, int], int] = {}
+        self.stick_state: dict[tuple[int, int], int] = {}
+        self.last_scan = 0.0
+        self.rescan_devices()
+
+    def rescan_devices(self) -> None:
+        now = time.monotonic()
+        if now - self.last_scan < 2.0:
+            return
+        self.last_scan = now
+        for path in sorted(glob.glob("/dev/input/event*")):
+            if path in self.ev_fds:
+                continue
+            try:
+                fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+                self.ev_fds[path] = fd
+                for axis in (ABS_X, ABS_Y):
+                    try:
+                        buf = fcntl.ioctl(fd, EVIOCGABS(axis), b"\x00" * 24)
+                        _, minimum, maximum, _, _, _ = struct.unpack("<iiiiii", buf)
+                        if maximum > minimum:
+                            self.abs_ranges[(fd, axis)] = (minimum, maximum)
+                    except OSError:
+                        pass
+            except OSError:
+                pass
+
+    def close(self) -> None:
+        for fd in list(self.ev_fds.values()):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        self.ev_fds.clear()
+
+    def poll_action(self, timeout: float = 0.25) -> tuple[str, str]:
+        """Returns (action, char). Actions: UP, DOWN, LEFT, RIGHT, CONFIRM, BACK, BKSP, SHIFT, START, SELECT, CHAR, NONE."""
+        self.rescan_devices()
+        rlist = list(self.ev_fds.values())
+        if self.tty_in_fd is not None:
+            rlist.append(self.tty_in_fd)
+        if not rlist:
+            time.sleep(timeout)
+            return ("NONE", "")
+
+        try:
+            ready, _, _ = select.select(rlist, [], [], timeout)
+        except Exception:
+            return ("NONE", "")
+
+        for fd in ready:
+            if fd == self.tty_in_fd:
+                try:
+                    data = os.read(fd, 16)
+                except OSError:
+                    continue
+                if not data:
+                    continue
+                if data == b"\x1b[A":
+                    return ("UP", "")
+                if data == b"\x1b[B":
+                    return ("DOWN", "")
+                if data == b"\x1b[C":
+                    return ("RIGHT", "")
+                if data == b"\x1b[D":
+                    return ("LEFT", "")
+                if data == b"\x1b":
+                    return ("BACK", "")
+                if data in (b"\r", b"\n"):
+                    return ("CONFIRM", "\n")
+                if data in (b"\x7f", b"\x08"):
+                    return ("BKSP", "")
+                if data == b"\t":
+                    return ("SHIFT", "")
+                try:
+                    ch = data.decode("utf-8", errors="ignore")
+                    if len(ch) == 1 and 32 <= ord(ch) <= 126:
+                        return ("CHAR", ch)
+                except Exception:
+                    pass
+                continue
+
+            # Evdev fd
+            try:
+                raw = os.read(fd, EVENT_SIZE * 16)
+            except OSError:
+                # Device unplugged
+                for k, v in list(self.ev_fds.items()):
+                    if v == fd:
+                        del self.ev_fds[k]
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                continue
+
+            for off in range(0, len(raw) - EVENT_SIZE + 1, EVENT_SIZE):
+                _, _, ev_type, ev_code, ev_val = struct.unpack_from(EVENT_FMT, raw, off)
+                if ev_type == EV_KEY and ev_val in (1, 2):  # press or autorepeat
+                    if ev_code in (KEY_UP, BTN_DPAD_UP, KEY_VOLUMEUP):
+                        return ("UP", "")
+                    if ev_code in (KEY_DOWN, BTN_DPAD_DOWN, KEY_VOLUMEDOWN):
+                        return ("DOWN", "")
+                    if ev_code in (KEY_LEFT, BTN_DPAD_LEFT):
+                        return ("LEFT", "")
+                    if ev_code in (KEY_RIGHT, BTN_DPAD_RIGHT):
+                        return ("RIGHT", "")
+                    if ev_code in (BTN_SOUTH, KEY_ENTER, KEY_KPENTER, KEY_POWER):
+                        return ("CONFIRM", "")
+                    if ev_code in (BTN_EAST, KEY_ESC):
+                        return ("BACK", "")
+                    if ev_code in (BTN_NORTH, KEY_BACKSPACE):
+                        return ("BKSP", "")
+                    if ev_code in (BTN_WEST, BTN_TL, BTN_TR, KEY_TAB):
+                        return ("SHIFT", "")
+                    if ev_code == BTN_START and ev_val == 1:
+                        return ("START", "")
+                    if ev_code == BTN_SELECT and ev_val == 1:
+                        return ("SELECT", "")
+                elif ev_type == EV_ABS:
+                    if ev_code in (ABS_HAT0X, ABS_HAT0Y):
+                        prev = self.hat_state.get((fd, ev_code), 0)
+                        self.hat_state[(fd, ev_code)] = ev_val
+                        if ev_val != prev and ev_val != 0:
+                            if ev_code == ABS_HAT0X:
+                                return ("LEFT" if ev_val < 0 else "RIGHT", "")
+                            else:
+                                return ("UP" if ev_val < 0 else "DOWN", "")
+                    elif ev_code in (ABS_X, ABS_Y) and (fd, ev_code) in self.abs_ranges:
+                        mn, mx = self.abs_ranges[(fd, ev_code)]
+                        mid = (mn + mx) / 2.0
+                        half = (mx - mn) / 2.0
+                        norm = (ev_val - mid) / half if half > 0 else 0.0
+                        state = -1 if norm < -0.6 else (1 if norm > 0.6 else 0)
+                        prev = self.stick_state.get((fd, ev_code), 0)
+                        self.stick_state[(fd, ev_code)] = state
+                        if state != prev and state != 0:
+                            if ev_code == ABS_X:
+                                return ("LEFT" if state < 0 else "RIGHT", "")
+                            else:
+                                return ("UP" if state < 0 else "DOWN", "")
+        return ("NONE", "")
+
+
+def is_online() -> bool:
+    r = subprocess.run(
+        ["getent", "hosts", "repo.steampowered.com"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return r.returncode == 0
+
+
+def scan_wifi() -> list[dict]:
+    """Returns list of {ssid, signal, security, in_use} sorted by signal desc."""
+    subprocess.run(
+        ["nmcli", "device", "wifi", "rescan"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=5,
+    )
+    try:
+        out = subprocess.check_output(
+            ["nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list"],
+            stderr=subprocess.DEVNULL,
+            timeout=8,
+            text=True,
+        )
+    except Exception:
+        out = ""
+
+    by_ssid: dict[str, dict] = {}
+    for line in out.splitlines():
+        # nmcli -t escapes ':' inside fields as '\:'
+        parts = []
+        cur = []
+        esc = False
+        for ch in line:
+            if esc:
+                cur.append(ch)
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == ":":
+                parts.append("".join(cur))
+                cur = []
+            else:
+                cur.append(ch)
+        parts.append("".join(cur))
+        if len(parts) < 4:
+            continue
+        in_use, ssid, sig_s, sec = parts[0], parts[1].strip(), parts[2], parts[3].strip()
+        if not ssid:
+            continue
+        try:
+            sig = int(sig_s)
+        except ValueError:
+            sig = 0
+        open_net = (sec == "" or sec == "--")
+        if ssid not in by_ssid or sig > by_ssid[ssid]["signal"] or in_use == "*":
+            by_ssid[ssid] = {
+                "ssid": ssid,
+                "signal": sig,
+                "open": open_net,
+                "security": "OPEN" if open_net else sec,
+                "in_use": in_use == "*",
+            }
+    return sorted(by_ssid.values(), key=lambda x: (x["in_use"], x["signal"]), reverse=True)
+
+
+def signal_bars(sig: int) -> str:
+    if sig >= 75:
+        return "[====]"
+    if sig >= 50:
+        return "[=== ]"
+    if sig >= 25:
+        return "[==  ]"
+    return "[=   ]"
+
+
+def write_screen(out_fd: int, lines: list[str]) -> None:
+    buf = "\033[2J\033[H\033[?25l" + "\r\n".join(lines) + "\r\n"
+    try:
+        os.write(out_fd, buf.encode("utf-8", errors="replace"))
+    except OSError:
+        pass
+
+
+def apply_wifi(out_fd: int, ssid: str, psk: str) -> tuple[bool, str]:
+    write_screen(
+        out_fd,
+        [
+            "",
+            "  HOLODOR — Wi-Fi Setup",
+            "  =====================",
+            "",
+            f"  Connecting to:  {ssid}",
+            "",
+            "  Associating and waiting for internet...",
+        ],
+    )
+    cmd = ["/usr/bin/pocknix-wifi-import", "--apply", ssid, psk, "US"]
+    if os.geteuid() != 0:
+        cmd = ["pkexec"] + cmd
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        err = (r.stderr or r.stdout or "failed to save credentials").strip().splitlines()[-1]
+        return (False, err)
+
+    for i in range(25):
+        if is_online():
+            return (True, "")
+        dots = "." * ((i % 3) + 1)
+        write_screen(
+            out_fd,
+            [
+                "",
+                "  HOLODOR — Wi-Fi Setup",
+                "  =====================",
+                "",
+                f"  Connecting to:  {ssid}",
+                "",
+                f"  Waiting for IP address and DNS{dots:<3} ({i + 1}/25s)",
+            ],
+        )
+        time.sleep(1)
+
+    return (False, "Timed out waiting for internet connection (check password)")
+
+
+def run_osk(out_fd: int, poller: InputPoller, ssid: str, initial_psk: str = "") -> str | None:
+    psk = initial_psk
+    layer = 0
+    row = 1
+    col = 0
+    show_pw = True
+    err_msg = ""
+
+    while True:
+        grid = OSK_LAYERS[layer]
+        masked = psk if show_pw else ("*" * len(psk))
+        layer_name = ["abc", "ABC", "Sym"][layer]
+        lines = [
+            "",
+            f"  HOLODOR — Wi-Fi Password for: {ssid[:36]}",
+            "  " + "=" * min(60, 30 + len(ssid[:30])),
+            f"  Password ({len(psk)} chars): [{masked}_]",
+        ]
+        if err_msg:
+            lines.append(f"  \033[1;31m! {err_msg}\033[0m")
+        else:
+            lines.append("  (WPA passwords are 8-63 characters)")
+        lines.append("")
+
+        for r_idx, r_keys in enumerate(grid):
+            row_str = "   "
+            for c_idx, k in enumerate(r_keys):
+                label = f" {k} "
+                if r_idx == row and c_idx == col:
+                    row_str += f"\033[7m[{k}]\033[0m "
+                else:
+                    row_str += f"{label} "
+            lines.append(row_str)
+
+        lines.append("")
+        act_str = "   "
+        for c_idx, act in enumerate(ACTION_ROW):
+            if row == 4 and c_idx == col:
+                act_str += f"\033[7m {act} \033[0m  "
+            else:
+                act_str += f" {act}   "
+        lines.append(act_str)
+        lines.append("")
+        lines.append(f"  D-Pad: Move   [A]: Type   [X]: Backspace   [Y/L1]: Shift ({layer_name})")
+        lines.append("  [Start]: Connect   [Select]: Show/Hide   [B]: Back to Networks")
+
+        write_screen(out_fd, lines)
+
+        action, ch = poller.poll_action(0.3)
+        if action == "NONE":
+            if is_online():
+                return None
+            continue
+
+        if action == "CHAR":
+            if len(psk) < 63:
+                psk += ch
+                err_msg = ""
+        elif action == "BKSP":
+            psk = psk[:-1]
+            err_msg = ""
+        elif action == "SHIFT":
+            layer = (layer + 1) % len(OSK_LAYERS)
+        elif action == "SELECT":
+            show_pw = not show_pw
+        elif action == "START":
+            if len(psk) < 8:
+                err_msg = "Password must be at least 8 characters."
+            else:
+                ok, err = apply_wifi(out_fd, ssid, psk)
+                if ok:
+                    return psk
+                err_msg = err
+        elif action == "BACK":
+            return None
+        elif action == "UP":
+            if row == 4:
+                row = 3
+                col = min(11, col * 2 + 1)
+            else:
+                row = (row - 1) % 5
+                if row == 4:
+                    col = min(len(ACTION_ROW) - 1, col // 2)
+        elif action == "DOWN":
+            if row == 3:
+                row = 4
+                col = min(len(ACTION_ROW) - 1, col // 2)
+            elif row == 4:
+                row = 0
+                col = min(11, col * 2)
+            else:
+                row += 1
+        elif action == "LEFT":
+            max_c = len(ACTION_ROW) if row == 4 else len(grid[row])
+            col = (col - 1) % max_c
+        elif action == "RIGHT":
+            max_c = len(ACTION_ROW) if row == 4 else len(grid[row])
+            col = (col + 1) % max_c
+        elif action == "CONFIRM":
+            if ch == "\n" and row != 4:
+                # Physical Enter key on USB keyboard: if >= 8 chars, jump to Connect
+                if len(psk) >= 8:
+                    ok, err = apply_wifi(out_fd, ssid, psk)
+                    if ok:
+                        return psk
+                    err_msg = err
+                    continue
+            if row < 4:
+                key = grid[row][col]
+                char_to_add = " " if key == "SPC" else key
+                if len(psk) < 63:
+                    psk += char_to_add
+                    err_msg = ""
+            else:
+                act = ACTION_ROW[col]
+                if act == "[ABC/Sym]":
+                    layer = (layer + 1) % len(OSK_LAYERS)
+                elif act == "[Bksp]":
+                    psk = psk[:-1]
+                    err_msg = ""
+                elif act == "[Clear]":
+                    psk = ""
+                    err_msg = ""
+                elif act == "[Cancel]":
+                    return None
+                elif act == "[CONNECT]":
+                    if len(psk) < 8:
+                        err_msg = "Password must be at least 8 characters."
+                    else:
+                        ok, err = apply_wifi(out_fd, ssid, psk)
+                        if ok:
+                            return psk
+                        err_msg = err
+
+
+def main() -> int:
+    if is_online():
+        return 0
+
+    tty_path = os.environ.get("POCKNIX_TTY", "/dev/tty1")
+    out_fd = 1
+    in_fd = None
+    old_term = None
+
+    try:
+        if os.access(tty_path, os.R_OK | os.W_OK):
+            out_fd = os.open(tty_path, os.O_RDWR | os.O_NOCTTY)
+            in_fd = out_fd
+        elif sys.stdin.isatty():
+            in_fd = sys.stdin.fileno()
+    except OSError:
+        pass
+
+    if in_fd is not None:
+        try:
+            old_term = termios.tcgetattr(in_fd)
+            tty.setcbreak(in_fd)
+        except Exception:
+            old_term = None
+
+    poller = InputPoller(in_fd)
+    try:
+        write_screen(
+            out_fd,
+            [
+                "",
+                "  HOLODOR — First Boot Wi-Fi Setup",
+                "  ================================",
+                "",
+                "  Scanning for nearby Wi-Fi networks...",
+            ],
+        )
+        networks = scan_wifi()
+        cursor = 0
+        status_msg = ""
+
+        while True:
+            if is_online():
+                return 0
+
+            items = list(networks[:10])
+            items.append({"action": "rescan", "label": "[ Rescan Wi-Fi Networks ]"})
+            if os.path.isfile("/flash/wifi.txt"):
+                items.append({"action": "import", "label": "[ Import /flash/wifi.txt ]"})
+
+            if cursor >= len(items):
+                cursor = max(0, len(items) - 1)
+
+            lines = [
+                "",
+                "  HOLODOR — First Boot Wi-Fi Setup",
+                "  ================================",
+                "  Holodor needs the internet once to download Steam (~160 MB).",
+                "  Select your Wi-Fi network below using the D-Pad and press [A]:",
+                "",
+            ]
+            if status_msg:
+                lines.append(f"  \033[1;33m* {status_msg}\033[0m")
+                lines.append("")
+
+            if not networks:
+                lines.append("    (No Wi-Fi networks found yet — press [A] or [Start] to rescan)")
+                lines.append("")
+
+            for idx, item in enumerate(items):
+                prefix = " > " if idx == cursor else "   "
+                if "ssid" in item:
+                    bars = signal_bars(item["signal"])
+                    sec = "OPEN" if item["open"] else "WPA "
+                    row_txt = f"{bars} ({sec})  {item['ssid'][:42]}"
+                else:
+                    row_txt = item["label"]
+                if idx == cursor:
+                    lines.append(f"  \033[7m{prefix}{row_txt:<56}\033[0m")
+                else:
+                    lines.append(f"  {prefix}{row_txt}")
+
+            lines.append("")
+            lines.append("  D-Pad / Vol: Move   [A] / Power: Select   [Start]: Rescan")
+            lines.append("  (Tip: you can also put wifi.txt on the SD card's boot partition)")
+
+            write_screen(out_fd, lines)
+
+            action, _ = poller.poll_action(0.4)
+            if action == "NONE":
+                continue
+            if action == "UP":
+                cursor = (cursor - 1) % len(items)
+            elif action == "DOWN":
+                cursor = (cursor + 1) % len(items)
+            elif action == "START":
+                status_msg = "Rescanning Wi-Fi networks..."
+                write_screen(out_fd, lines)
+                networks = scan_wifi()
+                status_msg = f"Found {len(networks)} network(s)."
+            elif action == "CONFIRM":
+                chosen = items[cursor]
+                if chosen.get("action") == "rescan":
+                    status_msg = "Rescanning Wi-Fi networks..."
+                    write_screen(out_fd, lines)
+                    networks = scan_wifi()
+                    status_msg = f"Found {len(networks)} network(s)."
+                elif chosen.get("action") == "import":
+                    cmd = ["/usr/bin/pocknix-wifi-import"]
+                    if os.geteuid() != 0:
+                        cmd = ["pkexec"] + cmd
+                    subprocess.run(cmd)
+                    status_msg = "Imported /flash/wifi.txt — waiting for connection..."
+                    for _ in range(15):
+                        if is_online():
+                            return 0
+                        time.sleep(1)
+                elif chosen.get("open"):
+                    ok, err = apply_wifi(out_fd, chosen["ssid"], "")
+                    if ok:
+                        return 0
+                    status_msg = err
+                else:
+                    res = run_osk(out_fd, poller, chosen["ssid"])
+                    if res is not None or is_online():
+                        return 0
+    finally:
+        poller.close()
+        if old_term is not None and in_fd is not None:
+            try:
+                termios.tcsetattr(in_fd, termios.TCSADRAIN, old_term)
+            except Exception:
+                pass
+        try:
+            os.write(out_fd, b"\033[?25h")
+        except OSError:
+            pass
+        if out_fd not in (0, 1, 2):
+            try:
+                os.close(out_fd)
+            except OSError:
+                pass
+
+
+if __name__ == "__main__":
+    sys.exit(main())

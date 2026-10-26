@@ -52,7 +52,6 @@
 			gpios = <&pm8550_gpios 6 GPIO_ACTIVE_LOW>;
 			linux,code = <KEY_VOLUMEUP>;
 			linux,can-disable;
-			wakeup-source;
 		};
 	};
 
@@ -535,10 +534,14 @@
 		regulator-max-microvolt = <3300000>;
 		startup-delay-us = <10000>;
 
+		vin-supply = <&vreg_bob2>;
 		gpio = <&tlmm 99 GPIO_ACTIVE_HIGH>;
-		regulator-always-on;
 		regulator-boot-on;
 		enable-active-high;
+
+		regulator-state-mem {
+			regulator-off-in-suspend;
+		};
 	};
 
 	vph_pwr: regulator-vph-pwr {
@@ -660,6 +663,11 @@
 			regulator-min-microvolt = <3296000>;
 			regulator-max-microvolt = <3960000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_bob2: bob2 {
@@ -667,6 +675,11 @@
 			regulator-min-microvolt = <2720000>;
 			regulator-max-microvolt = <3960000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_l2b_3p0: ldo2 {
@@ -687,6 +700,11 @@
 			regulator-allow-set-load;
 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
 						   RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_l6b_1p8: ldo6 {
@@ -774,6 +792,11 @@
 			regulator-allow-set-load;
 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
 						   RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_l16b_2p8: ldo16 {
@@ -832,6 +855,11 @@
 			regulator-allow-set-load;
 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
 						   RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 	};
 
@@ -850,6 +878,12 @@
 			regulator-min-microvolt = <904000>;
 			regulator-max-microvolt = <984000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+			regulator-always-on;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_s5e_1p08: smps5 {
@@ -867,6 +901,11 @@
 			regulator-allow-set-load;
 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
 						   RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_l2e_0p9: ldo2 {
@@ -887,6 +926,11 @@
 			regulator-allow-set-load;
 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
 						   RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 	};
 
@@ -934,6 +978,11 @@
 			regulator-allow-set-load;
 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
 						   RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 	};
 
@@ -963,6 +1012,12 @@
 			regulator-min-microvolt = <800000>;
 			regulator-max-microvolt = <1000000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+			regulator-always-on;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_s3g_0p7: smps3 {
@@ -977,6 +1032,12 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <1352000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+			regulator-always-on;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_s5g_0p8: smps5 {
@@ -984,6 +1045,12 @@
 			regulator-min-microvolt = <500000>;
 			regulator-max-microvolt = <1004000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+			regulator-always-on;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_s6g_1p8: smps6 {
@@ -991,6 +1058,12 @@
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <2000000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+			regulator-always-on;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_l1g_1p2: ldo1 {
@@ -1001,6 +1074,11 @@
 			regulator-allow-set-load;
 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
 						   RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 
 		vreg_l3g_1p2: ldo3 {
@@ -1011,8 +1089,17 @@
 			regulator-allow-set-load;
 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
 						   RPMH_REGULATOR_MODE_HPM>;
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				regulator-mode = <RPMH_REGULATOR_MODE_LPM>;
+			};
 		};
 	};
+};
+
+&bi_tcxo_div2 {
+	clocks = <&rpmhcc RPMH_CXO_CLK_A>;
 };
 
 &gpi_dma1 {
@@ -1123,6 +1210,10 @@
 	status = "disabled";
 };
 
+&lpass_wsa2macro {
+	status = "disabled";
+};
+
 &mdss {
 	status = "okay";
 };
@@ -1165,7 +1256,7 @@
 };
 
 &pcieport0 {
-	wake-gpios = <&tlmm 96 GPIO_ACTIVE_HIGH>;
+	wake-gpios = <&tlmm 96 GPIO_ACTIVE_LOW>;
 	reset-gpios = <&tlmm 94 GPIO_ACTIVE_LOW>;
 
 	wifi@0 {
@@ -1776,7 +1867,8 @@
 		gamepad-pid = <0x3001>;
 		gamepad-rev = <0x0001>;
 
-		vdd-supply = <&vreg_bob2>;
+		vdd-supply = <&vdd_mcu_3v3>;
+		rumble-haptics;
 		enable-gpios = <&tlmm 12 GPIO_ACTIVE_HIGH>;
 		pinctrl-0 = <&mcu_en_active>;
 		pinctrl-names = "default";

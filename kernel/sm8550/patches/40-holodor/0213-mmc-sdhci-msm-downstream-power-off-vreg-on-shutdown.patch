@@ -1,0 +1,37 @@
+From: Holodor <holodor@bonesaw.com>
+Subject: [PATCH] mmc: sdhci-msm-downstream: power off removable SD slot vdd/vdd-io on shutdown
+
+Ensure UHS-I 1.8V signaling SD cards are power-cycled across warm reboots so
+OpenABL/XBL can re-initialize the card at 3.3V.
+---
+--- a/drivers/mmc/host/sdhci-msm-downstream.c
++++ b/drivers/mmc/host/sdhci-msm-downstream.c
+@@ -5791,9 +5791,28 @@
+ 			   NULL)
+ };
+ 
++static void sdhci_msm_shutdown(struct platform_device *pdev)
++{
++	struct sdhci_host *host = platform_get_drvdata(pdev);
++	struct sdhci_pltfm_host *pltfm_host;
++	struct sdhci_msm_host *msm_host;
++	struct device_node *np = pdev->dev.of_node;
++
++	if (!host || of_property_read_bool(np, "non-removable"))
++		return;
++
++	pltfm_host = sdhci_priv(host);
++	msm_host = sdhci_pltfm_priv(pltfm_host);
++	pm_runtime_get_sync(&pdev->dev);
++	sdhci_msm_set_vdd_io_vol(msm_host, VDD_IO_HIGH, 0);
++	sdhci_msm_setup_vreg(msm_host, false, false);
++	msleep(150);
++}
++
+ static struct platform_driver sdhci_msm_driver = {
+ 	.probe = sdhci_msm_probe,
+ 	.remove = sdhci_msm_remove,
++	.shutdown = sdhci_msm_shutdown,
+ 	.driver = {
+ 		   .name = "sdhci_msm_downstream",
+ 		   .probe_type = PROBE_PREFER_ASYNCHRONOUS,

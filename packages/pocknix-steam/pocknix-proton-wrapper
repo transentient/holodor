@@ -470,6 +470,8 @@ def apply_engine_heuristics(args):
     #     thread pools for 4 fast cores instead of 8.
     if _is_sm8250():
         os.environ.setdefault("WINE_CPU_TOPOLOGY", "4:4,5,6,7")
+    elif _is_sm8550():
+        os.environ.setdefault("WINE_CPU_TOPOLOGY", "5:3,4,5,6,7")
 
     # 6. Sanitize SteamVirtualGamepadInfo_Proton so SDL2/Winebus games see an Xbox 360 controller
     #    instead of `0x28de:0x12f0 (type=unknown)`.
@@ -601,6 +603,14 @@ def _is_sm8250():
     try:
         compat = pathlib.Path("/sys/firmware/devicetree/base/compatible").read_bytes().decode("ascii", "ignore")
         return "sm8250" in compat
+    except OSError:
+        return False
+
+
+def _is_sm8550():
+    try:
+        compat = pathlib.Path("/sys/firmware/devicetree/base/compatible").read_bytes().decode("ascii", "ignore")
+        return "sm8550" in compat or "qcs8550" in compat
     except OSError:
         return False
 

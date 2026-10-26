@@ -32,6 +32,19 @@ if [ -n "${POCKNIX_IMAGE_FILE:-}" ]; then
 else
   OUT="${IMAGE_DIR}/pocknix-${SOC}-${STAMP}-sd.img.zst"
   [ -f "${IMG}" ] || die "no ${IMG} — run 'make sd-image' first"
+  # Security gate: never allow a dev image (built without HOLODOR_RELEASE=1 or carrying
+  # Wi-Fi credentials / sshd enabled) to be compressed and uploaded to the public bucket.
+  if command -v debugfs >/dev/null 2>&1; then
+    p2_off=$(parted -sm "${IMG}" unit B print 2>/dev/null | awk -F: '$1=="2"{gsub(/B/,"",$2); print $2}')
+    if [ -n "${p2_off}" ]; then
+      dev_marker=$(debugfs -R "stat /etc/holodor-dev-image" "${IMG}?offset=${p2_off}" 2>/dev/null | grep -c "Inode:" || true)
+      [ "${dev_marker}" -eq 0 ] || die "REFUSING TO PUBLISH: ${IMG} is a DEV image (/etc/holodor-dev-image present). Rebuild with 'sudo HOLODOR_RELEASE=1 HOLODOR_SEEDLESS=1 make sd-image'."
+      wifi_leak=$(debugfs -R "ls -p /var/lib/iwd" "${IMG}?offset=${p2_off}" 2>/dev/null | grep -E '\.psk/' || true)
+      [ -z "${wifi_leak}" ] || die "REFUSING TO PUBLISH: ${IMG} contains /var/lib/iwd/*.psk credentials (${wifi_leak})!"
+      nm_leak=$(debugfs -R "ls -p /etc/NetworkManager/system-connections" "${IMG}?offset=${p2_off}" 2>/dev/null | grep -E '\.nmconnection/' || true)
+      [ -z "${nm_leak}" ] || die "REFUSING TO PUBLISH: ${IMG} contains NetworkManager Wi-Fi credentials (${nm_leak})!"
+    fi
+  fi
 fi
 need_tool zstd
 need_tool sha256sum

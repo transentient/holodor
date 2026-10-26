@@ -74,22 +74,36 @@ fail() { # fail <message...> — honest error screen, then let the supervisor re
 }
 
 # --- network -----------------------------------------------------------------
-# Poll DNS forever: there is nothing useful to do without the network, and the wifi.txt
-# importer (pocknix-wifi-import, next boot) or Ethernet/USB can bring it up at any time.
-# After ~60s of silence, switch to the honest offline screen with the wifi.txt recipe.
+# Ensure we have internet before resolving/fetching Steam.
+# 1. If /flash/wifi.txt is present (e.g. /flash mounted after early boot), import it now.
+# 2. If a saved Wi-Fi profile exists, give it ~24s to associate; if no Wi-Fi profile exists at
+#    all, wait ~6s for wlan0/USB Ethernet to settle, then launch pocknix-wifi-tui (gamepad +
+#    keyboard Wi-Fi selector and On-Screen Keyboard) right on tty1.
 wait_for_network() {
-  local host="repo.steampowered.com" i=0
+  local host="repo.steampowered.com" i=0 max_wait=3
+  if [ -f /flash/wifi.txt ] && [ -x /usr/bin/pocknix-wifi-import ]; then
+    echo "[info] importing /flash/wifi.txt..."
+    pkexec /usr/bin/pocknix-wifi-import || true
+  fi
   getent hosts "${host}" >/dev/null 2>&1 && return 0
-  ui "Waiting for network..." "" "(Wi-Fi can take ~30 seconds to connect after boot)"
+  if nmcli -t -f TYPE connection show 2>/dev/null | grep -q '802-11-wireless'; then
+    max_wait=12
+  fi
+  ui "Waiting for network..." "" "(Wi-Fi can take ~20 seconds to connect after boot)"
   while ! getent hosts "${host}" >/dev/null 2>&1; do
     i=$((i + 1))
-    if [ "${i}" -eq 30 ]; then
+    if [ "${i}" -ge "${max_wait}" ]; then
+      if [ -x /usr/bin/pocknix-wifi-tui ] && [ "${TTY}" = "/dev/tty1" ]; then
+        echo "[info] launching pocknix-wifi-tui on ${TTY}"
+        POCKNIX_TTY="${TTY}" /usr/bin/pocknix-wifi-tui || true
+        getent hosts "${host}" >/dev/null 2>&1 && break
+      fi
       ui "No network connection." "" \
          "Holodor needs the internet once," \
-         "to download Steam (~350 MB)." "" \
+         "to download Steam (~160 MB)." "" \
          "To set up Wi-Fi without a keyboard:" \
          "  1. power off, put the SD card in a computer" \
-         "  2. on the small ROCKNIX partition, create" \
+         "  2. on the small HOLODOR partition, create" \
          "     a file named  wifi.txt  containing:" \
          "         ssid=YourNetworkName" \
          "         password=YourWifiPassword" \
@@ -97,6 +111,7 @@ wait_for_network() {
          "  3. put the card back and power on" "" \
          "A USB keyboard + 'nmtui' also works." \
          "Still waiting..."
+      max_wait=$((i + 15))
     fi
     sleep 2
   done
@@ -147,7 +162,14 @@ verified_fetch() {
 wait_for_clock() {
   local i=0 y
   y="$(date +%Y)"
-  [ "${y}" -ge 2026 ] && [ "${y}" -le 2040 ] && return 0
+  if [ "${y}" -ge 2026 ] && [ "${y}" -le 2040 ]; then
+    while [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" != "yes" ]; do
+      i=$((i + 1))
+      [ "${i}" -ge 20 ] && return 0
+      sleep 1
+    done
+    return 0
+  fi
   ui "Setting the clock..." "" \
      "(the device's clock is at ${y}; waiting for the network time service)"
   while [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" != "yes" ]; do

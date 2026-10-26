@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+# pocknix-input-calibration — per-unit stick calibration for the rsinput driver (AYN Odin 3 family).
+#
+# The MCU reports the sticks with a per-unit centre error that its own (Android) calibration does
+# not correct on the UART path: Cliff's unit reads left stick +240/-232 and right +76/-222 of
+# +-1024 at rest (2026-09-27), i.e. ~22 % off-centre before any deadzone, which Steam then hides
+# behind a wide deadzone -> dead band + "stuck" feel. rsinput exposes runtime module parameters
+# (/sys/module/rsinput/parameters/axis_<axis>_center etc.); this tool sets them and persists
+# them in /etc/pocknix/input-calibration.conf, which pocknix-input-calibration.service re-applies
+# at boot BEFORE inputplumber opens the device.
+#
+#   zero    sample the four stick axes at rest for ~0.6 s and set centres so they read 0 (hands off!)
+#   apply   write the saved conf to the driver (boot service)
+#   reset   clear the centres (0) and delete the conf
+#   show    print the current driver values + saved conf as JSON
+# Prints JSON on stdout for Pocknix Control; exit 0 on success.
+import glob, json, os, sys, time
+PARAMS = "/sys/module/rsinput/parameters"
+CONF = "/etc/pocknix/input-calibration.conf"
+AXES = {"leftx": "ABS_X", "lefty": "ABS_Y", "rightx": "ABS_RX", "righty": "ABS_RY"}
+KEYS = [f"axis_{a}_center" for a in AXES] + [f"axis_{a}_{k}" for a in AXES for k in ("min", "max", "deadzone", "antideadzone")]
+
+def rd(name):
+    try:
+        return int(open(f"{PARAMS}/{name}").read().strip())
+    except (OSError, ValueError):
+        return None
+
+def wr(name, value):
+    with open(f"{PARAMS}/{name}", "w") as f:
+        f.write(str(int(value)))
+
+def load_conf():
+    conf = {}
+    try:
+        for line in open(CONF):
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            if k.strip() in KEYS:
+                conf[k.strip()] = int(v.strip())
+    except OSError:
+        pass
+    return conf
+
+def save_conf(conf):
+    os.makedirs(os.path.dirname(CONF), exist_ok=True)
+    tmp = CONF + ".tmp"
+    with open(tmp, "w") as f:
+        f.write("# pocknix-input-calibration: rsinput module parameters re-applied at boot. Regenerate with\n")
+        f.write("# `pocknix-input-calibration zero` (sticks at rest) or the Pocknix Control button.\n")
+        for k in KEYS:
+            if k in conf:
+                f.write(f"{k}={conf[k]}\n")
+    os.replace(tmp, CONF)
+
+def current():
+    return {k: rd(k) for k in KEYS if rd(k) is not None}
+
+def find_device():
+    import evdev
+    for p in evdev.list_devices():
+        d = evdev.InputDevice(p)
+        if "rsinput" in (d.phys or ""):
+            return d
+    return None
+
+def apply(conf):
+    changed_range = False
+    for k, v in conf.items():
+        if rd(k) is None:
+            continue
+        wr(k, v)
+        if k.endswith(("_min", "_max", "_antideadzone")):
+            changed_range = True
+    if changed_range and rd("update_params") is not None:
+        wr("update_params", 1)
+
+def main():
+    if not os.path.isdir(PARAMS):
+        print(json.dumps({"ok": False, "error": "rsinput driver not present"})); return 1
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "show"
+    if cmd == "apply":
+        conf = load_conf(); apply(conf)
+        print(json.dumps({"ok": True, "applied": conf})); return 0
+    if cmd == "reset":
+        for a in AXES: wr(f"axis_{a}_center", 0)
+        try: os.remove(CONF)
+        except OSError: pass
+        print(json.dumps({"ok": True, "centers": {a: 0 for a in AXES}})); return 0
+    if cmd == "zero":
+        try:
+            import evdev
+            from evdev import ecodes as E
+        except ImportError:
+            print(json.dumps({"ok": False, "error": "python-evdev missing"})); return 1
+        dev = find_device()
+        if dev is None:
+            print(json.dumps({"ok": False, "error": "rsinput gamepad not found"})); return 1
+        codes = {a: getattr(E, c) for a, c in AXES.items()}
+        samples = {a: [] for a in AXES}
+        t0 = time.time()
+        while time.time() - t0 < 0.6:
+            for a, c in codes.items():
+                samples[a].append(dev.absinfo(c).value)
+            time.sleep(0.01)
+        conf = load_conf(); result = {}
+        for a in AXES:
+            vals = sorted(samples[a]); v = vals[len(vals) // 2]          # median of the rest samples
+            if max(vals) - min(vals) > 60:
+                print(json.dumps({"ok": False, "error": f"{a} moved during sampling ({min(vals)}..{max(vals)}); keep hands off"})); return 1
+            key = f"axis_{a}_center"; old = rd(key) or 0
+            new = old - v                                                  # value = raw + center -> raw + new = 0
+            wr(key, new); conf[key] = new; result[a] = {"was": v, "center": new}
+        save_conf(conf)
+        print(json.dumps({"ok": True, "centers": result})); return 0
+    print(json.dumps({"ok": True, "driver": current(), "saved": load_conf()})); return 0
+
+sys.exit(main())

@@ -1,0 +1,53 @@
+#!/bin/sh
+# 002-audio-quiesce (post) — restore WCD938x SoundWire power/control="on" (for
+# MBHC headphone jack detection while awake), restore ASoC/SoundWire autosuspend
+# timers, un-suspend the hardware ALSA sinks/sources, and unload the temporary
+# null sink created by 002-audio-quiesce (pre).
+
+state=/run/pocknix-audio-quiesce-state
+mod_id=""
+prev_default=""
+if [ -f "${state}" ]; then
+  mod_id=$(sed -n 's/^mod_id=//p' "${state}" 2>/dev/null)
+  prev_default=$(sed -n 's/^prev_default=//p' "${state}" 2>/dev/null)
+  [ -z "${mod_id}" ] && [ -z "${prev_default}" ] && mod_id=$(head -n 1 "${state}" 2>/dev/null)
+  rm -f "${state}"
+fi
+
+for f in /sys/devices/platform/sound/*/pmdown_time; do
+  [ -w "${f}" ] && echo 5000 > "${f}" 2>/dev/null || true
+done
+[ -w /sys/devices/platform/audio-codec/power/autosuspend_delay_ms ] && \
+  echo 1000 > /sys/devices/platform/audio-codec/power/autosuspend_delay_ms 2>/dev/null || true
+for d in /sys/bus/soundwire/devices/*/power/autosuspend_delay_ms \
+         /sys/devices/platform/soc@0/*.soundwire/power/autosuspend_delay_ms; do
+  [ -w "${d}" ] && echo 3000 > "${d}" 2>/dev/null || true
+done
+for c in /sys/bus/soundwire/devices/sdw:*:0217:010d:*/power/control; do
+  [ -w "${c}" ] && echo on > "${c}" 2>/dev/null || true
+done
+
+uid=$(id -u deck 2>/dev/null || echo 1001)
+rdir="/run/user/${uid}"
+if [ -S "${rdir}/pulse/native" ]; then
+  for s in $(runuser -u deck -- env XDG_RUNTIME_DIR="${rdir}" \
+    timeout 2 pactl list sinks short 2>/dev/null | awk '/alsa_output\.platform-sound/{print $2}'); do
+    runuser -u deck -- env XDG_RUNTIME_DIR="${rdir}" \
+      timeout 2 pactl suspend-sink "${s}" 0 2>/dev/null || true
+  done
+  for src in $(runuser -u deck -- env XDG_RUNTIME_DIR="${rdir}" \
+    timeout 2 pactl list sources short 2>/dev/null | awk '/alsa_input\.platform-sound/{print $2}'); do
+    runuser -u deck -- env XDG_RUNTIME_DIR="${rdir}" \
+      timeout 2 pactl suspend-source "${src}" 0 2>/dev/null || true
+  done
+  if [ -n "${prev_default}" ] && [ "${prev_default}" != "pocknix_sleep_null" ]; then
+    runuser -u deck -- env XDG_RUNTIME_DIR="${rdir}" \
+      timeout 2 pactl set-default-sink "${prev_default}" 2>/dev/null || true
+  fi
+  if [ -n "${mod_id}" ]; then
+    runuser -u deck -- env XDG_RUNTIME_DIR="${rdir}" \
+      timeout 2 pactl unload-module "${mod_id}" 2>/dev/null || true
+  fi
+  echo "002-audio-quiesce: restored sinks and SoundWire MBHC power/control (mod=${mod_id:-none})" >/dev/kmsg 2>/dev/null || true
+fi
+exit 0
