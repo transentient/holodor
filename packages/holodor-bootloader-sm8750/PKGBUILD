@@ -1,0 +1,59 @@
+# holodor-bootloader-sm8750 — the Holodor ABL folder for the AYN Odin 3, shipped on the SD.
+#
+# SM8750 boot contract (qcom-abl): the stock AYN ABL boots only Android. We ship our
+# Holodor ABL (built from OpenHandheldCollective/OpenABL v1.1 source via
+# scripts/build-openabl.sh and scripts/holodor-openabl-v1.1.patch; standalone
+# fork repo at https://github.com/transentient/OpenABL) together with
+# Android-side backup/flash/restore scripts and BootHolodor.apk under
+# /usr/share/bootloader/rocknix_abl/ so build-sd-image.sh copies them onto the SD
+# FAT partition (/flash/rocknix_abl/).
+#
+# Contents (installed under /usr/share/bootloader/rocknix_abl/; see README.provenance):
+#   abl_signed-SM8750.elf   Holodor ABL (based on OpenABL v1.1, GPL-3.0-or-later,
+#                           built from source via scripts/build-openabl.sh; source at
+#                           https://github.com/transentient/OpenABL).
+#   BootHolodor.apk         1-tap Android app to reboot into Holodor, built from source
+#                           via scripts/build-boot-holodor-apk.py.
+#   backup_abl.sh           dd abl_a/abl_b -> /sdcard/rocknix_abl AND the SD card
+#                           (preserving abl_*.stock.img so re-running never overwrites
+#                           a stock backup with a custom ABL).
+#   flash_abl.sh            Holodor ABL ELF -> abl_a + abl_b (with SoC/board allowlist).
+#   restore_backup_abl.sh   the saved stock images -> abl_a + abl_b.
+#   disable_android_updates.sh / enable_android_updates.sh
+#                           pm disable/enable AYN's OTA app.
+pkgname=holodor-bootloader-sm8750
+pkgver=1.1.8            # kept at 1.1.8 with bumped pkgrel for monotonic pacman upgrade ordering
+pkgrel=11  # 11 (2026-10-27): rename pocknix-bootloader-sm8750 -> holodor-bootloader-sm8750 (provides/replaces/conflicts old name), add gamepad navigation in OpenABL menu + "Holodor ABL (based on OpenABL)" attribution, and update README.provenance. 10 (2026-10-26): harden flash_abl.sh, backup_abl.sh, and restore_backup_abl.sh with device allowlist, ELF size verification, and automatic pre-flash stock ABL backup preservation. 9 (2026-10-26): support internal UFS installs (/dev/block/by-name/HOLODOR + BootSource reset) in BootHolodor.apk, boot_holodor.sh, and flash_abl.sh. 8 (2026-10-26): auto-export Android saved Wi-Fi to /flash/wifi.txt on the Holodor SD card in BootHolodor.apk, boot_holodor.sh, and flash_abl.sh. 7 (2026-10-25): add Vol-Down Fastboot escape hatch in Early/RunBoot + direct PMIC button polling + safe SD rail power-cycle. 6 (2026-10-20): ship Holodor ABL (OpenABL v1.1 built from source with Holodor splash wordmark, devinfo OablSettings + legacy BootMode sync, and single-DTB fallback).
+pkgdesc="SM8750 (AYN Odin 3) Holodor ABL (based on OpenABL v1.1) payload + Android-side backup/flash/restore scripts and BootHolodor.apk"
+arch=('any')
+url="https://github.com/transentient/OpenABL"
+license=('GPL-3.0-or-later' 'GPL-2.0-only')
+provides=('pocknix-bootloader-sm8750')
+conflicts=('pocknix-bootloader-sm8750')
+replaces=('pocknix-bootloader-sm8750')
+options=('!strip')          # the ELF is a signed bootloader payload: never strip or debug-split it
+source=('abl_signed-SM8750.elf'
+        'abl_signed-SM8750.elf.sha256'
+        'backup_abl.sh'
+        'flash_abl.sh'
+        'restore_backup_abl.sh'
+        'boot_holodor.sh'
+        'BootHolodor.apk'
+        'disable_android_updates.sh'
+        'enable_android_updates.sh'
+        'README.txt'
+        'README.provenance')
+sha256sums=('a7d2b6ca90a1949b1ed6873269e958b7898729d10359c5725fdde6ed0a59d1eb'
+            'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+  local dst="${pkgdir}/usr/share/bootloader/rocknix_abl"
+  install -dm755 "${dst}"
+  # Plain 644 for everything: the Android runner does not need +x, and the SD FAT has no modes.
+  local f
+  for f in abl_signed-SM8750.elf abl_signed-SM8750.elf.sha256 backup_abl.sh flash_abl.sh \
+           restore_backup_abl.sh boot_holodor.sh BootHolodor.apk disable_android_updates.sh \
+           enable_android_updates.sh README.txt README.provenance; do
+    install -Dm644 "${srcdir}/${f}" "${dst}/${f}"
+  done
+}

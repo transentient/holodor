@@ -1,0 +1,81 @@
+# linux-pocknix-sm8550 — the SM8550 kernel as a pacman package. Per-SoC, not
+# per-device: the boot image and /boot/dtbs carry EVERY board's dtb from
+# kernel/sm8550/dts (the qcom ABL selects by board id), so this one package
+# serves the RP6, AYN Odin 2, Thor, ... A new SoC gets a sibling copy of this
+# thin dir (linux-pocknix-<soc>). Successor to the old 'linux-pocknix'.
+#
+# THIN package by design: it does NOT compile the kernel. The Fedora build host has no makepkg
+# (packages build in a separate ALARM chroot), and `make kernel` (scripts/build-kernel.sh) already
+# compiles the kernel natively + assembles the qcom-abl boot image. build-packages.sh stages that
+# script's output (build/kernel/out) into this package's build dir as ./staged, and package() lays
+# it out as /boot/Image + /boot/dtbs + /usr/lib/modules/<ver>.
+#
+# Why package it at all: it makes the kernel a normal `pacman -U`-able artifact — Image + modules
+# versioned together atomically (no more "updated Image but not /lib/modules" boot-or-die footgun),
+# `.pkg` rollback for the scariest failure (bad kernel), and uniform deploy. The alpm hook
+# (90-linux-pocknix.hook) rebuilds /flash/KERNEL on the device after a kernel transaction.
+#
+# NB: /usr/lib/pocknix/kernel-cmdline is NOT shipped here — the cmdline is DEVICE data
+# (quirk params), owned by each device's BSP (e.g. pocknix-bsp-rp6).
+pkgname=linux-holodor-sm8550
+pkgver=7.1.2
+pkgrel=11   # 11 (2026-10-27): SM8550 s2idle deep-sleep parity, audio graph/LPASS/SoundWire suspend, live AudioReach PGA gain, USB-C UCSI/AltMode/hub fixes, qcom-battmgr units, qcom-hv-haptics atomic-sleep fix + 140-250 Hz LRA f0 range + 2600 mV vmax on RP6/RP Nova, and RSInput 250 Hz report rate + UART frame reassembly + vdd_mcu_3v3 suspend power-down. 10 (2026-10-26): RP Nova display, backlight, touchscreen, and haptics fixes: lock il97680a panel to 120Hz (num_modes=1), add missing DSI on-sequence commands + brightness programming in init_sequence + luminance-linear backlight LUT (patches 0810+0812), remove leftover Odin 2 pwm-backlight node from qcs8550-retroidpocket-rpnova.dts, enable 400 kHz I2C + bulk reads on ft5452 touchscreen, and configure pm8550b_hv_haptics for 1.3V LRA motor. 9 (2026-10-26): add sdhci_msm_shutdown to power off removable SD slot vdd/vdd-io regulators on reboot (patch 0213) so UHS-I 1.8V cards reset cleanly across warm reboots. 8 (2026-10-25): add Retroid Pocket Nova (qcs8550-retroidpocket-rpnova.dtb + panel-il97680a driver) and Holodor CLUT224 static boot logo (patches 0800+0801). 7 (2026-10-24): trim /boot/dtbs and /flash/KERNEL to the 6 SM8550 board dtbs (qcs8550-retroidpocket-*.dtb, qcs8550-ayn-*.dtb), embed Adreno 740 GPU firmware (a740_sqe.fw, gmu_gen70200.bin, a740_zap.mbn) in pocknix-build-bootimg initramfs, and keep vtdr6130-rp6 num_modes=1 (120Hz) in 0822. 6 (2026-10-21): RetroidPocket 7.3 integration (0527 q6apm-lpass RX port start at prepare, 0758 leds-htr3212 system sleep power-down, 0763..0765 SoundWire/MI2S/TX-macro fixes, 0820..0822 DPU MERGE_3D, single-mixer preference, and visionox-vtdr6130 RP6 fixes, 0830..0835 ath12k stability/recovery/MHI suspend fixes, RP6 & AYN common DTS updates) + 0045 drm/msm/gem bound wait in msm_gem_close + 0516 clk-qcom-rpmh sleep state on first send.
+pkgdesc="SM8550 kernel (stock ${pkgver} + ROCKNIX patch stack, board dtbs: RP6 / RP Nova, RP Duo, Odin 2 family) — packaged from 'make kernel' output"
+# dtbs shipped to /boot/dtbs = the dtbs appended to /flash/KERNEL by pocknix-build-bootimg.
+# Keep in sync with BOOTIMG_DTB_GLOBS in scripts/build-kernel.sh (the SD image's KERNEL).
+_dtb_globs=('qcs8550-retroidpocket-*.dtb' 'qcs8550-ayn-*.dtb')
+arch=('aarch64')
+url="https://github.com/transentient/holodor"
+license=('GPL-2.0-only')
+# We own the kernel on this device; drop ALARM's generic one (pre-installed in the base
+# tarball). 'replaces linux-pocknix' migrates installs of the old per-device name.
+provides=("linux=${pkgver}" 'linux-holodor' "linux-pocknix-sm8550=${pkgver}-${pkgrel}" 'linux-pocknix')
+conflicts=('linux-aarch64' 'linux-holodor' 'linux-pocknix-sm8550' 'linux-pocknix')
+replaces=('linux-aarch64' 'linux-holodor' 'linux-pocknix-sm8550' 'linux-pocknix')
+# python3 + cpio run the on-device /flash/KERNEL rebuild hook; depmod runs in the install scriptlet.
+depends=('python' 'cpio')
+install=linux-pocknix.install
+options=('!strip')          # don't strip the kernel Image / DTBs (modules are already stripped by modules_install)
+# The kernel artifacts are staged by build-packages.sh (./staged); these two ship the on-device
+# boot-image rebuild path (Phase 3b): pacman -U linux-pocknix -> alpm hook -> rebuild /flash/KERNEL.
+source=('pocknix-build-bootimg' '90-linux-pocknix.hook')
+sha256sums=('SKIP' 'SKIP')
+
+package() {
+  local out="${startdir}/staged"     # = build/kernel/out, copied in by scripts/build-packages.sh
+  if [ ! -f "${out}/Image" ] || [ ! -f "${out}/kernelrelease" ]; then
+    echo "${pkgname}: no staged kernel at ${out}." >&2
+    echo "  Run 'make kernel' first (it produces build/kernel/out), then rebuild this package." >&2
+    return 1
+  fi
+  local kver; kver="$(cat "${out}/kernelrelease")"
+
+  # kernel image + the board device trees (see _dtb_globs)
+  install -Dm644 "${out}/Image" "${pkgdir}/boot/Image"
+  install -d "${pkgdir}/boot/dtbs"
+  local g d n=0
+  for g in "${_dtb_globs[@]}"; do
+    for d in "${out}/dtbs/"${g}; do
+      [ -f "${d}" ] || continue
+      install -m644 "${d}" "${pkgdir}/boot/dtbs/"; n=$((n+1))
+    done
+  done
+  [ "${n}" -gt 0 ] || { echo "${pkgname}: no dtb in ${out}/dtbs matches ${_dtb_globs[*]}" >&2; return 1; }
+  echo "${pkgname}: shipping ${n} dtb(s): $(ls "${pkgdir}/boot/dtbs")"
+
+  # modules (already depmod'd by modules_install during `make kernel`; the .install re-runs depmod
+  # post-transaction so modules.dep is correct against the live /usr/lib/modules path).
+  install -d "${pkgdir}/usr/lib/modules"
+  cp -a "${out}/modroot/lib/modules/${kver}" "${pkgdir}/usr/lib/modules/${kver}"
+
+  # record the kver so the install scriptlet (and the /flash/KERNEL hook) know the modules dir.
+  install -Dm644 /dev/stdin "${pkgdir}/usr/lib/pocknix/kernelrelease" <<<"${kver}"
+
+  # On-device /flash/KERNEL rebuild: the mkbootimg tool (staged from build-kernel.sh), the
+  # rebuild script, and the alpm hook that runs it after a kernel pacman txn. The cmdline it
+  # reads (/usr/lib/pocknix/kernel-cmdline) comes from the device's BSP package.
+  [ -d "${out}/mkbootimg" ] || { echo "${pkgname}: ${out}/mkbootimg missing — re-run 'make kernel'"; return 1; }
+  cp -r "${out}/mkbootimg" "${pkgdir}/usr/lib/pocknix/mkbootimg"
+  install -Dm755 "${srcdir}/pocknix-build-bootimg"  "${pkgdir}/usr/bin/pocknix-build-bootimg"
+  install -Dm644 "${srcdir}/90-linux-pocknix.hook"  "${pkgdir}/usr/share/libalpm/hooks/90-linux-pocknix.hook"
+}

@@ -91,9 +91,9 @@ install_local_packages() {
       die "${lp} not installed — its local build wasn't in [pocknix]. Build it: 'make packages PKG=${lp}' (fex-rootfs downloads the ~1.1 GB Arch x86 squashfs once), confirm build/localrepo/${lp}-*.pkg.tar.* exists, then re-run."
     }
   done
-  # pocknix-desktop must come from [pocknix] too (it pulls the Plasma Mobile stack from ALARM).
-  chroot "${root}" pacman -Q pocknix-desktop >/dev/null 2>&1 || {
-    die "pocknix-desktop not installed — its local build wasn't in [pocknix]. Build it: 'make packages PKG=pocknix-desktop', confirm build/localrepo/pocknix-desktop-*.pkg.tar.* exists, then re-run."
+  # holodor-desktop must come from [pocknix] too (it pulls the Plasma Mobile stack from ALARM).
+  chroot "${root}" pacman -Q holodor-desktop >/dev/null 2>&1 || chroot "${root}" pacman -Q pocknix-desktop >/dev/null 2>&1 || {
+    die "holodor-desktop not installed — its local build wasn't in [pocknix]. Build it: 'make packages PKG=holodor-desktop', confirm build/localrepo/holodor-desktop-*.pkg.tar.* exists, then re-run."
   }
   # Emulation layer (config/packages/pocknix-emulation.list): ES-DE frontend, vendored core
   # set, AppImage emulators. ALARM-side deps (retroarch, ppsspp, fuse2) came from
@@ -128,7 +128,7 @@ install_local_packages() {
   elif chroot "${root}" pacman -Si "pocknix/${KERNEL_PKG}" >/dev/null 2>&1; then
     chroot "${root}" pacman -Rdd --noconfirm linux-aarch64 2>/dev/null || true
     rm -rf "${root}/boot/initramfs-linux"*.img 2>/dev/null || true
-    chroot "${root}" pacman -S --noconfirm "pocknix/${KERNEL_PKG}"
+    chroot "${root}" pacman -S --noconfirm --ask 4 "pocknix/${KERNEL_PKG}"
     chroot "${root}" pacman -Q "${KERNEL_PKG}" >/dev/null 2>&1 || {
       die "${KERNEL_PKG} failed to install — check the pacman output above."
     }
@@ -168,7 +168,7 @@ install_local_packages() {
   _pkgs=()
   while read -r _p; do _pkgs+=("pocknix/${_p}"); done \
     < <(read_pkglist "${DEVICE_DIR}/packages.list")
-  chroot "${root}" pacman -S --noconfirm --needed "${_pkgs[@]}"
+  chroot "${root}" pacman -S --noconfirm --ask 4 --needed "${_pkgs[@]}"
   # Resume-build staleness: everything above is `--needed` on EXPLICIT names, so a package
   # that only entered as a dependency (the BSP via the device metapackage) never upgrades
   # when its pkgrel is bumped — a resumed image silently ships the old build (this shipped
@@ -185,7 +185,7 @@ install_local_packages() {
     [ "$(chroot "${root}" pacman -Q "${_p}" 2>/dev/null | awk '{print $1}')" = "${_p}" ] \
       && _stale+=("pocknix/${_p}")
   done < <(chroot "${root}" pacman -Slq pocknix)
-  [ "${#_stale[@]}" -gt 0 ] && chroot "${root}" pacman -S --noconfirm --needed "${_stale[@]}"
+  [ "${#_stale[@]}" -gt 0 ] && chroot "${root}" pacman -S --noconfirm --ask 4 --needed "${_stale[@]}"
   chroot "${root}" pacman -Q "${DEVICE_BSP_PKG}" >/dev/null 2>&1 || {
     die "${DEVICE_BSP_PKG} not installed — the device metapackage should have pulled it. Check devices/${DEVICE}/packages.list and 'make packages'."
   }

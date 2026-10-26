@@ -1,0 +1,21 @@
+# Holodor ABL (`abl_signed-SM8250.elf`) & Android Helper Kit Provenance
+
+## 1. `abl_signed-SM8250.elf` (Holodor ABL, based on OpenABL v1.1)
+- **Upstream project**: [OpenHandheldCollective/OpenABL](https://github.com/OpenHandheldCollective/OpenABL) (`v1.1`, licensed under `GPL-3.0-or-later`, which in turn builds on [ROCKNIX/abl](https://github.com/ROCKNIX/abl) and [Code Aurora / Linaro QcomModulePkg](https://git.codelinaro.org/clo/la/abl/tianocore/edk2)).
+- **Holodor fork & complete corresponding source**:
+  - Public fork repository: [https://github.com/transentient/OpenABL](https://github.com/transentient/OpenABL)
+  - In-tree patch & build script: [`scripts/holodor-openabl-v1.1.patch`](../../scripts/holodor-openabl-v1.1.patch) and [`scripts/build-openabl.sh`](../../scripts/build-openabl.sh)
+- **Summary of Holodor modifications (2026-10, GPLv3 §5a)**:
+  1. Holodor splash wordmark (`View/HolodorWordmarkArt.h`, `Menu/HolodorSplashArt.h`) and version banner (`"Holodor ABL %s (based on OpenABL)"` in `Menu/Menu.c`).
+  2. Synchronized `OablSettings` (`devinfo+0x990`) and legacy `device_info.BootMode` (`devinfo+56`) persistence (`Library/Settings.c`) so Linux (`pocknix-boot-target`) and Android (`BootHolodor.apk`, `boot_holodor.sh`) switch boot targets seamlessly.
+  3. Direct PMIC PON (`0xC440000` + `0x10810` `FAULT_REASON1`) and TLMM GPIO (`0x0F100000`) button polling alongside `GpioKeysProtocol` (`Library/Buttons.c`), plus MCU UART (`GENI5` / `GENI13` at `0x994000` / `0xA94000`) and RP5/Flip2 `GENI0` (`0x880000`) gamepad navigation (D-Pad, Left Stick, A/South to confirm, B/East for Back) in the OpenABL menu.
+  4. Unconditional `Vol-` fastboot escape hatch in `Early` and `RunBoot` (`Early/Early.c`, `RunBoot/RunBoot.c`) and bounded SD/MMC card-rail reset timing (`Early/BootLinux.c`).
+  5. Automatic single-DTB selection when only one DTB is appended to `/KERNEL` (`Early/DtbSelect.c`).
+
+## 2. `BootHolodor.apk` & `boot_holodor.sh`
+- **Source**: Built reproducibly from [`scripts/build-boot-holodor-apk.py`](../../scripts/build-boot-holodor-apk.py) in this repository (zero external binary blobs).
+- **Function**: 1-tap Android app and root helper script that write the Linux boot target into `devinfo` (both `OablSettings` at `+0x990` and legacy `BootMode` at `+56`), export Android saved Wi-Fi credentials to `/flash/wifi.txt` on the Holodor SD card if none exist yet, and reboot into Holodor.
+
+## 3. `backup_abl.sh`, `flash_abl.sh`, `restore_backup_abl.sh`
+- **Upstream origin**: Adapted from the Android-side helper scripts in [ROCKNIX/distribution](https://github.com/ROCKNIX/distribution) (`packages/tools/rocknix-abl/sources`, `GPL-2.0-only`).
+- **Holodor modifications (2026-10)**: Hardened with SoC (`SM8250`) and board (`ro.product.device` / `ro.Board.platform`) allowlists, ELF size verification, dual-location backup preservation (`/sdcard/rocknix_abl` + SD card `rocknix_abl/abl_*.stock.img` so re-running `backup_abl.sh` never overwrites a stock backup with a custom ABL), and `OablSettings` initialization.

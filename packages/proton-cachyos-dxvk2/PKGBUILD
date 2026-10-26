@@ -24,7 +24,7 @@ pkgdesc="CachyOS Proton (ARM64) with DXVK pinned to 2.7 for GPUs without 8-bit s
 arch=('aarch64')
 url="https://github.com/CachyOS/proton-cachyos"
 license=('BSD' 'LGPL' 'zlib' 'MIT' 'MPL' 'custom')
-depends=('bash' 'python' 'pocknix-steam')
+depends=('bash' 'python' 'holodor-steam')
 options=('!strip' 'emptydirs')
 provides=("proton-cachyos=${pkgver}")
 conflicts=('proton-cachyos')

@@ -1,0 +1,12 @@
+Holodor bootloader folder for SM8250 devices (Retroid Pocket 5, Flip 2, Mini)
+(Holodor ABL based on OpenABL v1.1 — source: https://github.com/transentient/OpenABL)
+
+- Copy the rocknix_abl folder from the SD card to the root of Android Internal Storage (/sdcard/rocknix_abl)
+- Execute as root the backup_abl.sh script from Internal Storage to back up your stock ABL
+- After backup, execute as root the flash_abl.sh script to flash Holodor ABL
+- Reboot your device holding Vol - key to enter the boot menu (or use Vol -/+, D-Pad, Left Stick, and Power/A button)
+
+Switching between Android and Holodor:
+- Install BootHolodor.apk once in Android, then tap the "Boot to Holodor" app icon anytime to reboot straight into Holodor!
+- Alternatively, run boot_holodor.sh via Handheld Settings -> Advanced -> Run script as Root.
+- From inside Holodor, use Decky Quick Access (...) -> Holodor -> Power -> "Reboot to Android".

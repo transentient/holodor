@@ -1,0 +1,12 @@
+[Unit]
+Description=pocknix dock investigation: 2 s flight recorder (dev card only, tools/dock/blackbox.sh)
+After=local-fs.target
+
+[Service]
+ExecStart=/bin/bash /home/deck/blackbox.sh
+Restart=always
+RestartSec=5
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

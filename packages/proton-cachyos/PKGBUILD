@@ -33,7 +33,7 @@ url="https://github.com/CachyOS/proton-cachyos"
 license=('BSD' 'LGPL' 'zlib' 'MIT' 'MPL' 'custom')
 # pocknix-steam: the FEX-profile wrapper the shim execs + the prep that registers system tools.
 # python: the `proton` entrypoint is a python3 script.
-depends=('bash' 'python' 'pocknix-steam')
+depends=('bash' 'python' 'holodor-steam')
 options=('!strip' 'emptydirs')
 _dist="proton-cachyos-${_srctag}-${_build}-arm64"
 source=("https://github.com/CachyOS/proton-cachyos/releases/download/cachyos-${_srctag}-${_build}/${_dist}.tar.xz"

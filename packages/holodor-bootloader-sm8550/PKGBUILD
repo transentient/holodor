@@ -1,0 +1,46 @@
+# holodor-bootloader-sm8550 — the Holodor ABL folder for SM8550 / QCS8550 boards
+# (Retroid Pocket Nova / RP6, AYN Odin 2 / Mini / Portal), shipped on the SD.
+#
+# SM8550 boot contract (qcom-abl): the stock ABL boots only Android. We ship our
+# Holodor ABL (built from OpenHandheldCollective/OpenABL v1.1 source via
+# scripts/build-openabl.sh and scripts/holodor-openabl-v1.1.patch; standalone
+# fork repo at https://github.com/transentient/OpenABL) together with
+# Android-side backup/flash/restore scripts and BootHolodor.apk under
+# /usr/share/bootloader/rocknix_abl/ so build-sd-image.sh copies them onto the SD
+# FAT partition (/flash/rocknix_abl/). See README.provenance for full details.
+pkgname=holodor-bootloader-sm8550
+pkgver=1.1.9
+pkgrel=6  # 6 (2026-10-27): rename pocknix-bootloader-sm8550 -> holodor-bootloader-sm8550 (provides/replaces/conflicts old name), add gamepad navigation in OpenABL menu + "Holodor ABL (based on OpenABL)" attribution, and add README.provenance.
+pkgdesc="SM8550 (Retroid Pocket Nova / RP6, AYN Odin 2) Holodor ABL (based on OpenABL v1.1) payload + Android-side backup/flash/restore scripts and BootHolodor.apk"
+arch=('any')
+url="https://github.com/transentient/OpenABL"
+license=('GPL-3.0-or-later' 'GPL-2.0-only')
+provides=('pocknix-bootloader-sm8550')
+conflicts=('pocknix-bootloader-sm8550')
+replaces=('pocknix-bootloader-sm8550')
+options=('!strip')
+source=('abl_signed-SM8550.elf'
+        'abl_signed-SM8550.elf.sha256'
+        'backup_abl.sh'
+        'flash_abl.sh'
+        'restore_backup_abl.sh'
+        'boot_holodor.sh'
+        'BootHolodor.apk'
+        'README.txt'
+        'README.provenance')
+sha256sums=('e97030e4da86b668b5131cb3096e7f8ac8be7c2d1c4c472ba7ac324c0a269065'
+            'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+prepare() {
+  ( cd "${srcdir}" && sha256sum -c abl_signed-SM8550.elf.sha256 ) || return 1
+}
+
+package() {
+  local dst="${pkgdir}/usr/share/bootloader/rocknix_abl"
+  install -dm755 "${dst}"
+  local f
+  for f in abl_signed-SM8550.elf abl_signed-SM8550.elf.sha256 backup_abl.sh flash_abl.sh \
+           restore_backup_abl.sh boot_holodor.sh BootHolodor.apk README.txt README.provenance; do
+    install -Dm644 "${srcdir}/${f}" "${dst}/${f}"
+  done
+}

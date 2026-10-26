@@ -1,0 +1,29 @@
+#!/bin/sh
+#
+# Applies Qualcomm battery charge threshold on Batocera
+#
+
+start() {
+	printf "Applying charge limit: "
+	if /usr/bin/qcom-charge-limit apply-saved 30 >/dev/null 2>&1; then
+		echo "OK"
+	else
+		echo "SKIP"
+	fi
+}
+
+case "$1" in
+  start)
+	start
+	;;
+  stop)
+	;;
+  restart|reload)
+	start
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+esac
+
+exit $?

@@ -101,8 +101,9 @@ def main() -> None:
             [
                 sys.executable,
                 os.path.join(REPO_ROOT, "scripts", "build-boot-holodor-apk.py"),
-                os.path.join(REPO_ROOT, "packages", "pocknix-bootloader-sm8750", "BootHolodor.apk"),
-                os.path.join(REPO_ROOT, "packages", "pocknix-bootloader-sm8250", "BootHolodor.apk"),
+                os.path.join(REPO_ROOT, "packages", "holodor-bootloader-sm8750", "BootHolodor.apk"),
+                os.path.join(REPO_ROOT, "packages", "holodor-bootloader-sm8550", "BootHolodor.apk"),
+                os.path.join(REPO_ROOT, "packages", "holodor-bootloader-sm8250", "BootHolodor.apk"),
                 os.path.join(REPO_ROOT, "docs", "BootHolodor.apk"),
             ],
             check=True,

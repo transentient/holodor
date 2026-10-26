@@ -1,0 +1,34 @@
+From eec036783b2e633302bcf277ae36742dfd3402fc Mon Sep 17 00:00:00 2001
+From: Krishna Chaitanya Chundru <krishna.chundru@oss.qualcomm.com>
+Date: Thu, 17 Sep 2026 17:24:19 +0530
+Subject: arm64: dts: qcom: sm8750: Fix PCIe WAKE# GPIO polarity
+
+The PCIe WAKE# signal is active-low as defined in the PCIe Base
+Specification. Fix the wake-gpios polarity by using GPIO_ACTIVE_LOW
+instead of GPIO_ACTIVE_HIGH.
+
+Reviewed-by: Konrad Dybcio <konrad.dybcio@oss.qualcomm.com>
+Reviewed-by: Manivannan Sadhasivam <mani@kernel.org>
+Signed-off-by: Krishna Chaitanya Chundru <krishna.chundru@oss.qualcomm.com>
+Link: https://patch.msgid.link/20260917-root_port-v2-11-0d627d0856d5@oss.qualcomm.com
+Signed-off-by: Bjorn Andersson <andersson@kernel.org>
+---
+ arch/arm64/boot/dts/qcom/sm8750-mtp.dts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm8750-mtp.dts b/arch/arm64/boot/dts/qcom/sm8750-mtp.dts
+index b665d7a3af42b..64bc1cec612ef 100644
+--- a/arch/arm64/boot/dts/qcom/sm8750-mtp.dts
++++ b/arch/arm64/boot/dts/qcom/sm8750-mtp.dts
+@@ -1127,7 +1127,7 @@
+ };
+ 
+ &pcieport0 {
+-	wake-gpios = <&tlmm 104 GPIO_ACTIVE_HIGH>;
++	wake-gpios = <&tlmm 104 GPIO_ACTIVE_LOW>;
+ 	reset-gpios = <&tlmm 102 GPIO_ACTIVE_LOW>;
+ 
+ 	wifi@0 {
+-- 
+cgit 1.3.1-korg
+

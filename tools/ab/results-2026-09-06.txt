@@ -1,0 +1,20 @@
+A1 avg=22.16 min=16.62 max=32.72 time=64.27 frames=1424 (720p Low native, VSync off, max power, fan perf) 19:09
+A2 avg=22.12 min=16.44 max=33.02 time=64.23 frames=1421 19:21
+A3 avg=22.04 min=16.44 max=32.28 time=64.16 frames=1414 19:23
+A = mesa-next-5 + vulkan-freedreno-next-5 + fex-rootfs-3 (x86 turnip 26.1.5); gpu faults 0
+(B runs 19:29-19:36 DISCARDED: same process pid 96418 as A, old driver; numbers 22.06/22.07/22.03 = A)
+B1 avg=21.38 min=16.30 max=31.18 time=64.22 frames=1373 19:49 (fresh process after reboot, pid 3204)
+B2 avg=21.30 min=16.24 max=31.76 time=64.23 frames=1368 19:51
+B3 avg=21.39 min=16.31 max=31.69 time=64.23 frames=1374 19:53
+B = mesa-next-6 + vulkan-freedreno-next-6 + fex-rootfs-4; in-process driver stamp 26.3.0_devel-pocknix2.6; gpu faults 0
+A4 avg=21.99 min=16.40 max=32.71 frames=1412 20:01 (post-reboot control, fresh process pid 3115, stamp pocknix2.5)
+A5 avg=22.09 min=16.41 max=33.14 frames=1418 20:03
+A6 avg=22.09 min=16.44 max=32.61 frames=1419 20:05
+VERDICT: A mean 22.11 (pre-reboot) / 22.06 (post-reboot control); B mean 21.36 => -3.2%; run-to-run spread ±0.06. B loses. Not shipped.
+--- Monday items 1-3 run the same night (23:40-00:26), A build (mesa-next-5), fresh processes, power max / fan performance
+item1: process env has DISABLE_LSFGVK=1 (lsfg OFF), TU_DEBUG_FILE=/tmp/tu_debug_file.txt (proton-cachyos), FEX_APP_CONFIG (ThunksDB.Vulkan present); game maps ARM turnip stamp pocknix2.5 with lsfg off => Vulkan thunk is the default route
+N1 (TU_DEBUG_FILE="nobin", runtime file) avg=22.03  -> file mechanism did NOT reach the driver (nobin should cost a lot)
+F1-F3 (TU_DEBUG_FILE="forcebin") 22.05/22.21/22.03 -> inconclusive (same reason)
+P1-P3 (env FD_DEV_FEATURES=has_fs_tex_prefetch=0, verified in /proc/pid/environ) 22.14/21.96/22.15 mean 22.08 = baseline -> patch 0001 is free; NOT the mesa-next-6 regression
+FB1-FB3 (env TU_DEBUG=forcebin, verified) 22.06/22.07/22.10 mean 22.08 = baseline -> forcebin null
+control: env FD_DEV_FEATURES=holodor_bogus_feature=1 -> gamescope itself exited on driver init ("session gamescope keeps exiting") => env DOES reach the driver; the P/FB nulls are real. (Trap: /etc/environment is session-wide; use a per-game injection next time.)

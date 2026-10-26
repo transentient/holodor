@@ -1,0 +1,7 @@
+BASE | pump -1.4 dB | pink24 -14.5 dBFS | pink40 -26.9 dBFS
+M | pump -11.6 dB | pink24 -16.0 dBFS | pink40 -23.2 dBFS
+L | pump -11.5 dB | pink24 -19.7 dBFS | pink40 -26.0 dBFS
+# rig: NTG on fusor, Mic Capture Volume 24 today (10-05 README says 8): today's absolute dBFS are ~16 dB hotter than 10-05's;
+#      10-05 "new 100 % pink -24 -> -30.5" == today's BASE -14.5. Loudness is exactly the 10-05 design, nothing regressed.
+# ceiling test, mic capture 0, tone -1 dBFS at 100 %: digital 114 f0 -29.2 H2 -39 H3 -37 dBc | 118 f0 -26.2 H2 -33 H3 -35 | 122 f0 -22.5 H2 -27 H3 -32
+# compressor (sc4) runs at 100 %, mic 24: 4:1/-32/+12 pump -13.3 pink24 -13.0 pink40 -16.7 | B 2:1/-28/+10 pump -15.7 -12.5 -19.9 | C 2.5/-36/+14 pump -17.5 -12.7 -16.4

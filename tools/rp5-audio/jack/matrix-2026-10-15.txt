@@ -1,0 +1,27 @@
+== S0_asbooted
+  sink suspended after 2 s
+  set: RX_COMP1 Switch=s=on HPHL_COMP Switch=s=off RX HPH Mode=s=5 RX_HPH PWR Mode=s=1 HPHL Volume=s=24 
+  tone: f0 -28.2 dBFS  H2 -24 dBc  H3 -12 dBc  mic peak -23.7 dBFS 
+  probe between -37.7 during -61.4 -> duck 23.7 dB | burst -26.6 dBFS
+== SA_1006recipe_off_off_AB_ULP
+  sink suspended after 6 s
+  set: RX_COMP1 Switch=s=off HPHL_COMP Switch=s=off RX HPH Mode=s=3 RX_HPH PWR Mode=s=0 HPHL Volume=s=24 
+  tone: f0 -9.6 dBFS  H2 -69 dBc  H3 -73 dBc  mic peak -5.0 dBFS 
+  probe between -39.5 during -39.4 -> duck -0.1 dB | burst -10.4 dBFS
+== SB_vendor_on_on_HULP_LOHIFI
+  sink suspended after 6 s
+  set: RX_COMP1 Switch=s=on HPHL_COMP Switch=s=on RX HPH Mode=s=5 RX_HPH PWR Mode=s=1 HPHL Volume=s=24 
+  tone: f0 -28.2 dBFS  H2 -19 dBc  H3 -13 dBc  mic peak -25.1 dBFS 
+  probe between -45.5 during -62.1 -> duck 16.6 dB | burst -26.8 dBFS
+== SC_off_off_HULP_LOHIFI
+  sink suspended after 6 s
+  set: RX_COMP1 Switch=s=off HPHL_COMP Switch=s=off RX HPH Mode=s=5 RX_HPH PWR Mode=s=1 HPHL Volume=s=24 
+  tone: f0 -28.1 dBFS  H2 -24 dBc  H3 -12 dBc  mic peak -24.9 dBFS 
+  probe between -39.8 during -48.7 -> duck 8.9 dB | burst -29.6 dBFS
+== SD_off_off_AB_LOHIFI
+  sink suspended after 6 s
+  set: RX_COMP1 Switch=s=off HPHL_COMP Switch=s=off RX HPH Mode=s=3 RX_HPH PWR Mode=s=1 HPHL Volume=s=24 
+  tone: f0 -9.6 dBFS  H2 -69 dBc  H3 -85 dBc  mic peak -5.0 dBFS 
+  probe between -39.5 during -39.3 -> duck -0.2 dB | burst -15.3 dBFS
+restored (as booted): RX_COMP1 Switch=s=on HPHL_COMP Switch=s=off RX HPH Mode=s=5 RX_HPH PWR Mode=s=1 HPHL Volume=s=12 
+sink: Volume: 0.50

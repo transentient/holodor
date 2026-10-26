@@ -43,7 +43,7 @@ fi
 for soc in "${SOCS[@]}"; do
   upper="$(echo "${soc}" | tr '[:lower:]' '[:upper:]')"
   elf="build/out/abl_signed-${upper}.elf"
-  pkg_dir="${REPO_ROOT}/packages/pocknix-bootloader-${soc}"
+  pkg_dir="${REPO_ROOT}/packages/holodor-bootloader-${soc}"
   if [ -f "${elf}" ] && [ -d "${pkg_dir}" ]; then
     cp -f "${elf}" "${pkg_dir}/abl_signed-${upper}.elf"
     cp -f "${elf}.sha256" "${pkg_dir}/abl_signed-${upper}.elf.sha256"

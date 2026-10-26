@@ -1,0 +1,152 @@
+# pocknix-bsp-sm8750 — board support for the SM8750 FAMILY: Retroid Pocket 6
+# (+TOP-DPAD), AYN Odin 2 / Mini / Portal. ONE package serves every board on
+# the SoC (same shape as pocknix-bsp-sm8250): runtime board facts live in
+# /usr/lib/pocknix/boards/<board>.conf, /usr/lib/pocknix/device.conf is a
+# sourced DISPATCHER picking one by devicetree model, and the InputPlumber
+# config is dt-model gated. Successor to the retired per-device BSPs
+# (pocknix-bsp-{rp6,odin2,odin2mini,odin2portal}), whose contents were
+# identical apart from the board facts — 'replaces' migrates installed
+# devices on their next pacman -Syu.
+#
+# SoC-wide quirks (identical on every board, verified on the RP6):
+#   * 10-pocknix-deeponly.conf — pin SuspendState=mem (no standby/freeze fall-through);
+#                                the mem_sleep MODE (s2idle since bsp-16) comes from the cmdline
+#   * 30-pocknix-cpuidle.conf  — disable cpu0 idle state1 (GMU issues; ROCKNIX 096-cpuidle)
+#   * kernel-cmdline           — the family cmdline for the on-device /flash/KERNEL
+#                                rebuild (qcom-abl); build-packages.sh asserts it
+#                                matches devices/sm8750/profile.conf
+pkgname=holodor-bsp-sm8750
+pkgver=0.2.0
+pkgrel=37   # 37 (2026-10-26): device.conf: add dynamic DRM DSI mode probing and disable dynamic refresh switching on unrecognized boards. 36 (2026-10-22): odin3.conf: keep all 8 Oryon-M cores (0-7) available to the capacity-aware scheduler (884/1024 dmips/MHz in linux-pocknix-sm8750>=7.1.3-47) while pocknix-game-affinity runs focus-heal and DEFAULT_LOWEST 60 Hz GAMESCOPE_FPS_LIMIT clamping (DEATH STRANDING 0-7 vs 2-7 A/B: +5.4% FPS and 4.5x fewer frame spikes). 35 (2026-10-22): 002-audio-quiesce pre/post: save default sink and set pocknix_sleep_null as default sink before suspending alsa_output.platform-sound.* so WirePlumber does not re-open the speaker sink across s2idle, and restore previous default sink on wake. 34 (2026-10-22): ship patched & cryptographically signed AYN Odin 3 ADSP firmware (adsp.mbn: dpm_lpm_UpdatePanPortEnable at 0x896c in charger_pd patched to return 0 so PolicyEngine_InitPort does not overwrite pan_en[0]=1 back to 0 before dpm_notify_pan_event, enabling USB-C DisplayPort Alt-Mode 0x800a notifications to Linux). 33 (2026-10-21): fix Secondary MI2S lpaif_type=0/intf_idx=1 in SM8750-AYN-tplg.bin (was lpaif_type=5/intf_idx=0 from SM8550, causing aw88166 I2S PLL lock failure) and drop obsolete SECONDARY_MI2S_RX Audio Mixer MultiMedia2 cset from HiFi.conf (which caused alsaucm _verb HiFi to fail with ENOENT). 32/31 (2026-10-21): ship updated AudioReach topology (SM8750-AYN-tplg.bin with DISPLAY_PORT_RX_0 subgraph + MultiMedia1/MultiMedia2 mixers/routes) and add DisplayPort (HDMI) SectionDevice to HiFi.conf (pairs with kernel patch 0703-arm64-dts-qcom-cq8725s-ayn-common-add-dp0-audio-dai-link.patch). 30 (2026-10-20): add sleep.d/{pre,post}/002-audio-quiesce: 50-no-sink-suspend.conf keeps Speaker/Headphones ALSA PCMs open while idle and kernel patch 0603 sets power/control=on on both WCD939x SoundWire slaves (sdw:2:0:0217:010e:00:4, sdw:3:0:0217:010e:00:3) for MBHC jack detection while awake, holding LPASS_HW_MACRO, LPASS_HW_DCODEC, and 19.2 MHz MCLKs ON across s2idle (~71% ADSP residency, >50 wakeups/sec); 002-audio-quiesce suspends the ALSA sinks/sources and sets SoundWire power/control=auto before suspend (raising ADSP sleep residency to 99.97% in s2idle) and restores power/control=on and sinks on wake. 29 (2026-10-19): ship AYN Odin 3 SOCCP firmware (/usr/lib/firmware/qcom/sm8750/ayn/odin3/soccp.mbn, required by remoteproc_soccp for AOSS CXSD & DDR low-power sleep entry in linux-pocknix-sm8750>=7.1.3-35); drop redundant 91-pocknix-cmdline.hook (merged into 90-linux-pocknix.hook so pacman coalesces /flash/KERNEL rebuilds to once per transaction). 28 (2026-10-08): odin3.conf refresh policy PREFER_LOWEST + DEFAULT_LOWEST (60 Hz for games unless a game asks for 120; needs gamescope 8). 27 (2026-10-02): as 26 + depends on linux-pocknix-sm8750>=7.1.3-33: the PCM headphone path needs kernel patch 0075 (on an older kernel it plays mono), so a partial update must pull the kernel too. 26 was never published   # 26 (2026-10-02): as 25 but BOTH compander stages off (HPHL/HPHR_COMP too) = stock Android mixer state; 25 muted above ~-30 dBFS on some boots (never published)   # 25 (2026-10-01): Headphones on the codec HPH PCM ("HiFi") path like stock Android - ordered UCM (HPH switches off, PCM on, back on) + RX-macro compander off; L==R at all volumes, survives boot/replug/s2idle, Cliff: "sounds pretty good"   # 24 (2026-10-01): HiFi.conf Headphones inlines the base wcd939x + rx-macro HeadphoneEnableSeq with the PDM compander OFF (RX_COMP1/2, HPHL/HPHR_COMP): measured on a UCA202 rig the COMP gain words are misframed (mainline never programs the WCD939x DP3 OffsetCtrl2) -> left cut up to ~30 dB at listening levels; off = L==R at every volume, as stock Android runs it   # 23 (2026-09-29): 50-no-sink-suspend.conf matches the Speaker sink only — the all-sinks rule kept the Headphones PCM open from boot with its DSP route off = every headphone stream hung (jack silent since day 1)   # 22 (2026-09-27): pocknix-input-calibration (zero/apply/reset/show; per-unit stick centres persisted in /etc/pocknix/input-calibration.conf, re-applied Before=inputplumber). Cliff's unit: left stick 22 % off-centre at rest on every kernel; centre params fix it live. 21: also shadow 50-retroid_pocket6.yaml (the collision guard caught it; our family file covers the RP6). 20 (2026-09-27, RC 20260927 findings): 01-rsinput-controller.yaml lists gpio-keys-paddles
+            #     (paddles + gamepad had gone to InputPlumber 0.81's own 50-ayn_odin3.yaml: A/B swapped);
+            #     stubs shadow upstream's 50-ayn_odin{3,2,2_mini}.yaml in /etc/inputplumber/devices.d;
+            #     .install enables pocknix-stick-leds.service (LED modes never animated: no one enabled it).
+            # 19: HiFi.conf Headphones PlaybackMixerElem "HP" (was the nonexistent "HP Digital":
+            #     software volume on a max-gain analog path = hiss; agenda E step 1). JackControl
+            #     block from 18 untouched.
+            # 18: HiFi.conf jack routing restored (MBHC detection works with kernel-26)
+            # 17: 91-pocknix-cmdline.hook — cmdline-only bsp bumps now rebuild /flash/KERNEL
+            # (the kernel pkg's 90-hook doesn't watch kernel-cmdline; bsp-16 shipped stale on-device)
+            # 16: kernel-cmdline mem_sleep_default=s2idle (sleeps 5x deeper than "deep" on sm8750; validated 08-31)
+pkgdesc="pocknix board support: SM8750 family (AYN Odin 3) — runtime board dispatch, input map, suspend quirks, audio UCM"
+arch=('any')
+url="https://github.com/transentient/holodor"
+license=('GPL2')
+depends=('holodor-bsp-common' 'linux-holodor-sm8750>=7.1.3-35' 'libpulse')
+install=pocknix-bsp-sm8750.install
+options=('!strip' '!debug')
+# Exactly one device BSP may be installed (wrong-device guard for a shared repo).
+# 'replaces' migrates installs of the retired per-device BSPs (and the ancient
+# unified 'pocknix-bsp', carried over from the rp6 lineage).
+provides=('holodor-bsp' 'pocknix-bsp' 'pocknix-bsp-sm8750')
+conflicts=('holodor-bsp' 'pocknix-bsp' 'pocknix-bsp-sm8750')
+replaces=('pocknix-bsp-sm8750')
+optdepends=('inputplumber: gamepad -> Steam Input mapping (01-rsinput-controller.yaml)'
+            'alsa-ucm-conf: base UCM (wcd939x/qcom-lpass include sequences for the AYN-Odin3 UCM)')
+# NOTE: the spurious deep-sleep wake is FIXED in the kernel — kernel/sm8750/patches/20-sm8750/
+# 0502-wakeup-qcom-ipcc-remove-IRQF-NO-SUSPEND.patch masks the IPCC mailbox during suspend.
+# See docs/archive/sm8750-suspend-wake-report.md.
+source=('device.conf'
+        '01-rsinput-controller.yaml' 'sm8750-gamepad.yaml'
+        'AYN-Odin3.conf' 'HiFi.conf'
+        'SM8750-AYN-tplg.bin'
+        '10-pocknix-deeponly.conf' '30-pocknix-cpuidle.conf'
+        '50-no-sink-suspend.conf' '52-pocknix-default-volume.conf'
+        'audio-quiesce-pre' 'audio-quiesce-post'
+        'kernel-cmdline' 'soccp.mbn' 'adsp.mbn'
+        'pocknix-stick-leds' 'pocknix-stick-ledsd' 'pocknix-stick-leds.service'
+        '50-holodor-ip-stub.yaml'
+        'pocknix-input-calibration' 'pocknix-input-calibration.service')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+  # Runtime device facts: the model dispatcher + per-board files. boards/ is
+  # not in source= (makepkg local sources are flat); taken from startdir,
+  # which build-packages.sh populates with the whole package dir.
+  install -Dm644 "${srcdir}/device.conf" "${pkgdir}/usr/lib/pocknix/device.conf"
+  local b
+  for b in "${startdir}/boards/"*.conf; do
+    install -Dm644 "${b}" "${pkgdir}/usr/lib/pocknix/boards/$(basename "${b}")"
+  done
+
+  # Pin deep-only suspend (drop systemd's mem->standby->freeze fall-through; s2idle
+  # can wedge on SM8750). systemd reads sleep.conf drop-ins from this vendor dir.
+  install -Dm644 "${srcdir}/10-pocknix-deeponly.conf" \
+    "${pkgdir}/usr/lib/systemd/sleep.conf.d/10-pocknix-deeponly.conf"
+  # cpuidle quirk: disable cpu0 idle state1 (GMU issues) — ROCKNIX SM8750 096-cpuidle,
+  # re-asserted every boot via systemd-tmpfiles.
+  install -Dm644 "${srcdir}/50-no-sink-suspend.conf" \
+    "${pkgdir}/usr/share/wireplumber/wireplumber.conf.d/50-no-sink-suspend.conf"
+  install -Dm644 "${srcdir}/52-pocknix-default-volume.conf" \
+    "${pkgdir}/usr/share/wireplumber/wireplumber.conf.d/52-pocknix-default-volume.conf"
+
+  install -Dm644 "${srcdir}/30-pocknix-cpuidle.conf" \
+    "${pkgdir}/usr/lib/tmpfiles.d/30-pocknix-cpuidle.conf"
+
+  # InputPlumber composite-device config (dt-model gated, one for the family) +
+  # the shared capability_map for the RSInput MCU + gpio-keys paddles.
+  install -Dm644 "${srcdir}/01-rsinput-controller.yaml" \
+    "${pkgdir}/usr/share/inputplumber/devices/01-rsinput-controller.yaml"
+  install -Dm644 "${srcdir}/sm8750-gamepad.yaml" \
+    "${pkgdir}/usr/share/inputplumber/capability_maps/sm8750-gamepad.yaml"
+
+  # ALSA UCM: the Odin 3 sound card reports longname "SM8750-AYN" (qcom-abl boot)
+  # or "ayn-AYNOdin3-" (EFI boot) — both matchers link to one profile. Ported from
+  # ROCKNIX alsa-ucm-conf patches (author Teguh Sobirin), HARDWARE-VERIFIED
+  # 2026-08-02: speakers (aw88166 amps) play; headphone profile arms on jack
+  # detect (wcd939x). Codec include sequences (/lib, /codecs/wcd939x,
+  # /codecs/qcom-lpass) come from base alsa-ucm-conf. This replaced the sm8550-era
+  # AYN-Odin2 UCM that shipped through pkgrel 2 — without a matching profile
+  # WirePlumber creates NO sinks at all (the "no sound" v0.2 symptom).
+  local ucm="${pkgdir}/usr/share/alsa/ucm2"
+  install -Dm644 "${srcdir}/AYN-Odin3.conf" "${ucm}/AYN/Odin3/AYN-Odin3.conf"
+  install -Dm644 "${srcdir}/HiFi.conf"      "${ucm}/AYN/Odin3/HiFi.conf"
+  # card-match files (matched by card longname under the sm8750 driver dir)
+  install -d "${ucm}/conf.d/sm8750"
+  ln -sf "../../AYN/Odin3/AYN-Odin3.conf" "${ucm}/conf.d/sm8750/SM8750-AYN.conf"
+  ln -sf "../../AYN/Odin3/AYN-Odin3.conf" "${ucm}/conf.d/sm8750/ayn-AYNOdin3-.conf"
+
+  # Thumbstick RGB helper (HTR3212 rings; needs kernel 7.1.3-9+ LEDS_HTR3212).
+  install -Dm755 "${srcdir}/pocknix-stick-leds" \
+    "${pkgdir}/usr/local/bin/pocknix-stick-leds"
+  install -Dm755 "${srcdir}/pocknix-stick-ledsd" \
+    "${pkgdir}/usr/local/bin/pocknix-stick-ledsd"
+  install -Dm644 "${srcdir}/pocknix-stick-leds.service" \
+    "${pkgdir}/usr/lib/systemd/system/pocknix-stick-leds.service"
+
+  # Per-unit stick calibration (centres) + the boot service that re-applies it.
+  install -Dm755 "${srcdir}/pocknix-input-calibration" "${pkgdir}/usr/local/bin/pocknix-input-calibration"
+  install -Dm644 "${srcdir}/pocknix-input-calibration.service" \
+    "${pkgdir}/usr/lib/systemd/system/pocknix-input-calibration.service"
+
+  # Shadow InputPlumber's built-in AYN Odin configs (same filenames, /etc wins): our
+  # 01-rsinput-controller.yaml owns this family. See 50-holodor-ip-stub.yaml.
+  local stub
+  for stub in 50-ayn_odin3.yaml 50-ayn_odin2.yaml 50-ayn_odin2_mini.yaml 50-retroid_pocket6.yaml; do
+    install -Dm644 "${srcdir}/50-holodor-ip-stub.yaml" "${pkgdir}/etc/inputplumber/devices.d/${stub}"
+  done
+
+  # Kernel command line for the on-device /flash/KERNEL rebuild (pocknix-build-bootimg,
+  # shipped by linux-pocknix-sm8750; 90-linux-pocknix.hook watches this path).
+  install -Dm644 "${srcdir}/kernel-cmdline" "${pkgdir}/usr/lib/pocknix/kernel-cmdline"
+
+  # SOCCP firmware for remoteproc_soccp (required for AOSS CXSD & DDR low-power sleep entry).
+  install -Dm644 "${srcdir}/soccp.mbn" \
+    "${pkgdir}/usr/lib/firmware/qcom/sm8750/ayn/odin3/soccp.mbn"
+
+  # Updated AudioReach topology with DISPLAY_PORT_RX_0 subgraph + MultiMedia1/MultiMedia2 mixers.
+  # Staged under /usr/lib/pocknix/firmware/ and copied into /usr/lib/firmware/qcom/sm8750/ by
+  # pocknix-bsp-sm8750.install (and 30-pocknix-cpuidle.conf tmpfiles) to avoid pacman file
+  # conflicts with the unowned SM8750-AYN-tplg.bin rsynced by ROCKNIX extra-firmware.
+  install -Dm644 "${srcdir}/SM8750-AYN-tplg.bin" \
+    "${pkgdir}/usr/lib/pocknix/firmware/SM8750-AYN-tplg.bin"
+  install -Dm644 "${srcdir}/adsp.mbn" \
+    "${pkgdir}/usr/lib/pocknix/firmware/adsp.mbn"
+
+  # 002-audio-quiesce: suspend ALSA sinks/sources and allow WCD939x SoundWire slaves to
+  # runtime-suspend before s2idle so LPASS_HW_MACRO/DCODEC drop to 0 and ADSP sleeps.
+  install -Dm755 "${srcdir}/audio-quiesce-pre" \
+    "${pkgdir}/usr/lib/pocknix/sleep.d/pre/002-audio-quiesce"
+  install -Dm755 "${srcdir}/audio-quiesce-post" \
+    "${pkgdir}/usr/lib/pocknix/sleep.d/post/002-audio-quiesce"
+}

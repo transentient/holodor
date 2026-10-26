@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# workaround for wifi not working after standby / sleep
+LOG_DIR="/userdata/system/logs/wifi"
+LOG_FILE="${LOG_DIR}/resume.log"
+
+log_resume() {
+    mkdir -p "${LOG_DIR}"
+    {
+        echo "timestamp=$(date -Iseconds 2>/dev/null || date)"
+        echo "event=$1"
+        connmanctl state 2>&1 || true
+        rfkill list 2>&1 || true
+    } >> "${LOG_FILE}"
+}
+
+wifi_toggle() {
+    log_resume "before-recovery"
+    sm8750-wifi-resilience
+    batocera-wifi disable
+    batocera-wifi enable
+    sm8750-wifi-resilience
+    log_resume "after-recovery"
+}
+
+case "$1" in
+    resume|thaw)
+        wifi_toggle
+        ;;
+esac
+
+exit 0

@@ -1,0 +1,63 @@
+From bbe4401e118c51b77b688ae13730b1dd75764097 Mon Sep 17 00:00:00 2001
+From: Rob Clark <robin.clark@oss.qualcomm.com>
+Date: Sat, 12 Sep 2026 07:59:21 -0700
+Subject: [PATCH] drm/msm: Enable THP for GEM buffers
+
+More than 2x speedup on darktable benchmark which was bottlenecked on
+page allocation/pinning.
+
+Signed-off-by: Rob Clark <robin.clark@oss.qualcomm.com>
+Patchwork: https://patchwork.freedesktop.org/patch/753009/
+Message-ID: <20260912145922.24115-1-robin.clark@oss.qualcomm.com>
+---
+ drivers/gpu/drm/msm/msm_drv.c | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/drivers/gpu/drm/msm/msm_drv.c b/drivers/gpu/drm/msm/msm_drv.c
+index f3d2eaa04f14..d157d227566a 100644
+--- a/drivers/gpu/drm/msm/msm_drv.c
++++ b/drivers/gpu/drm/msm/msm_drv.c
+@@ -58,9 +58,31 @@ static bool separate_gpu_kms;
+ MODULE_PARM_DESC(separate_gpu_kms, "Use separate DRM device for the GPU (0=single DRM device for both GPU and display (default), 1=two DRM devices)");
+ module_param(separate_gpu_kms, bool, 0400);
+ 
++#ifdef CONFIG_TRANSPARENT_HUGEPAGE
++static bool transparent_hugepage = true;
++module_param(transparent_hugepage, bool, 0400);
++MODULE_PARM_DESC(transparent_hugepage, "Use a dedicated tmpfs mount point with Transparent Hugepage enabled (true = default)");
++#else
++#define transparent_hugepage false
++#endif
++
+ DECLARE_FAULT_ATTR(fail_gem_alloc);
+ DECLARE_FAULT_ATTR(fail_gem_iova);
+ 
++static void msm_gem_thp_init(struct drm_device *dev)
++{
++	int err;
++
++	if (!transparent_hugepage)
++		return;
++
++	err = drm_gem_huge_mnt_create(dev, "within_size");
++	if (drm_gem_get_huge_mnt(dev))
++		drm_info(dev, "Using Transparent Hugepage\n");
++	else if (err)
++		drm_warn(dev, "Can't use Transparent Hugepage (%d)\n", err);
++}
++
+ bool msm_gpu_no_components(void)
+ {
+ 	return separate_gpu_kms;
+@@ -161,6 +183,8 @@ static int msm_drm_init(struct device *dev, const struct drm_driver *drv,
+ 	if (ret)
+ 		goto err_msm_uninit;
+ 
++	msm_gem_thp_init(ddev);
++
+ 	if (priv->kms_init) {
+ 		ret = msm_drm_kms_init(dev, drv);
+ 		if (ret)
+-- 
+GitLab
+

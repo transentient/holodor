@@ -71,11 +71,11 @@ PY
     warn "kernel check skipped (boot file not an Android boot image, or no /boot/Image in the rootfs)"; return 0
   fi
   if [ "${fat_sha}" != "${pkg_sha}" ]; then
-    log "boot file Image sha256 ${fat_sha:0:16} != rootfs /boot/Image ${pkg_sha:0:16} ($(chroot "${ROOTFS_DIR}" pacman -Q "${KERNEL_PKG:-linux-pocknix-${SOC}}" 2>/dev/null))"
+    log "boot file Image sha256 ${fat_sha:0:16} != rootfs /boot/Image ${pkg_sha:0:16} ($(chroot "${ROOTFS_DIR}" pacman -Q "${KERNEL_PKG:-linux-holodor-${SOC}}" 2>/dev/null))"
     [ "${HOLODOR_ALLOW_KERNEL_MISMATCH:-0}" = "1" ] || die "the image would boot a different kernel than its package says — run 'make kernel' for the installed package, or install the package the boot file was built from (HOLODOR_ALLOW_KERNEL_MISMATCH=1 overrides)"
     warn "HOLODOR_ALLOW_KERNEL_MISMATCH=1: building anyway"
   else
-    log "kernel check: boot file and rootfs package agree (${fat_sha:0:16}, $(chroot "${ROOTFS_DIR}" pacman -Q "${KERNEL_PKG:-linux-pocknix-${SOC}}" 2>/dev/null))"
+    log "kernel check: boot file and rootfs package agree (${fat_sha:0:16}, $(chroot "${ROOTFS_DIR}" pacman -Q "${KERNEL_PKG:-linux-holodor-${SOC}}" 2>/dev/null))"
   fi
 }
 
@@ -106,16 +106,16 @@ ensure_kernel_in_rootfs() {
 populate_arm_efi_boot() {
   local mnt="$1" bl="${ROOTFS_DIR}/usr/share/pocknix/bootloader"
   [ -f "${bl}/EFI/BOOT/bootaa64.efi" ] \
-    || die "arm-efi: ${bl#${ROOTFS_DIR}}/EFI/BOOT/bootaa64.efi missing from the rootfs — is pocknix-bootloader-${SOC} built and installed? (make packages + make build)"
+    || die "arm-efi: ${bl#${ROOTFS_DIR}}/EFI/BOOT/bootaa64.efi missing from the rootfs — is holodor-bootloader-${SOC} built and installed? (make packages + make build)"
   [ -f "${bl}/boot/grub/grub.cfg" ] \
     || die "arm-efi: ${bl#${ROOTFS_DIR}}/boot/grub/grub.cfg missing from the rootfs"
   rsync -a "${bl}/EFI" "${bl}/boot" "${mnt}/"
   cp "${KOUT}/dtbs/"*.dtb "${mnt}/boot/grub/"
 }
 
-# qcom-abl boot partition contents beyond /KERNEL: the ROCKNIX ABL folder
+# qcom-abl boot partition contents beyond /KERNEL: the Holodor ABL folder
 # (signed ELF + the Android-side backup/flash/restore scripts), shipped in the
-# rootfs by pocknix-bootloader-${SOC} at /usr/share/bootloader/rocknix_abl —
+# rootfs by holodor-bootloader-${SOC} at /usr/share/bootloader/rocknix_abl —
 # the same place ROCKNIX keeps it, so kernel/${SOC}/bootloader/update.sh
 # refreshes /flash from it on updates. The user reads the folder off the SD
 # from Android to flash the bootloader; it is the only way a fresh user gets
@@ -124,7 +124,7 @@ populate_arm_efi_boot() {
 populate_qcom_abl_boot() {
   local mnt="$1" bl="${ROOTFS_DIR}/usr/share/bootloader/rocknix_abl"
   if [ ! -d "${bl}" ]; then
-    case "${SOC}" in sm8750|sm8550|sm8250) die "qcom-abl: ${bl#${ROOTFS_DIR}} missing from the rootfs — is pocknix-bootloader-${SOC} built and installed? (make packages PKG=pocknix-bootloader-${SOC} + make build)";; esac
+    case "${SOC}" in sm8750|sm8550|sm8250) die "qcom-abl: ${bl#${ROOTFS_DIR}} missing from the rootfs — is holodor-bootloader-${SOC} built and installed? (make packages PKG=holodor-bootloader-${SOC} + make build)";; esac
     warn "no ${bl#${ROOTFS_DIR}} in the rootfs — SD boot FAT ships without the ROCKNIX ABL folder"
     return 0
   fi

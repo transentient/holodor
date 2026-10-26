@@ -1,0 +1,5 @@
+#!/bin/sh
+# vsbench.sh <label> : fresh Vampire Survivors launch on the RP5, A-only auto-play (same character/stage as
+# last used), frames logged from 150 s to 270 s after launch. Prints the pacing summary. Kills the game after.
+L=$1; R=deck@${RP5:-192.168.1.68}
+ssh -o ConnectTimeout=6 $R 'systemctl stop "claude-presser*" 2>/dev/null; p=$(ps -eo pid,comm | awk "\$2~/VampireSurv/{print \$1}" | head -1); [ -n "$p" ] && kill -9 $p; sleep 4; echo "steam://run/1794680" > ~/.steam/steam.pipe; sleep 35; systemd-run --quiet --collect --unit=claude-presser-'$L' sh /tmp/presser.sh 245; sleep 115; python3 /tmp/gsframes.py /tmp/bench_'$L'.csv 120 >/dev/null; echo "'$L': $(python3 /tmp/gsstats.py /tmp/bench_'$L'.csv | sed -E "s/ms: mean=[0-9.]+ //; s/ \| >1.5x.*jitter/ | jitter/")"; python3 /tmp/vis.py /tmp/bench_'$L'.csv | grep visible | sed "s/.*refreshes: /   on-screen time per frame (x 8.3 ms): /"; p=$(ps -eo pid,comm | awk "\$2~/VampireSurv/{print \$1}" | head -1); top -H -b -n 1 -p $p | sed -n 8,10p | awk "{print \"   thread\", \$12, \$9\"%\"}" | tr "\n" " "; echo'

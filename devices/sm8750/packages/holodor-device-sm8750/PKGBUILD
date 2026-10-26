@@ -1,0 +1,28 @@
+# pocknix-device-sm8750 — metapackage: the complete SM8750 family system.
+# Depends on the family BSP + the SoC kernel + the shared session stack.
+# Successor to the retired per-device metapackages; 'replaces' migrates
+# installed devices (e.g. an internal-installed RP6) on their next pacman -Syu.
+pkgname=holodor-device-sm8750
+pkgver=0.2.0
+pkgrel=2
+pkgdesc="pocknix device metapackage: SM8750 family (Retroid Pocket 6, AYN Odin 2 family)"
+arch=('any')
+url="https://github.com/transentient/holodor"
+license=('GPL2')
+depends=('holodor-bsp-sm8750'
+         'linux-holodor-sm8750'
+         'holodor-bootloader-sm8750'   # ROCKNIX ABL folder shipped on the SD
+         'holodor-steam'
+         'holodor-desktop'
+         'holodor-emulation'
+         'holodor-decky'
+         'holodor-sdcard-automount')
+# Exactly one device metapackage per install (wrong-device guard, same pattern
+# as the BSPs).
+provides=('holodor-device' 'pocknix-device' 'pocknix-device-sm8750')
+conflicts=('holodor-device' 'pocknix-device' 'pocknix-device-sm8750')
+replaces=('pocknix-device-sm8750')
+
+package() {
+  :   # pure metapackage
+}

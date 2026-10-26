@@ -1,0 +1,43 @@
+From 8eeca96ad1385e97c3ba4657e6f0b47773ec22da Mon Sep 17 00:00:00 2001
+From: Rob Clark <robin.clark@oss.qualcomm.com>
+Date: Sat, 12 Sep 2026 07:59:22 -0700
+Subject: [PATCH] drm/msm/gem: Add modparam to disable shrinker blocking
+
+Normally if we are under enough memory pressure, the shrinker will
+eventually start waiting for BOs to become idle.  In some very latency
+sensitive use-cases this is undesirable.
+
+Signed-off-by: Rob Clark <robin.clark@oss.qualcomm.com>
+Patchwork: https://patchwork.freedesktop.org/patch/753011/
+Message-ID: <20260912145922.24115-2-robin.clark@oss.qualcomm.com>
+---
+ drivers/gpu/drm/msm/msm_gem_shrinker.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/drivers/gpu/drm/msm/msm_gem_shrinker.c b/drivers/gpu/drm/msm/msm_gem_shrinker.c
+index a626fbb869db..c954c471465c 100644
+--- a/drivers/gpu/drm/msm/msm_gem_shrinker.c
++++ b/drivers/gpu/drm/msm/msm_gem_shrinker.c
+@@ -19,6 +19,10 @@ static bool enable_eviction = true;
+ MODULE_PARM_DESC(enable_eviction, "Enable swappable GEM buffers");
+ module_param(enable_eviction, bool, 0600);
+ 
++static bool eviction_can_block = true;
++MODULE_PARM_DESC(eviction_can_block, "Enable blocking for GEM buffer to become idle for eviction");
++module_param(eviction_can_block, bool, 0600);
++
+ static bool can_swap(void)
+ {
+ 	return enable_eviction && get_nr_swap_pages() > 0;
+@@ -26,6 +30,8 @@ static bool can_swap(void)
+ 
+ static bool can_block(struct shrink_control *sc)
+ {
++	if (!eviction_can_block)
++		return false;
+ 	return (sc->gfp_mask & __GFP_DIRECT_RECLAIM) ||
+ 	       (current_is_kswapd() && (sc->gfp_mask & __GFP_KSWAPD_RECLAIM));
+ }
+-- 
+GitLab
+

@@ -1,0 +1,285 @@
+#!/bin/sh
+
+PIDFILE="/var/run/sm8750-wifi-resilience.pid"
+HELPER="/usr/bin/sm8750-wifi-resilience"
+LOG_DIR="/userdata/system/logs/wifi"
+LOG_FILE="${LOG_DIR}/sm8750-wifi-resilience.log"
+WEAK_SIGNAL_THRESHOLD="-78"
+WEAK_SIGNAL_STRIKES="2"
+NO_ROUTE_STRIKES="2"
+
+wifi_enabled() {
+    [ "$(batocera-settings-get wifi.enabled 2>/dev/null)" = "1" ]
+}
+
+wifi_present() {
+    for netdev in /sys/class/net/wlan* /sys/class/net/wlp* /sys/class/net/wlx*; do
+        [ -e "${netdev}" ] && return 0
+    done
+    return 1
+}
+
+primary_wifi_iface() {
+    for netdev in /sys/class/net/wlan* /sys/class/net/wlp* /sys/class/net/wlx*; do
+        [ -e "${netdev}" ] || continue
+        printf '%s\n' "${netdev##*/}"
+        return 0
+    done
+
+    return 1
+}
+
+wifi_connected() {
+    state=$(connmanctl state 2>/dev/null | awk -F'= ' '/^[[:space:]]*State[[:space:]]=/{print $2; exit}')
+    [ "${state}" = "ready" ] || [ "${state}" = "online" ]
+}
+
+default_route_present() {
+    ip route show default 2>/dev/null | grep -q .
+}
+
+wifi_signal() {
+    iface="$1"
+
+    [ -n "${iface}" ] || return 1
+    /usr/sbin/iw dev "${iface}" link 2>/dev/null | awk '/signal:/ {print int($2); exit}'
+}
+
+rotate_retry_logs() {
+    mkdir -p "${LOG_DIR}"
+
+    rm -f "${LOG_DIR}/retry.5.log"
+    for idx in 4 3 2 1; do
+        if [ -f "${LOG_DIR}/retry.${idx}.log" ]; then
+            mv "${LOG_DIR}/retry.${idx}.log" "${LOG_DIR}/retry.$((idx + 1)).log"
+        fi
+    done
+}
+
+append_cmd_output() {
+    title="$1"
+    shift
+
+    {
+        echo
+        echo "## ${title}"
+        "$@" 2>&1 || true
+    } >> "${LOG_FILE}"
+}
+
+append_wifi_snapshot() {
+    phase="$1"
+    {
+        echo
+        echo "## ${phase}: interfaces"
+        for netdev in /sys/class/net/wlan* /sys/class/net/wlp* /sys/class/net/wlx*; do
+            [ -e "${netdev}" ] || continue
+            iface="${netdev##*/}"
+            carrier="unknown"
+            operstate="unknown"
+            [ -r "${netdev}/carrier" ] && carrier=$(cat "${netdev}/carrier" 2>/dev/null)
+            [ -r "${netdev}/operstate" ] && operstate=$(cat "${netdev}/operstate" 2>/dev/null)
+            echo "${iface}: operstate=${operstate} carrier=${carrier}"
+        done
+    } >> "${LOG_FILE}"
+
+    append_cmd_output "${phase}: connman state" connmanctl state
+    append_cmd_output "${phase}: connman technologies" connmanctl technologies
+    append_cmd_output "${phase}: connman services" connmanctl services
+    append_cmd_output "${phase}: rfkill" rfkill list
+    append_cmd_output "${phase}: iw dev" /usr/sbin/iw dev
+
+    for netdev in /sys/class/net/wlan* /sys/class/net/wlp* /sys/class/net/wlx*; do
+        [ -e "${netdev}" ] || continue
+        append_cmd_output "${phase}: iw ${netdev##*/} link" /usr/sbin/iw dev "${netdev##*/}" link
+    done
+
+    append_cmd_output "${phase}: proc net wireless" cat /proc/net/wireless
+    append_cmd_output "${phase}: ip addr" ip addr
+    append_cmd_output "${phase}: ip route" ip route
+}
+
+begin_retry_log() {
+    disconnected_count="$1"
+    action="$2"
+    detail="$3"
+
+    rotate_retry_logs
+    : > "${LOG_FILE}"
+
+    {
+        echo "SM8750 Wi-Fi retry snapshot"
+        echo "timestamp=$(date -Iseconds 2>/dev/null || date)"
+        echo "retry_count=${disconnected_count}"
+        echo "action=${action}"
+        [ -n "${detail}" ] && echo "detail=${detail}"
+    } >> "${LOG_FILE}"
+
+    append_wifi_snapshot "before"
+}
+
+finish_retry_log() {
+    snapshot="${LOG_DIR}/retry.1.log"
+
+    append_wifi_snapshot "after"
+    append_cmd_output "recent kernel wifi messages" sh -c "dmesg 2>/dev/null | grep -Ei 'ath12k|wlan|wifi|firmware|wcn|connman|deauth|disassoc|rfkill' | tail -n 120"
+    cp -f "${LOG_FILE}" "${snapshot}"
+}
+
+kick_wifi() {
+    disconnected_count="$1"
+    reason="${2:-disconnected}"
+    action="enable"
+    iface="$(primary_wifi_iface 2>/dev/null || true)"
+    signal=""
+    detail="reason=${reason}"
+
+    if [ -n "${iface}" ]; then
+        signal="$(wifi_signal "${iface}" 2>/dev/null || true)"
+        detail="${detail} iface=${iface}"
+        [ -n "${signal}" ] && detail="${detail} signal=${signal}dBm"
+    fi
+
+    case "${reason}" in
+        weak-signal)
+            action="roam"
+            ;;
+        no-route)
+            action="route-recover"
+            [ "${disconnected_count}" -ge "${NO_ROUTE_STRIKES}" ] && action="toggle"
+            ;;
+        *)
+            if [ "${disconnected_count}" -ge 2 ]; then
+                action="scan"
+            fi
+
+            if [ "${disconnected_count}" -ge 4 ]; then
+                action="toggle"
+            fi
+            ;;
+    esac
+
+    begin_retry_log "${disconnected_count}" "${action}" "${detail}"
+
+    "${HELPER}" >/dev/null 2>&1
+    connmanctl enable wifi >/dev/null 2>&1
+
+    if [ "${action}" = "scan" ] || [ "${action}" = "roam" ]; then
+        connmanctl scan wifi >/dev/null 2>&1
+    fi
+
+    if [ "${action}" = "roam" ] && [ -n "${iface}" ]; then
+        echo "*** SM8750 wifi: weak signal${signal:+ ${signal}dBm}, forcing reassociation ***" > /dev/kmsg
+        /usr/sbin/iw dev "${iface}" disconnect >/dev/null 2>&1
+        sleep 2
+        connmanctl enable wifi >/dev/null 2>&1
+    fi
+
+    if [ "${action}" = "toggle" ]; then
+        echo "*** SM8750 wifi: reconnecting after repeated disconnected checks ***" > /dev/kmsg
+        batocera-wifi disable >/dev/null 2>&1
+        sleep 1
+        batocera-wifi enable >/dev/null 2>&1
+    fi
+
+    sleep 5
+    finish_retry_log
+}
+
+watchdog_loop() {
+    disconnected_count=0
+    weak_signal_count=0
+    no_route_count=0
+
+    # ConnMan and firmware settle asynchronously on SM8750.
+    sleep 10
+
+    while true; do
+        if wifi_enabled && wifi_present; then
+            "${HELPER}" >/dev/null 2>&1
+
+            if wifi_connected; then
+                disconnected_count=0
+                iface="$(primary_wifi_iface 2>/dev/null || true)"
+                signal=""
+                [ -n "${iface}" ] && signal="$(wifi_signal "${iface}" 2>/dev/null || true)"
+
+                if default_route_present; then
+                    no_route_count=0
+                else
+                    no_route_count=$((no_route_count + 1))
+                    if [ "${no_route_count}" -ge "${NO_ROUTE_STRIKES}" ]; then
+                        kick_wifi "${no_route_count}" "no-route"
+                        no_route_count=0
+                    fi
+                fi
+
+                if [ -n "${signal}" ] && [ "${signal}" -lt "${WEAK_SIGNAL_THRESHOLD}" ]; then
+                    weak_signal_count=$((weak_signal_count + 1))
+                    if [ "${weak_signal_count}" -ge "${WEAK_SIGNAL_STRIKES}" ]; then
+                        kick_wifi "${weak_signal_count}" "weak-signal"
+                        weak_signal_count=0
+                    fi
+                else
+                    weak_signal_count=0
+                fi
+            else
+                weak_signal_count=0
+                no_route_count=0
+                disconnected_count=$((disconnected_count + 1))
+                kick_wifi "${disconnected_count}" "disconnected"
+
+                if [ "${disconnected_count}" -ge 4 ]; then
+                    disconnected_count=0
+                fi
+            fi
+        else
+            disconnected_count=0
+            weak_signal_count=0
+            no_route_count=0
+        fi
+
+        sleep 30
+    done
+}
+
+start_watchdog() {
+    if [ -f "${PIDFILE}" ]; then
+        old_pid=$(cat "${PIDFILE}" 2>/dev/null)
+        if [ -n "${old_pid}" ] && kill -0 "${old_pid}" 2>/dev/null; then
+            return 0
+        fi
+    fi
+
+    watchdog_loop &
+    echo "$!" > "${PIDFILE}"
+}
+
+stop_watchdog() {
+    if [ -f "${PIDFILE}" ]; then
+        old_pid=$(cat "${PIDFILE}" 2>/dev/null)
+        if [ -n "${old_pid}" ]; then
+            kill "${old_pid}" 2>/dev/null
+        fi
+        rm -f "${PIDFILE}"
+    fi
+}
+
+case "$1" in
+    start)
+        start_watchdog
+        ;;
+    stop)
+        stop_watchdog
+        ;;
+    restart|reload)
+        stop_watchdog
+        start_watchdog
+        ;;
+    *)
+        echo "usage: $0 {start|stop|restart|reload}"
+        exit 1
+        ;;
+esac
+
+exit 0

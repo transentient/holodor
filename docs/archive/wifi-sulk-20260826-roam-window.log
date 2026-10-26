@@ -1,0 +1,580 @@
+Aug 26 16:47:41 holodor kernel: Freezing user space processes
+Aug 26 16:47:41 holodor systemd-logind[498]: Power key pressed short.
+Aug 26 16:47:41 holodor kernel: Freezing user space processes completed (elapsed 0.001 seconds)
+Aug 26 16:47:41 holodor systemd-resolved[297]: Clock change detected. Flushing caches.
+Aug 26 16:47:41 holodor kernel: OOM killer disabled.
+Aug 26 16:47:41 holodor kernel: Freezing remaining freezable tasks
+Aug 26 16:47:41 holodor kernel: Freezing remaining freezable tasks completed (elapsed 0.000 seconds)
+Aug 26 16:47:41 holodor kernel: printk: Suspending console(s) (use no_console_suspend to debug)
+Aug 26 16:47:41 holodor kernel: dwc3-qcom a600000.usb: port-1 HS-PHY not in L2
+Aug 26 16:47:41 holodor kernel: qcom-hv-haptics c400000.spmi:pmic@7:qcom,hv-haptics@f000: haptics_enable_play, 0xf209=0x0
+Aug 26 16:47:41 holodor kernel: Disabling non-boot CPUs ...
+Aug 26 16:47:41 holodor kernel: psci: CPU7 killed (polled 0 ms)
+Aug 26 16:47:41 holodor kernel: psci: CPU6 killed (polled 0 ms)
+Aug 26 16:47:41 holodor kernel: psci: CPU5 killed (polled 0 ms)
+Aug 26 16:47:41 holodor kernel: psci: CPU4 killed (polled 0 ms)
+Aug 26 16:47:41 holodor kernel: psci: CPU3 killed (polled 0 ms)
+Aug 26 16:47:41 holodor kernel: psci: CPU2 killed (polled 0 ms)
+Aug 26 16:47:41 holodor kernel: psci: CPU1 killed (polled 0 ms)
+Aug 26 16:47:41 holodor kernel: Enabling non-boot CPUs ...
+Aug 26 16:47:41 holodor kernel: Detected PIPT I-cache on CPU1
+Aug 26 16:47:41 holodor kernel: GICv3: CPU1: found redistributor 100 region 0:0x00000000160c0000
+Aug 26 16:47:41 holodor kernel: CPU1: Booted secondary processor 0x0000000100 [0x514f0014]
+Aug 26 16:47:41 holodor kernel: CPU1 is up
+Aug 26 16:47:41 holodor kernel: Detected PIPT I-cache on CPU2
+Aug 26 16:47:41 holodor kernel: GICv3: CPU2: found redistributor 200 region 0:0x0000000016100000
+Aug 26 16:47:41 holodor kernel: CPU2: Booted secondary processor 0x0000000200 [0x514f0014]
+Aug 26 16:47:41 holodor kernel: CPU2 is up
+Aug 26 16:47:41 holodor kernel: Detected PIPT I-cache on CPU3
+Aug 26 16:47:41 holodor kernel: GICv3: CPU3: found redistributor 300 region 0:0x0000000016140000
+Aug 26 16:47:41 holodor kernel: CPU3: Booted secondary processor 0x0000000300 [0x514f0014]
+Aug 26 16:47:41 holodor kernel: CPU3 is up
+Aug 26 16:47:41 holodor kernel: Detected PIPT I-cache on CPU4
+Aug 26 16:47:41 holodor kernel: GICv3: CPU4: found redistributor 400 region 0:0x0000000016180000
+Aug 26 16:47:41 holodor kernel: CPU4: Booted secondary processor 0x0000000400 [0x514f0014]
+Aug 26 16:47:41 holodor kernel: CPU4 is up
+Aug 26 16:47:41 holodor kernel: Detected PIPT I-cache on CPU5
+Aug 26 16:47:41 holodor kernel: GICv3: CPU5: found redistributor 500 region 0:0x00000000161c0000
+Aug 26 16:47:41 holodor kernel: CPU5: Booted secondary processor 0x0000000500 [0x514f0014]
+Aug 26 16:47:41 holodor kernel: CPU5 is up
+Aug 26 16:47:41 holodor kernel: Detected PIPT I-cache on CPU6
+Aug 26 16:47:41 holodor kernel: GICv3: CPU6: found redistributor 10000 region 0:0x0000000016200000
+Aug 26 16:47:41 holodor kernel: CPU6: Booted secondary processor 0x0000010000 [0x513f0014]
+Aug 26 16:47:41 holodor kernel: CPU6 is up
+Aug 26 16:47:41 holodor kernel: Detected PIPT I-cache on CPU7
+Aug 26 16:47:41 holodor kernel: GICv3: CPU7: found redistributor 10100 region 0:0x0000000016240000
+Aug 26 16:47:41 holodor kernel: CPU7: Booted secondary processor 0x0000010100 [0x513f0014]
+Aug 26 16:47:41 holodor kernel: CPU7 is up
+Aug 26 16:47:41 holodor kernel: mhi mhi0: Requested to power ON
+Aug 26 16:47:41 holodor kernel: mhi mhi0: Power on setup success
+Aug 26 16:47:41 holodor kernel: mhi mhi0: Wait for device to enter SBL or Mission mode
+Aug 26 16:47:41 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: chip_id 0x2 chip_family 0x4 board_id 0xff soc_id 0x40210200
+Aug 26 16:47:41 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: fw_version 0x10048fe1 fw_build_timestamp 2025-08-09 23:54 fw_build_id QC_IMAGE_VERSION_STRING=WLAN.GNG.1.0-04065-QCAGNGSWPL_V1.0_V2.0_SILICONZ-1
+Aug 26 16:47:41 holodor kernel: hwmon hwmon59: PM: parent phy0 should not be sleeping
+Aug 26 16:47:41 holodor kernel: [66B blob data]
+Aug 26 16:47:41 holodor kernel: rsinput serial1-0: MCU parameters set successfully
+Aug 26 16:47:41 holodor kernel: OOM killer enabled.
+Aug 26 16:47:41 holodor kernel: Restarting tasks: Starting
+Aug 26 16:47:41 holodor kernel: Restarting tasks: Done
+Aug 26 16:47:41 holodor kernel: random: crng reseeded on system resumption
+Aug 26 16:47:41 holodor systemd-sleep[13828]: System returned from sleep operation 'suspend'.
+Aug 26 16:47:41 holodor bluetoothd[482]: Controller resume with wake event 0x0
+Aug 26 16:47:41 holodor kernel: PM: suspend exit
+Aug 26 16:47:41 holodor audit[481]: AUDIT1111 pid=481 uid=0 auid=4294967295 ses=4294967295 msg='op=radio-control arg="wireless-enabled:on" pid=13891 uid=0 result=success exe="/usr/bin/NetworkManager" hostname=? addr=? terminal=? res=success'
+Aug 26 16:47:41 holodor NetworkManager[481]: <info>  [1787730461.4364] audit: op="radio-control" arg="wireless-enabled:on" pid=13891 uid=0 result="success"
+Aug 26 16:47:41 holodor kernel: audit: type=1111 audit(1787730461.435:460): pid=481 uid=0 auid=4294967295 ses=4294967295 msg='op=radio-control arg="wireless-enabled:on" pid=13891 uid=0 result=success exe="/usr/bin/NetworkManager" hostname=? addr=? terminal=? res=success'
+Aug 26 16:47:41 holodor unknown: 1+0 records in
+                         1+0 records out
+Aug 26 16:47:41 holodor unknown: 1 byte copied, 2.7649e-05 s, 36.2 kB/s
+Aug 26 16:47:41 holodor unknown: 
+Aug 26 16:47:41 holodor systemd[1]: Started pocknix thumbstick RGB LED animator (static/rainbow/breathe).
+Aug 26 16:47:41 holodor audit[1]: SERVICE_START pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=pocknix-stick-leds comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:47:41 holodor systemd[1]: systemd-suspend.service: Deactivated successfully.
+Aug 26 16:47:41 holodor systemd[1]: Finished System Suspend.
+Aug 26 16:47:41 holodor audit[1]: SERVICE_START pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=systemd-suspend comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:47:41 holodor audit[1]: SERVICE_STOP pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=systemd-suspend comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:47:41 holodor systemd[1]: Stopped target Sleep.
+Aug 26 16:47:41 holodor systemd[1]: Reached target Suspend.
+Aug 26 16:47:41 holodor kernel: audit: type=1130 audit(1787730461.443:461): pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=pocknix-stick-leds comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:47:41 holodor iwd[485]: event: state, old: disconnected, new: autoconnect_quick
+Aug 26 16:47:41 holodor systemd-logind[498]: Operation 'suspend' finished.
+Aug 26 16:47:41 holodor kernel: audit: type=1130 audit(1787730461.443:462): pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=systemd-suspend comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:47:41 holodor systemd[1]: Stopped target Suspend.
+Aug 26 16:47:41 holodor kernel: audit: type=1131 audit(1787730461.443:463): pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=systemd-suspend comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:47:41 holodor systemd-resolved[297]: Closing all remaining TCP connections.
+Aug 26 16:47:41 holodor systemd-resolved[297]: Resetting learnt feature levels on all servers.
+Aug 26 16:47:41 holodor NetworkManager[481]: <info>  [1787730461.4482] manager: sleep: wake requested (sleeping: yes  enabled: yes)
+Aug 26 16:47:41 holodor NetworkManager[481]: <info>  [1787730461.4482] device (wlan0): state change: unmanaged -> unavailable (reason 'managed', managed-type: 'external')
+Aug 26 16:47:41 holodor systemd-networkd[319]: wlan0: Link UP
+Aug 26 16:47:41 holodor NetworkManager[481]: <info>  [1787730461.4523] device (/net/connman/iwd/0): state change: unmanaged -> unavailable (reason 'managed', managed-type: 'external')
+Aug 26 16:47:41 holodor NetworkManager[481]: <warn>  [1787730461.4523] device (/net/connman/iwd/0): error setting IPv4 forwarding to '0': Resource temporarily unavailable
+Aug 26 16:47:41 holodor NetworkManager[481]: <info>  [1787730461.4524] manager: NetworkManager state is now DISCONNECTED
+Aug 26 16:47:41 holodor NetworkManager[481]: <info>  [1787730461.4525] device (/net/connman/iwd/0): state change: unavailable -> disconnected (reason 'none', managed-type: 'full')
+Aug 26 16:47:41 holodor NetworkManager[481]: <info>  [1787730461.5216] device (wlan0): new IWD device state is disconnected
+Aug 26 16:47:41 holodor NetworkManager[481]: <info>  [1787730461.5217] device (wlan0): state change: unavailable -> disconnected (reason 'supplicant-available', managed-type: 'full')
+Aug 26 16:47:41 holodor audit: BPF prog-id=111 op=LOAD
+Aug 26 16:47:41 holodor audit: BPF prog-id=112 op=LOAD
+Aug 26 16:47:41 holodor audit: BPF prog-id=113 op=LOAD
+Aug 26 16:47:41 holodor systemd[1]: Starting Time & Date Service...
+Aug 26 16:47:41 holodor kernel: audit: type=1334 audit(1787730461.658:464): prog-id=111 op=LOAD
+Aug 26 16:47:41 holodor kernel: audit: type=1334 audit(1787730461.658:465): prog-id=112 op=LOAD
+Aug 26 16:47:41 holodor kernel: audit: type=1334 audit(1787730461.658:466): prog-id=113 op=LOAD
+Aug 26 16:47:41 holodor systemd[1]: Started Time & Date Service.
+Aug 26 16:47:41 holodor audit[1]: SERVICE_START pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=systemd-timedated comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:47:42 holodor iwd[485]: event: connect-info, ssid: ozma, bss: 8a:cf:84:4d:c6:15, signal: -56, load: 72/255
+Aug 26 16:47:42 holodor iwd[485]: event: state, old: autoconnect_quick, new: connecting (auto)
+Aug 26 16:47:42 holodor NetworkManager[481]: <info>  [1787730462.1742] device (wlan0): new IWD device state is connecting
+Aug 26 16:47:42 holodor NetworkManager[481]: <info>  [1787730462.1745] device (wlan0): Activation: starting connection 'ozma' (67aee72e-e9cd-3442-a500-8ab33d1263b0)
+Aug 26 16:47:42 holodor NetworkManager[481]: <info>  [1787730462.1745] device (wlan0): state change: disconnected -> prepare (reason 'none', managed-type: 'full')
+Aug 26 16:47:42 holodor kernel: wlan0: authenticate with 8a:cf:84:4d:c6:15 (local address=00:03:7f:35:48:15)
+Aug 26 16:47:42 holodor kernel: wlan0: send auth to 8a:cf:84:4d:c6:15 (try 1/3)
+Aug 26 16:47:42 holodor NetworkManager[481]: <info>  [1787730462.1746] manager: NetworkManager state is now CONNECTING
+Aug 26 16:47:42 holodor NetworkManager[481]: <info>  [1787730462.1746] device (wlan0): state change: prepare -> config (reason 'none', managed-type: 'full')
+Aug 26 16:47:42 holodor kernel: wlan0: authenticated
+Aug 26 16:47:42 holodor kernel: wlan0: associate with 8a:cf:84:4d:c6:15 (try 1/3)
+Aug 26 16:47:42 holodor kernel: wlan0: RX AssocResp from 8a:cf:84:4d:c6:15 (capab=0x1011 status=0 aid=39)
+Aug 26 16:47:42 holodor systemd-networkd[319]: wlan0: Connected WiFi access point: ozma (8a:cf:84:4d:c6:15)
+Aug 26 16:47:42 holodor kernel: wlan0: associated
+Aug 26 16:47:42 holodor iwd[485]: event: state, old: connecting (auto), new: connected
+Aug 26 16:47:42 holodor systemd-networkd[319]: wlan0: Gained carrier
+Aug 26 16:47:42 holodor NetworkManager[481]: <info>  [1787730462.2913] device (wlan0): new IWD device state is connected
+Aug 26 16:47:42 holodor NetworkManager[481]: <info>  [1787730462.2913] device (wlan0): state change: config -> ip-config (reason 'none', managed-type: 'full')
+Aug 26 16:47:42 holodor NetworkManager[481]: <info>  [1787730462.2944] dhcp4 (wlan0): activation: beginning transaction (timeout in 45 seconds)
+Aug 26 16:47:42 holodor NetworkManager[481]: <info>  [1787730462.3092] dhcp4 (wlan0): state changed new lease, address=192.168.1.18, acd pending
+Aug 26 16:47:42 holodor NetworkManager[481]: <info>  [1787730462.4520] dhcp4 (wlan0): state changed new lease, address=192.168.1.18
+Aug 26 16:47:42 holodor NetworkManager[481]: <info>  [1787730462.4524] policy: set 'ozma' (wlan0) as default for IPv4 routing and DNS
+Aug 26 16:47:42 holodor systemd-timesyncd[298]: Network configuration changed, trying to establish connection.
+Aug 26 16:47:42 holodor systemd-resolved[297]: wlan0: Bus client set default route setting: yes
+Aug 26 16:47:42 holodor systemd-resolved[297]: wlan0: Bus client set DNS server list to: 192.168.1.1
+Aug 26 16:47:42 holodor systemd-timesyncd[298]: Contacted time server 142.91.108.61:123 (0.arch.pool.ntp.org).
+Aug 26 16:47:42 holodor NetworkManager[481]: <info>  [1787730462.9995] device (wlan0): state change: ip-config -> ip-check (reason 'none', managed-type: 'full')
+Aug 26 16:47:43 holodor NetworkManager[481]: <info>  [1787730463.0002] device (wlan0): state change: ip-check -> secondaries (reason 'none', managed-type: 'full')
+Aug 26 16:47:43 holodor NetworkManager[481]: <info>  [1787730463.0003] device (wlan0): state change: secondaries -> activated (reason 'none', managed-type: 'full')
+Aug 26 16:47:43 holodor NetworkManager[481]: <info>  [1787730463.0005] manager: NetworkManager state is now CONNECTED_SITE
+Aug 26 16:47:43 holodor NetworkManager[481]: <info>  [1787730463.0006] device (wlan0): Activation: successful, device activated.
+Aug 26 16:47:44 holodor systemd-networkd[319]: wlan0: Gained IPv6LL
+Aug 26 16:47:44 holodor NetworkManager[481]: <info>  [1787730464.2342] manager: NetworkManager state is now CONNECTED_GLOBAL
+Aug 26 16:47:44 holodor NetworkManager[481]: <info>  [1787730464.7827] dhcp6 (wlan0): activation: beginning transaction (timeout in 45 seconds)
+Aug 26 16:47:44 holodor NetworkManager[481]: <info>  [1787730464.7833] policy: set 'ozma' (wlan0) as default for IPv6 routing and DNS
+Aug 26 16:47:44 holodor NetworkManager[481]: <info>  [1787730464.7887] dhcp6 (wlan0): state changed new lease
+Aug 26 16:47:44 holodor systemd-resolved[297]: wlan0: Bus client set search domain list to: flets-east.jp, iptvf.jp
+Aug 26 16:47:44 holodor systemd-resolved[297]: wlan0: Bus client set DNS server list to: 192.168.1.1, 240b:11:7ee7:6900:569b:49ff:fed7:4b10
+Aug 26 16:47:47 holodor systemd[1]: NetworkManager-dispatcher.service: Deactivated successfully.
+Aug 26 16:47:47 holodor audit[1]: SERVICE_STOP pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=NetworkManager-dispatcher comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:47:47 holodor kernel: kauditd_printk_skb: 1 callbacks suppressed
+Aug 26 16:47:47 holodor kernel: audit: type=1131 audit(1787730467.691:468): pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=NetworkManager-dispatcher comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:47:52 holodor sshd-session[12315]: Read error from remote host 192.168.1.70 port 47330: Connection reset by peer
+Aug 26 16:47:52 holodor sshd-session[12312]: pam_unix(sshd:session): session closed for user deck
+Aug 26 16:47:52 holodor audit[12312]: AUDIT1106 pid=12312 uid=0 auid=1001 ses=31 msg='op=PAM:session_close grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:52 holodor audit[12312]: AUDIT1104 pid=12312 uid=0 auid=1001 ses=31 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:52 holodor systemd[1]: session-31.scope: Deactivated successfully.
+Aug 26 16:47:52 holodor systemd[1]: session-31.scope: Consumed 1.790s CPU time, 3.2M memory peak.
+Aug 26 16:47:52 holodor kernel: audit: type=1106 audit(1787730472.973:469): pid=12312 uid=0 auid=1001 ses=31 msg='op=PAM:session_close grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:52 holodor kernel: audit: type=1104 audit(1787730472.973:470): pid=12312 uid=0 auid=1001 ses=31 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:52 holodor systemd-logind[498]: Session 31 logged out. Waiting for processes to exit.
+Aug 26 16:47:52 holodor systemd-logind[498]: Removed session 31.
+Aug 26 16:47:54 holodor audit[15512]: AUDIT1101 pid=15512 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:accounting grantors=pam_access,pam_unix,pam_permit,pam_time acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:54 holodor sshd-session[15512]: Accepted publickey for deck from 192.168.1.70 port 58394 ssh2: ED25519 SHA256:IMldK1t6LWbzla9E48miIFnV+q77DwsP8uW2rou8A3E
+Aug 26 16:47:54 holodor kernel: audit: type=1101 audit(1787730474.150:471): pid=15512 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:accounting grantors=pam_access,pam_unix,pam_permit,pam_time acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:54 holodor audit[15512]: AUDIT1103 pid=15512 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:54 holodor audit[15512]: SYSCALL arch=c00000b7 syscall=64 success=yes exit=4 a0=6 a1=fffff2678620 a2=4 a3=0 items=0 ppid=654 pid=15512 auid=1001 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=32 comm="sshd-session" exe="/usr/lib/ssh/sshd-session" key=(null)
+Aug 26 16:47:54 holodor audit: PROCTITLE proctitle=737368642D73657373696F6E3A206465636B205B707269765D
+Aug 26 16:47:54 holodor sshd-session[15512]: pam_unix(sshd:session): session opened for user deck(uid=1001) by deck(uid=0)
+Aug 26 16:47:54 holodor kernel: audit: type=1103 audit(1787730474.154:472): pid=15512 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:54 holodor kernel: audit: type=1006 audit(1787730474.154:473): pid=15512 uid=0 old-auid=4294967295 auid=1001 tty=(none) old-ses=4294967295 ses=32 res=1
+Aug 26 16:47:54 holodor kernel: audit: type=1300 audit(1787730474.154:473): arch=c00000b7 syscall=64 success=yes exit=4 a0=6 a1=fffff2678620 a2=4 a3=0 items=0 ppid=654 pid=15512 auid=1001 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=32 comm="sshd-session" exe="/usr/lib/ssh/sshd-session" key=(null)
+Aug 26 16:47:54 holodor kernel: audit: type=1327 audit(1787730474.154:473): proctitle=737368642D73657373696F6E3A206465636B205B707269765D
+Aug 26 16:47:54 holodor systemd-logind[498]: New session '32' of user 'deck' with class 'user' and type 'tty'.
+Aug 26 16:47:54 holodor systemd[1]: Started Session 32 of User deck.
+Aug 26 16:47:54 holodor audit[15512]: AUDIT1105 pid=15512 uid=0 auid=1001 ses=32 msg='op=PAM:session_open grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:54 holodor audit[15515]: AUDIT1103 pid=15515 uid=0 auid=1001 ses=32 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:54 holodor kernel: audit: type=1105 audit(1787730474.205:474): pid=15512 uid=0 auid=1001 ses=32 msg='op=PAM:session_open grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:54 holodor kernel: audit: type=1103 audit(1787730474.205:475): pid=15515 uid=0 auid=1001 ses=32 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:54 holodor sshd-session[15515]: Received disconnect from 192.168.1.70 port 58394:11: disconnected by user
+Aug 26 16:47:54 holodor sshd-session[15515]: Disconnected from user deck 192.168.1.70 port 58394
+Aug 26 16:47:54 holodor sshd-session[15512]: pam_unix(sshd:session): session closed for user deck
+Aug 26 16:47:54 holodor audit[15512]: AUDIT1106 pid=15512 uid=0 auid=1001 ses=32 msg='op=PAM:session_close grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:54 holodor audit[15512]: AUDIT1104 pid=15512 uid=0 auid=1001 ses=32 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:54 holodor kernel: audit: type=1106 audit(1787730474.241:476): pid=15512 uid=0 auid=1001 ses=32 msg='op=PAM:session_close grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:54 holodor systemd[1]: session-32.scope: Deactivated successfully.
+Aug 26 16:47:54 holodor systemd-logind[498]: Session 32 logged out. Waiting for processes to exit.
+Aug 26 16:47:54 holodor systemd-logind[498]: Removed session 32.
+Aug 26 16:47:54 holodor audit[15518]: AUDIT1101 pid=15518 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:accounting grantors=pam_access,pam_unix,pam_permit,pam_time acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:54 holodor sshd-session[15518]: Accepted publickey for deck from 192.168.1.70 port 58402 ssh2: ED25519 SHA256:IMldK1t6LWbzla9E48miIFnV+q77DwsP8uW2rou8A3E
+Aug 26 16:47:54 holodor audit[15518]: AUDIT1103 pid=15518 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:54 holodor audit[15518]: SYSCALL arch=c00000b7 syscall=64 success=yes exit=4 a0=6 a1=ffffe2b752c0 a2=4 a3=0 items=0 ppid=654 pid=15518 auid=1001 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=33 comm="sshd-session" exe="/usr/lib/ssh/sshd-session" key=(null)
+Aug 26 16:47:54 holodor audit: PROCTITLE proctitle=737368642D73657373696F6E3A206465636B205B707269765D
+Aug 26 16:47:54 holodor sshd-session[15518]: pam_unix(sshd:session): session opened for user deck(uid=1001) by deck(uid=0)
+Aug 26 16:47:54 holodor systemd-logind[498]: New session '33' of user 'deck' with class 'user' and type 'tty'.
+Aug 26 16:47:54 holodor systemd[1]: Started Session 33 of User deck.
+Aug 26 16:47:54 holodor audit[15518]: AUDIT1105 pid=15518 uid=0 auid=1001 ses=33 msg='op=PAM:session_open grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:54 holodor audit[15521]: AUDIT1103 pid=15521 uid=0 auid=1001 ses=33 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:54 holodor sshd-session[15521]: Received disconnect from 192.168.1.70 port 58402:11: disconnected by user
+Aug 26 16:47:54 holodor sshd-session[15521]: Disconnected from user deck 192.168.1.70 port 58402
+Aug 26 16:47:54 holodor sshd-session[15518]: pam_unix(sshd:session): session closed for user deck
+Aug 26 16:47:54 holodor audit[15518]: AUDIT1106 pid=15518 uid=0 auid=1001 ses=33 msg='op=PAM:session_close grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:54 holodor audit[15518]: AUDIT1104 pid=15518 uid=0 auid=1001 ses=33 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:47:54 holodor systemd[1]: session-33.scope: Deactivated successfully.
+Aug 26 16:47:54 holodor systemd-logind[498]: Session 33 logged out. Waiting for processes to exit.
+Aug 26 16:47:54 holodor systemd-logind[498]: Removed session 33.
+Aug 26 16:47:57 holodor iwd[485]: event: roam-scan,
+Aug 26 16:47:58 holodor kernel: wlan0: Limiting TX power to 23 (23 - 0) dBm as advertised by 8a:cf:84:4d:c6:15
+Aug 26 16:48:06 holodor audit[15619]: AUDIT1101 pid=15619 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:accounting grantors=pam_access,pam_unix,pam_permit,pam_time acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:48:06 holodor sshd-session[15619]: Accepted publickey for deck from 192.168.1.70 port 46674 ssh2: ED25519 SHA256:IMldK1t6LWbzla9E48miIFnV+q77DwsP8uW2rou8A3E
+Aug 26 16:48:06 holodor kernel: kauditd_printk_skb: 10 callbacks suppressed
+Aug 26 16:48:06 holodor kernel: audit: type=1101 audit(1787730486.616:485): pid=15619 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:accounting grantors=pam_access,pam_unix,pam_permit,pam_time acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:48:06 holodor audit[15619]: AUDIT1103 pid=15619 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:48:06 holodor audit[15619]: SYSCALL arch=c00000b7 syscall=64 success=yes exit=4 a0=6 a1=ffffd9ce8a10 a2=4 a3=0 items=0 ppid=654 pid=15619 auid=1001 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=34 comm="sshd-session" exe="/usr/lib/ssh/sshd-session" key=(null)
+Aug 26 16:48:06 holodor audit: PROCTITLE proctitle=737368642D73657373696F6E3A206465636B205B707269765D
+Aug 26 16:48:06 holodor sshd-session[15619]: pam_unix(sshd:session): session opened for user deck(uid=1001) by deck(uid=0)
+Aug 26 16:48:06 holodor kernel: audit: type=1103 audit(1787730486.616:486): pid=15619 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:48:06 holodor kernel: audit: type=1006 audit(1787730486.616:487): pid=15619 uid=0 old-auid=4294967295 auid=1001 tty=(none) old-ses=4294967295 ses=34 res=1
+Aug 26 16:48:06 holodor kernel: audit: type=1300 audit(1787730486.616:487): arch=c00000b7 syscall=64 success=yes exit=4 a0=6 a1=ffffd9ce8a10 a2=4 a3=0 items=0 ppid=654 pid=15619 auid=1001 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=34 comm="sshd-session" exe="/usr/lib/ssh/sshd-session" key=(null)
+Aug 26 16:48:06 holodor kernel: audit: type=1327 audit(1787730486.616:487): proctitle=737368642D73657373696F6E3A206465636B205B707269765D
+Aug 26 16:48:06 holodor systemd-logind[498]: New session '34' of user 'deck' with class 'user' and type 'tty'.
+Aug 26 16:48:06 holodor systemd[1]: Started Session 34 of User deck.
+Aug 26 16:48:06 holodor audit[15619]: AUDIT1105 pid=15619 uid=0 auid=1001 ses=34 msg='op=PAM:session_open grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:48:06 holodor kernel: audit: type=1105 audit(1787730486.671:488): pid=15619 uid=0 auid=1001 ses=34 msg='op=PAM:session_open grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:48:06 holodor audit[15622]: AUDIT1103 pid=15622 uid=0 auid=1001 ses=34 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:48:06 holodor kernel: audit: type=1103 audit(1787730486.671:489): pid=15622 uid=0 auid=1001 ses=34 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:48:06 holodor sshd-session[15622]: Received disconnect from 192.168.1.70 port 46674:11: disconnected by user
+Aug 26 16:48:06 holodor sshd-session[15622]: Disconnected from user deck 192.168.1.70 port 46674
+Aug 26 16:48:06 holodor sshd-session[15619]: pam_unix(sshd:session): session closed for user deck
+Aug 26 16:48:06 holodor audit[15619]: AUDIT1106 pid=15619 uid=0 auid=1001 ses=34 msg='op=PAM:session_close grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:48:06 holodor audit[15619]: AUDIT1104 pid=15619 uid=0 auid=1001 ses=34 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:48:06 holodor systemd[1]: session-34.scope: Deactivated successfully.
+Aug 26 16:48:06 holodor kernel: audit: type=1106 audit(1787730486.719:490): pid=15619 uid=0 auid=1001 ses=34 msg='op=PAM:session_close grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:48:06 holodor kernel: audit: type=1104 audit(1787730486.719:491): pid=15619 uid=0 auid=1001 ses=34 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:48:06 holodor systemd-logind[498]: Session 34 logged out. Waiting for processes to exit.
+Aug 26 16:48:06 holodor systemd-logind[498]: Removed session 34.
+Aug 26 16:48:11 holodor systemd[1]: systemd-timedated.service: Deactivated successfully.
+Aug 26 16:48:11 holodor audit[1]: SERVICE_STOP pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=systemd-timedated comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:48:11 holodor kernel: audit: type=1131 audit(1787730491.743:492): pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=systemd-timedated comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:48:11 holodor audit: BPF prog-id=113 op=UNLOAD
+Aug 26 16:48:11 holodor audit: BPF prog-id=112 op=UNLOAD
+Aug 26 16:48:11 holodor audit: BPF prog-id=111 op=UNLOAD
+Aug 26 16:48:12 holodor kernel: audit: type=1334 audit(1787730491.771:493): prog-id=113 op=UNLOAD
+Aug 26 16:48:12 holodor kernel: audit: type=1334 audit(1787730491.771:494): prog-id=112 op=UNLOAD
+Aug 26 16:48:12 holodor kernel: audit: type=1334 audit(1787730491.771:495): prog-id=111 op=UNLOAD
+Aug 26 16:48:17 holodor iwd[485]: event: roam-scan,
+Aug 26 16:48:18 holodor iwd[485]: event: roam-info, bss: 60:cf:84:4d:c6:19, signal: -61, load: 2/255
+Aug 26 16:48:18 holodor iwd[485]: event: state, old: connected, new: roaming
+Aug 26 16:48:18 holodor kernel: wlan0: disconnect from AP 8a:cf:84:4d:c6:15 for new auth to 60:cf:84:4d:c6:19
+Aug 26 16:48:18 holodor NetworkManager[481]: <info>  [1787730498.2693] device (wlan0): ip:dhcp4: restarting
+Aug 26 16:48:18 holodor NetworkManager[481]: <info>  [1787730498.2693] dhcp4 (wlan0): canceled DHCP transaction
+Aug 26 16:48:18 holodor NetworkManager[481]: <info>  [1787730498.2693] dhcp4 (wlan0): activation: beginning transaction (timeout in 45 seconds)
+Aug 26 16:48:18 holodor NetworkManager[481]: <info>  [1787730498.2693] dhcp4 (wlan0): state changed no lease
+Aug 26 16:48:18 holodor NetworkManager[481]: <info>  [1787730498.2694] dhcp4 (wlan0): activation: beginning transaction (timeout in 45 seconds)
+Aug 26 16:48:18 holodor NetworkManager[481]: <info>  [1787730498.2694] device (wlan0): ip:dhcp6: restarting
+Aug 26 16:48:18 holodor NetworkManager[481]: <info>  [1787730498.2694] dhcp6 (wlan0): canceled DHCP transaction
+Aug 26 16:48:18 holodor NetworkManager[481]: <info>  [1787730498.2694] dhcp6 (wlan0): activation: beginning transaction (timeout in 45 seconds)
+Aug 26 16:48:18 holodor NetworkManager[481]: <info>  [1787730498.2694] dhcp6 (wlan0): state changed no lease
+Aug 26 16:48:18 holodor NetworkManager[481]: <info>  [1787730498.2695] dhcp6 (wlan0): activation: beginning transaction (timeout in 45 seconds)
+Aug 26 16:48:18 holodor systemd-networkd[319]: wlan0: Lost carrier
+Aug 26 16:48:18 holodor systemd-timesyncd[298]: No network connectivity, watching for changes.
+Aug 26 16:48:18 holodor NetworkManager[481]: <info>  [1787730498.2710] device (wlan0): new IWD device state is roaming
+Aug 26 16:48:18 holodor kernel: wlan0: authenticate with 60:cf:84:4d:c6:19 (local address=00:03:7f:35:48:15)
+Aug 26 16:48:18 holodor kernel: wlan0: send auth to 60:cf:84:4d:c6:19 (try 1/3)
+Aug 26 16:48:18 holodor kernel: wlan0: authenticated
+Aug 26 16:48:18 holodor kernel: wlan0: associate with 60:cf:84:4d:c6:19 (try 1/3)
+Aug 26 16:48:18 holodor kernel: wlan0: RX ReassocResp from 60:cf:84:4d:c6:19 (capab=0x1011 status=0 aid=33)
+Aug 26 16:48:18 holodor kernel: wlan0: associated
+Aug 26 16:48:18 holodor systemd-networkd[319]: wlan0: Connected WiFi access point: ozma (60:cf:84:4d:c6:19)
+Aug 26 16:48:18 holodor iwd[485]: event: state, old: roaming, new: connected
+Aug 26 16:48:18 holodor systemd-networkd[319]: wlan0: Gained carrier
+Aug 26 16:48:18 holodor NetworkManager[481]: <info>  [1787730498.6615] device (wlan0): new IWD device state is connected
+Aug 26 16:48:18 holodor systemd-timesyncd[298]: Network configuration changed, trying to establish connection.
+Aug 26 16:48:19 holodor kernel: arm_smmu_context_fault: 256 callbacks suppressed
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: Unhandled context fault: fsr=0x402, iova=0xffb80000, fsynr=0x270013, cbfrsynra=0x1401, cb=11
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSR    = 00000402 [Format=2 TF], SID=0x1401
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSYNR0 = 00270013 [S1CBNDX=39 WNR PLVL=3]
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: Unhandled context fault: fsr=0x402, iova=0xffb8d400, fsynr=0x270013, cbfrsynra=0x1401, cb=11
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSR    = 00000402 [Format=2 TF], SID=0x1401
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSYNR0 = 00270013 [S1CBNDX=39 WNR PLVL=3]
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: Unhandled context fault: fsr=0x402, iova=0xffb8e100, fsynr=0x270013, cbfrsynra=0x1401, cb=11
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSR    = 00000402 [Format=2 TF], SID=0x1401
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSYNR0 = 00270013 [S1CBNDX=39 WNR PLVL=3]
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: Unhandled context fault: fsr=0x402, iova=0xffb8ee00, fsynr=0x270013, cbfrsynra=0x1401, cb=11
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSR    = 00000402 [Format=2 TF], SID=0x1401
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSYNR0 = 00270013 [S1CBNDX=39 WNR PLVL=3]
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: Unhandled context fault: fsr=0x402, iova=0xffb8fb00, fsynr=0x270013, cbfrsynra=0x1401, cb=11
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSR    = 00000402 [Format=2 TF], SID=0x1401
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSYNR0 = 00270013 [S1CBNDX=39 WNR PLVL=3]
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: Unhandled context fault: fsr=0x402, iova=0xffb8fff0, fsynr=0x270013, cbfrsynra=0x1401, cb=11
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSR    = 00000402 [Format=2 TF], SID=0x1401
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSYNR0 = 00270013 [S1CBNDX=39 WNR PLVL=3]
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: Unhandled context fault: fsr=0x402, iova=0xffb90d00, fsynr=0x270013, cbfrsynra=0x1401, cb=11
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSR    = 00000402 [Format=2 TF], SID=0x1401
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSYNR0 = 00270013 [S1CBNDX=39 WNR PLVL=3]
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: Unhandled context fault: fsr=0x402, iova=0xffb91900, fsynr=0x270013, cbfrsynra=0x1401, cb=11
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSR    = 00000402 [Format=2 TF], SID=0x1401
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSYNR0 = 00270013 [S1CBNDX=39 WNR PLVL=3]
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: Unhandled context fault: fsr=0x402, iova=0xffb92600, fsynr=0x270013, cbfrsynra=0x1401, cb=11
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSR    = 00000402 [Format=2 TF], SID=0x1401
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSYNR0 = 00270013 [S1CBNDX=39 WNR PLVL=3]
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: Unhandled context fault: fsr=0x402, iova=0xffb93300, fsynr=0x270013, cbfrsynra=0x1401, cb=11
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSR    = 00000402 [Format=2 TF], SID=0x1401
+Aug 26 16:48:19 holodor kernel: arm-smmu 15000000.iommu: FSYNR0 = 00270013 [S1CBNDX=39 WNR PLVL=3]
+Aug 26 16:48:19 holodor kernel: mhi mhi0: Requested to power ON
+Aug 26 16:48:19 holodor kernel: mhi mhi0: Power on setup success
+Aug 26 16:48:19 holodor kernel: mhi mhi0: Wait for device to enter SBL or Mission mode
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: chip_id 0x2 chip_family 0x4 board_id 0xff soc_id 0x40210200
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: fw_version 0x10048fe1 fw_build_timestamp 2025-08-09 23:54 fw_build_id QC_IMAGE_VERSION_STRING=WLAN.GNG.1.0-04065-QCAGNGSWPL_V1.0_V2.0_SILICONZ-1
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: Last interrupt received for each CE:
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: CE_id 0 pipe_num 0 39004ms before
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: CE_id 1 pipe_num 1 1168ms before
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: CE_id 2 pipe_num 2 892ms before
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: CE_id 3 pipe_num 3 892ms before
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: CE_id 5 pipe_num 5 1552896ms before
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: 
+                                Last interrupt received for each group:
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: group_id 0 996ms before
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: group_id 1 1552896ms before
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: group_id 2 1780ms before
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: group_id 3 976ms before
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: group_id 4 1872ms before
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: group_id 5 5408ms before
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: group_id 6 1832ms before
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: group_id 7 1552896ms before
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: group_id 8 1552896ms before
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: group_id 9 1552896ms before
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: group_id 10 1552896ms before
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: dst srng id 0 tp 0, cur hp 0, cached hp 0 last hp 0 napi processed before 996ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: dst srng id 1 tp 3016, cur hp 3016, cached hp 3016 last hp 3016 napi processed before 976ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: dst srng id 2 tp 968, cur hp 968, cached hp 968 last hp 968 napi processed before 1872ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: dst srng id 3 tp 712, cur hp 712, cached hp 712 last hp 712 napi processed before 5408ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: dst srng id 4 tp 1080, cur hp 1080, cached hp 1080 last hp 1080 napi processed before 1832ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: dst srng id 5 tp 0, cur hp 0, cached hp 0 last hp 0 napi processed before 1552896ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: dst srng id 6 tp 0, cur hp 0, cached hp 0 last hp 0 napi processed before 1552896ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: dst srng id 7 tp 0, cur hp 0, cached hp 0 last hp 0 napi processed before 1552896ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: dst srng id 8 tp 0, cur hp 0, cached hp 0 last hp 0 napi processed before 1552896ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: src srng id 16 hp 0, reap_hp 248, cur tp 0, cached tp 0 last tp 0 napi processed before 1552896ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: src srng id 20 hp 1150, reap_hp 1150, cur tp 980, cached tp 980 last tp 980 napi processed before 728ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: dst srng id 21 tp 2744, cur hp 2744, cached hp 2744 last hp 2744 napi processed before 996ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: src srng id 24 hp 568, reap_hp 568, cur tp 568, cached tp 560 last tp 560 napi processed before 984ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: src srng id 25 hp 0, reap_hp 4088, cur tp 0, cached tp 0 last tp 0 napi processed before 1552896ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: src srng id 26 hp 2808, reap_hp 2808, cur tp 2808, cached tp 2800 last tp 2800 napi processed before 828ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: src srng id 64 hp 12, reap_hp 8, cur tp 12, cached tp 12 last tp 8 napi processed before 39004ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: src srng id 67 hp 64, reap_hp 60, cur tp 64, cached tp 64 last tp 60 napi processed before 892ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: src srng id 68 hp 44, reap_hp 40, cur tp 44, cached tp 44 last tp 36 napi processed before 38208ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: src srng id 82 hp 6, reap_hp 6, cur tp 10, cached tp 10 last tp 10 napi processed before 1168ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: src srng id 83 hp 14, reap_hp 14, cur tp 18, cached tp 18 last tp 18 napi processed before 892ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: dst srng id 101 tp 20, cur hp 20, cached hp 20 last hp 20 napi processed before 1168ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: dst srng id 102 tp 36, cur hp 36, cached hp 36 last hp 36 napi processed before 892ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: src srng id 120 hp 65534, reap_hp 65534, cur tp 0, cached tp 0 last tp 0 napi processed before 39012ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: src srng id 121 hp 0, reap_hp 504, cur tp 0, cached tp 0 last tp 88 napi processed before 226168ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: dst srng id 128 tp 552, cur hp 552, cached hp 552 last hp 552 napi processed before 996ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: dst srng id 130 tp 0, cur hp 0, cached hp 0 last hp 0 napi processed before 1552896ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: dst srng id 131 tp 0, cur hp 0, cached hp 0 last hp 0 napi processed before 996ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: dst srng id 132 tp 2768, cur hp 2768, cached hp 2768 last hp 2768 napi processed before 1780ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: src srng id 160 hp 1442, reap_hp 1442, cur tp 1436, cached tp 1436 last tp 1436 napi processed before 976ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: src srng id 161 hp 0, reap_hp 4094, cur tp 0, cached tp 0 last tp 0 napi processed before 1552896ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: src srng id 169 hp 0, reap_hp 4094, cur tp 0, cached tp 0 last tp 0 napi processed before 1552896ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: src srng id 185 hp 2046, reap_hp 2046, cur tp 0, cached tp 0 last tp 0 napi processed before 39008ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: dst srng id 186 tp 0, cur hp 0, cached hp 0 last hp 0 napi processed before 1552896ms
+Aug 26 16:48:19 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: src srng id 193 hp 2046, reap_hp 2046, cur tp 0, cached tp 0 last tp 0 napi processed before 39008ms
+Aug 26 16:48:19 holodor kernel: ieee80211 phy0: Hardware restart was requested
+Aug 26 16:48:20 holodor kernel: ath12k_wifi7_pci 0000:01:00.0: pdev 0 successfully recovered
+Aug 26 16:48:20 holodor iwd[485]: Received Deauthentication event, reason: 1, from_ap: false
+Aug 26 16:48:20 holodor iwd[485]: event: disconnect-info, reason: 1
+Aug 26 16:48:20 holodor iwd[485]: event: state, old: connected, new: disconnected
+Aug 26 16:48:20 holodor iwd[485]: event: state, old: disconnected, new: autoconnect_quick
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.1424] device (wlan0): ip:dhcp4: restarting
+Aug 26 16:48:20 holodor systemd-networkd[319]: wlan0: Lost carrier
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.1640] dhcp4 (wlan0): canceled DHCP transaction
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.1641] dhcp4 (wlan0): state changed no lease
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.1641] dhcp4 (wlan0): activation: beginning transaction (timeout in 45 seconds)
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.1642] device (wlan0): ip:dhcp6: restarting
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.1642] dhcp6 (wlan0): canceled DHCP transaction
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.1642] dhcp6 (wlan0): state changed no lease
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.1642] dhcp6 (wlan0): activation: beginning transaction (timeout in 45 seconds)
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.1830] device (wlan0): new IWD device state is disconnected
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.1831] device (wlan0): state change: activated -> failed (reason 'supplicant-disconnect', managed-type: 'full')
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.1832] manager: NetworkManager state is now DISCONNECTED
+Aug 26 16:48:20 holodor NetworkManager[481]: <warn>  [1787730500.1833] device (wlan0): Activation: failed for connection 'ozma'
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.1837] device (wlan0): state change: failed -> disconnected (reason 'none', managed-type: 'full')
+Aug 26 16:48:20 holodor systemd[1]: Starting Network Manager Script Dispatcher Service...
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.2040] dhcp4 (wlan0): canceled DHCP transaction
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.2041] dhcp4 (wlan0): state changed no lease
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.2041] dhcp6 (wlan0): canceled DHCP transaction
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.2042] dhcp6 (wlan0): state changed no lease
+Aug 26 16:48:20 holodor systemd[1]: Started Network Manager Script Dispatcher Service.
+Aug 26 16:48:20 holodor audit[1]: SERVICE_START pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=NetworkManager-dispatcher comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:48:20 holodor kernel: audit: type=1130 audit(1787730500.207:496): pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=NetworkManager-dispatcher comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:48:20 holodor systemd-resolved[297]: wlan0: Bus client reset search domain list.
+Aug 26 16:48:20 holodor systemd-resolved[297]: wlan0: Bus client set default route setting: no
+Aug 26 16:48:20 holodor systemd-resolved[297]: wlan0: Bus client reset DNS server list.
+Aug 26 16:48:20 holodor systemd-resolved[297]: Switching to fallback DNS server 9.9.9.9#dns.quad9.net.
+Aug 26 16:48:20 holodor iwd[485]: event: connect-info, ssid: ozma, bss: 60:cf:84:4d:c6:19, signal: -60, load: 2/255
+Aug 26 16:48:20 holodor iwd[485]: event: state, old: autoconnect_quick, new: connecting (auto)
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.7706] device (wlan0): new IWD device state is connecting
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.7710] device (wlan0): Activation: starting connection 'ozma' (67aee72e-e9cd-3442-a500-8ab33d1263b0)
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.7712] device (wlan0): state change: disconnected -> prepare (reason 'none', managed-type: 'full')
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.7713] manager: NetworkManager state is now CONNECTING
+Aug 26 16:48:20 holodor NetworkManager[481]: <info>  [1787730500.7714] device (wlan0): state change: prepare -> config (reason 'none', managed-type: 'full')
+Aug 26 16:48:20 holodor kernel: wlan0: authenticate with 60:cf:84:4d:c6:19 (local address=00:03:7f:35:48:15)
+Aug 26 16:48:20 holodor kernel: wlan0: send auth to 60:cf:84:4d:c6:19 (try 1/3)
+Aug 26 16:48:20 holodor kernel: wlan0: send auth to 60:cf:84:4d:c6:19 (try 2/3)
+Aug 26 16:48:20 holodor kernel: wlan0: send auth to 60:cf:84:4d:c6:19 (try 3/3)
+Aug 26 16:48:21 holodor kernel: wlan0: authentication with 60:cf:84:4d:c6:19 timed out
+Aug 26 16:48:21 holodor iwd[485]: event: connect-timeout, reason: 2
+Aug 26 16:48:21 holodor iwd[485]: event: connect-failed, status: 1
+Aug 26 16:48:21 holodor iwd[485]: event: connect-info, ssid: ozma, bss: 8a:cf:84:4d:c6:15, signal: -59, load: 116/255
+Aug 26 16:48:21 holodor kernel: wlan0: authenticate with 8a:cf:84:4d:c6:15 (local address=00:03:7f:35:48:15)
+Aug 26 16:48:21 holodor kernel: wlan0: send auth to 8a:cf:84:4d:c6:15 (try 1/3)
+Aug 26 16:48:21 holodor kernel: wlan0: authenticated
+Aug 26 16:48:21 holodor kernel: wlan0: associate with 8a:cf:84:4d:c6:15 (try 1/3)
+Aug 26 16:48:21 holodor kernel: wlan0: RX AssocResp from 8a:cf:84:4d:c6:15 (capab=0x1011 status=30 aid=39)
+Aug 26 16:48:21 holodor kernel: wlan0: 8a:cf:84:4d:c6:15 rejected association temporarily; comeback duration 1953 TU (1999 ms)
+Aug 26 16:48:21 holodor kernel: wlan0: aborting association with 8a:cf:84:4d:c6:15 by local choice (Reason: 1=UNSPECIFIED)
+Aug 26 16:48:21 holodor iwd[485]: event: connect-failed, status: 30
+Aug 26 16:48:21 holodor iwd[485]: event: connect-info, ssid: ozma, bss: 6a:cf:84:4d:c6:11, signal: -49, load: 94/255
+Aug 26 16:48:21 holodor iwd[485]: event: connect-failed, status: 1
+Aug 26 16:48:21 holodor iwd[485]: event: state, old: connecting (auto), new: disconnected
+Aug 26 16:48:21 holodor iwd[485]: event: state, old: disconnected, new: autoconnect_full
+Aug 26 16:48:21 holodor NetworkManager[481]: <info>  [1787730501.3994] device (wlan0): new IWD device state is disconnected
+Aug 26 16:48:21 holodor NetworkManager[481]: <info>  [1787730501.3996] device (wlan0): state change: config -> failed (reason 'supplicant-disconnect', managed-type: 'full')
+Aug 26 16:48:21 holodor NetworkManager[481]: <info>  [1787730501.3999] manager: NetworkManager state is now DISCONNECTED
+Aug 26 16:48:21 holodor NetworkManager[481]: <warn>  [1787730501.4001] device (wlan0): Activation: failed for connection 'ozma'
+Aug 26 16:48:21 holodor NetworkManager[481]: <info>  [1787730501.4004] device (wlan0): state change: failed -> disconnected (reason 'none', managed-type: 'full')
+Aug 26 16:48:26 holodor iwd[485]: wiphy_estimate_data_rate() failed
+Aug 26 16:48:30 holodor systemd[1]: NetworkManager-dispatcher.service: Deactivated successfully.
+Aug 26 16:48:30 holodor audit[1]: SERVICE_STOP pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=NetworkManager-dispatcher comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:48:30 holodor kernel: audit: type=1131 audit(1787730510.213:497): pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=NetworkManager-dispatcher comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:48:42 holodor iwd[485]: wiphy_estimate_data_rate() failed
+Aug 26 16:48:42 holodor iwd[485]: invalid HE capabilities for 0c:83:cc:91:f9:7d
+Aug 26 16:49:04 holodor audit: BPF prog-id=114 op=LOAD
+Aug 26 16:49:04 holodor audit: BPF prog-id=115 op=LOAD
+Aug 26 16:49:04 holodor audit: BPF prog-id=116 op=LOAD
+Aug 26 16:49:04 holodor kernel: audit: type=1334 audit(1787730544.268:498): prog-id=114 op=LOAD
+Aug 26 16:49:04 holodor kernel: audit: type=1334 audit(1787730544.268:499): prog-id=115 op=LOAD
+Aug 26 16:49:04 holodor systemd[1]: Starting Time & Date Service...
+Aug 26 16:49:04 holodor kernel: audit: type=1334 audit(1787730544.268:500): prog-id=116 op=LOAD
+Aug 26 16:49:04 holodor audit[1]: SERVICE_START pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=systemd-timedated comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:49:04 holodor systemd[1]: Started Time & Date Service.
+Aug 26 16:49:04 holodor kernel: audit: type=1130 audit(1787730544.312:501): pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=systemd-timedated comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:49:07 holodor iwd[485]: wiphy_estimate_data_rate() failed
+Aug 26 16:49:07 holodor iwd[485]: invalid HE capabilities for 0c:83:cc:91:f9:7d
+Aug 26 16:49:25 holodor audit[481]: AUDIT1111 pid=481 uid=0 auid=4294967295 ses=4294967295 msg='op=connection-delete uuid=67aee72e-e9cd-3442-a500-8ab33d1263b0 name="ozma" pid=1108 uid=1001 result=success exe="/usr/bin/NetworkManager" hostname=? addr=? terminal=? res=success'
+Aug 26 16:49:25 holodor NetworkManager[481]: <info>  [1787730565.6363] audit: op="connection-delete" uuid="67aee72e-e9cd-3442-a500-8ab33d1263b0" name="ozma" pid=1108 uid=1001 result="success"
+Aug 26 16:49:25 holodor iwd[485]: Error loading /var/lib/iwd//ozma.psk
+Aug 26 16:49:25 holodor kernel: audit: type=1111 audit(1787730565.635:502): pid=481 uid=0 auid=4294967295 ses=4294967295 msg='op=connection-delete uuid=67aee72e-e9cd-3442-a500-8ab33d1263b0 name="ozma" pid=1108 uid=1001 result=success exe="/usr/bin/NetworkManager" hostname=? addr=? terminal=? res=success'
+Aug 26 16:49:25 holodor audit[481]: AUDIT1111 pid=481 uid=0 auid=4294967295 ses=4294967295 msg='op=connection-add uuid=e5e1eb08-3626-489f-b4db-a9051d7effff name="ozma" pid=1108 uid=1001 result=success exe="/usr/bin/NetworkManager" hostname=? addr=? terminal=? res=success'
+Aug 26 16:49:25 holodor NetworkManager[481]: <info>  [1787730565.6441] audit: op="connection-add" uuid="e5e1eb08-3626-489f-b4db-a9051d7effff" name="ozma" pid=1108 uid=1001 result="success"
+Aug 26 16:49:25 holodor kernel: audit: type=1111 audit(1787730565.643:503): pid=481 uid=0 auid=4294967295 ses=4294967295 msg='op=connection-add uuid=e5e1eb08-3626-489f-b4db-a9051d7effff name="ozma" pid=1108 uid=1001 result=success exe="/usr/bin/NetworkManager" hostname=? addr=? terminal=? res=success'
+Aug 26 16:49:25 holodor audit[481]: AUDIT1111 pid=481 uid=0 auid=4294967295 ses=4294967295 msg='op=connection-activate uuid=e5e1eb08-3626-489f-b4db-a9051d7effff name="ozma" pid=1108 uid=1001 result=success exe="/usr/bin/NetworkManager" hostname=? addr=? terminal=? res=success'
+Aug 26 16:49:25 holodor NetworkManager[481]: <info>  [1787730565.6492] device (wlan0): Activation: starting connection 'ozma' (e5e1eb08-3626-489f-b4db-a9051d7effff)
+Aug 26 16:49:25 holodor NetworkManager[481]: <info>  [1787730565.6493] audit: op="connection-activate" uuid="e5e1eb08-3626-489f-b4db-a9051d7effff" name="ozma" pid=1108 uid=1001 result="success"
+Aug 26 16:49:25 holodor NetworkManager[481]: <info>  [1787730565.6493] device (wlan0): state change: disconnected -> prepare (reason 'none', managed-type: 'full')
+Aug 26 16:49:25 holodor kernel: audit: type=1111 audit(1787730565.647:504): pid=481 uid=0 auid=4294967295 ses=4294967295 msg='op=connection-activate uuid=e5e1eb08-3626-489f-b4db-a9051d7effff name="ozma" pid=1108 uid=1001 result=success exe="/usr/bin/NetworkManager" hostname=? addr=? terminal=? res=success'
+Aug 26 16:49:25 holodor NetworkManager[481]: <info>  [1787730565.6494] manager: NetworkManager state is now CONNECTING
+Aug 26 16:49:25 holodor NetworkManager[481]: <info>  [1787730565.6496] device (wlan0): state change: prepare -> config (reason 'none', managed-type: 'full')
+Aug 26 16:49:25 holodor iwd[485]: event: connect-info, ssid: ozma, bss: 8a:cf:84:4d:c6:15, signal: -47, load: 116/255
+Aug 26 16:49:25 holodor iwd[485]: event: state, old: autoconnect_full, new: connecting
+Aug 26 16:49:25 holodor NetworkManager[481]: <info>  [1787730565.6509] device (wlan0): new IWD device state is connecting
+Aug 26 16:49:28 holodor iwd[485]: wiphy_estimate_data_rate() failed
+Aug 26 16:49:28 holodor kernel: wlan0: authenticate with 8a:cf:84:4d:c6:15 (local address=00:03:7f:35:48:15)
+Aug 26 16:49:28 holodor kernel: wlan0: send auth to 8a:cf:84:4d:c6:15 (try 1/3)
+Aug 26 16:49:28 holodor kernel: wlan0: authenticate with 8a:cf:84:4d:c6:15 (local address=00:03:7f:35:48:15)
+Aug 26 16:49:28 holodor kernel: wlan0: send auth to 8a:cf:84:4d:c6:15 (try 1/3)
+Aug 26 16:49:28 holodor kernel: wlan0: authenticated
+Aug 26 16:49:28 holodor kernel: wlan0: associate with 8a:cf:84:4d:c6:15 (try 1/3)
+Aug 26 16:49:28 holodor kernel: wlan0: RX AssocResp from 8a:cf:84:4d:c6:15 (capab=0x1011 status=0 aid=24)
+Aug 26 16:49:28 holodor kernel: wlan0: associated
+Aug 26 16:49:28 holodor systemd-networkd[319]: wlan0: Connected WiFi access point: ozma (8a:cf:84:4d:c6:15)
+Aug 26 16:49:28 holodor iwd[485]: event: state, old: connecting, new: connected
+Aug 26 16:49:28 holodor systemd-networkd[319]: wlan0: Gained carrier
+Aug 26 16:49:28 holodor NetworkManager[481]: <info>  [1787730568.4208] device (wlan0): Activation: (wifi) Stage 2 of 5 (Device Configure) successful.  Connected to 'ozma'.
+Aug 26 16:49:28 holodor NetworkManager[481]: <info>  [1787730568.4210] device (wlan0): state change: config -> ip-config (reason 'none', managed-type: 'full')
+Aug 26 16:49:28 holodor NetworkManager[481]: <info>  [1787730568.4286] dhcp4 (wlan0): activation: beginning transaction (timeout in 45 seconds)
+Aug 26 16:49:28 holodor NetworkManager[481]: <info>  [1787730568.4288] device (wlan0): new IWD device state is connected
+Aug 26 16:49:29 holodor NetworkManager[481]: <info>  [1787730569.0826] dhcp4 (wlan0): state changed new lease, address=192.168.1.18, acd pending
+Aug 26 16:49:29 holodor NetworkManager[481]: <info>  [1787730569.2618] dhcp4 (wlan0): state changed new lease, address=192.168.1.18
+Aug 26 16:49:29 holodor NetworkManager[481]: <info>  [1787730569.2626] policy: set 'ozma' (wlan0) as default for IPv4 routing and DNS
+Aug 26 16:49:29 holodor systemd-timesyncd[298]: Network configuration changed, trying to establish connection.
+Aug 26 16:49:29 holodor systemd-resolved[297]: wlan0: Bus client set default route setting: yes
+Aug 26 16:49:29 holodor systemd-resolved[297]: wlan0: Bus client set DNS server list to: 192.168.1.1
+Aug 26 16:49:29 holodor NetworkManager[481]: <info>  [1787730569.2644] device (wlan0): state change: ip-config -> ip-check (reason 'none', managed-type: 'full')
+Aug 26 16:49:29 holodor systemd[1]: Starting Network Manager Script Dispatcher Service...
+Aug 26 16:49:29 holodor systemd-timesyncd[298]: Contacted time server 142.91.108.61:123 (0.arch.pool.ntp.org).
+Aug 26 16:49:29 holodor systemd[1]: Started Network Manager Script Dispatcher Service.
+Aug 26 16:49:29 holodor audit[1]: SERVICE_START pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=NetworkManager-dispatcher comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:49:29 holodor NetworkManager[481]: <info>  [1787730569.3055] device (wlan0): state change: ip-check -> secondaries (reason 'none', managed-type: 'full')
+Aug 26 16:49:29 holodor NetworkManager[481]: <info>  [1787730569.3056] device (wlan0): state change: secondaries -> activated (reason 'none', managed-type: 'full')
+Aug 26 16:49:29 holodor NetworkManager[481]: <info>  [1787730569.3059] manager: NetworkManager state is now CONNECTED_SITE
+Aug 26 16:49:29 holodor NetworkManager[481]: <info>  [1787730569.3060] device (wlan0): Activation: successful, device activated.
+Aug 26 16:49:29 holodor kernel: audit: type=1130 audit(1787730569.301:505): pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=NetworkManager-dispatcher comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:49:29 holodor audit[481]: AUDIT1111 pid=481 uid=0 auid=4294967295 ses=4294967295 msg='op=connection-update uuid=e5e1eb08-3626-489f-b4db-a9051d7effff name="ozma" pid=1108 uid=1001 result=success exe="/usr/bin/NetworkManager" hostname=? addr=? terminal=? res=success'
+Aug 26 16:49:29 holodor NetworkManager[481]: <info>  [1787730569.4162] audit: op="connection-update" uuid="e5e1eb08-3626-489f-b4db-a9051d7effff" name="ozma" pid=1108 uid=1001 result="success"
+Aug 26 16:49:29 holodor kernel: audit: type=1111 audit(1787730569.413:506): pid=481 uid=0 auid=4294967295 ses=4294967295 msg='op=connection-update uuid=e5e1eb08-3626-489f-b4db-a9051d7effff name="ozma" pid=1108 uid=1001 result=success exe="/usr/bin/NetworkManager" hostname=? addr=? terminal=? res=success'
+Aug 26 16:49:30 holodor NetworkManager[481]: <info>  [1787730570.0070] manager: NetworkManager state is now CONNECTED_GLOBAL
+Aug 26 16:49:32 holodor kernel: wlan0: Limiting TX power to 23 (23 - 0) dBm as advertised by 8a:cf:84:4d:c6:15
+Aug 26 16:49:34 holodor systemd[1]: systemd-timedated.service: Deactivated successfully.
+Aug 26 16:49:34 holodor audit[1]: SERVICE_STOP pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=systemd-timedated comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:49:34 holodor kernel: audit: type=1131 audit(1787730574.355:507): pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=systemd-timedated comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:49:34 holodor audit: BPF prog-id=116 op=UNLOAD
+Aug 26 16:49:34 holodor audit: BPF prog-id=115 op=UNLOAD
+Aug 26 16:49:34 holodor audit: BPF prog-id=114 op=UNLOAD
+Aug 26 16:49:34 holodor kernel: audit: type=1334 audit(1787730574.375:508): prog-id=116 op=UNLOAD
+Aug 26 16:49:34 holodor kernel: audit: type=1334 audit(1787730574.375:509): prog-id=115 op=UNLOAD
+Aug 26 16:49:34 holodor kernel: audit: type=1334 audit(1787730574.375:510): prog-id=114 op=UNLOAD
+Aug 26 16:49:38 holodor iwd[485]: wiphy_estimate_data_rate() failed
+Aug 26 16:49:39 holodor systemd[1]: NetworkManager-dispatcher.service: Deactivated successfully.
+Aug 26 16:49:39 holodor audit[1]: SERVICE_STOP pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=NetworkManager-dispatcher comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:49:39 holodor kernel: audit: type=1131 audit(1787730579.313:511): pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=NetworkManager-dispatcher comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Aug 26 16:49:47 holodor audit[16578]: AUDIT1101 pid=16578 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:accounting grantors=pam_access,pam_unix,pam_permit,pam_time acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:47 holodor sshd-session[16578]: Accepted publickey for deck from 192.168.1.70 port 45210 ssh2: ED25519 SHA256:IMldK1t6LWbzla9E48miIFnV+q77DwsP8uW2rou8A3E
+Aug 26 16:49:47 holodor audit[16578]: AUDIT1103 pid=16578 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:47 holodor audit[16578]: SYSCALL arch=c00000b7 syscall=64 success=yes exit=4 a0=6 a1=ffffd436cff0 a2=4 a3=0 items=0 ppid=654 pid=16578 auid=1001 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=35 comm="sshd-session" exe="/usr/lib/ssh/sshd-session" key=(null)
+Aug 26 16:49:47 holodor audit: PROCTITLE proctitle=737368642D73657373696F6E3A206465636B205B707269765D
+Aug 26 16:49:47 holodor sshd-session[16578]: pam_unix(sshd:session): session opened for user deck(uid=1001) by deck(uid=0)
+Aug 26 16:49:47 holodor kernel: audit: type=1101 audit(1787730587.653:512): pid=16578 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:accounting grantors=pam_access,pam_unix,pam_permit,pam_time acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:47 holodor kernel: audit: type=1103 audit(1787730587.653:513): pid=16578 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:47 holodor kernel: audit: type=1006 audit(1787730587.653:514): pid=16578 uid=0 old-auid=4294967295 auid=1001 tty=(none) old-ses=4294967295 ses=35 res=1
+Aug 26 16:49:47 holodor kernel: audit: type=1300 audit(1787730587.653:514): arch=c00000b7 syscall=64 success=yes exit=4 a0=6 a1=ffffd436cff0 a2=4 a3=0 items=0 ppid=654 pid=16578 auid=1001 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=35 comm="sshd-session" exe="/usr/lib/ssh/sshd-session" key=(null)
+Aug 26 16:49:47 holodor kernel: audit: type=1327 audit(1787730587.653:514): proctitle=737368642D73657373696F6E3A206465636B205B707269765D
+Aug 26 16:49:47 holodor systemd-logind[498]: New session '35' of user 'deck' with class 'user' and type 'tty'.
+Aug 26 16:49:47 holodor systemd[1]: Started Session 35 of User deck.
+Aug 26 16:49:47 holodor audit[16578]: AUDIT1105 pid=16578 uid=0 auid=1001 ses=35 msg='op=PAM:session_open grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:47 holodor kernel: audit: type=1105 audit(1787730587.757:515): pid=16578 uid=0 auid=1001 ses=35 msg='op=PAM:session_open grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:47 holodor audit[16581]: AUDIT1103 pid=16581 uid=0 auid=1001 ses=35 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:47 holodor kernel: audit: type=1103 audit(1787730587.757:516): pid=16581 uid=0 auid=1001 ses=35 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:47 holodor sshd-session[16581]: Received disconnect from 192.168.1.70 port 45210:11: disconnected by user
+Aug 26 16:49:47 holodor sshd-session[16581]: Disconnected from user deck 192.168.1.70 port 45210
+Aug 26 16:49:47 holodor sshd-session[16578]: pam_unix(sshd:session): session closed for user deck
+Aug 26 16:49:47 holodor audit[16578]: AUDIT1106 pid=16578 uid=0 auid=1001 ses=35 msg='op=PAM:session_close grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:47 holodor audit[16578]: AUDIT1104 pid=16578 uid=0 auid=1001 ses=35 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:47 holodor kernel: audit: type=1106 audit(1787730587.781:517): pid=16578 uid=0 auid=1001 ses=35 msg='op=PAM:session_close grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:47 holodor kernel: audit: type=1104 audit(1787730587.781:518): pid=16578 uid=0 auid=1001 ses=35 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:47 holodor systemd[1]: session-35.scope: Deactivated successfully.
+Aug 26 16:49:47 holodor systemd-logind[498]: Session 35 logged out. Waiting for processes to exit.
+Aug 26 16:49:47 holodor systemd-logind[498]: Removed session 35.
+Aug 26 16:49:47 holodor iwd[485]: wiphy_estimate_data_rate() failed
+Aug 26 16:49:47 holodor audit[16584]: AUDIT1101 pid=16584 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:accounting grantors=pam_access,pam_unix,pam_permit,pam_time acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:47 holodor sshd-session[16584]: Accepted publickey for deck from 192.168.1.70 port 45212 ssh2: ED25519 SHA256:IMldK1t6LWbzla9E48miIFnV+q77DwsP8uW2rou8A3E
+Aug 26 16:49:47 holodor audit[16584]: AUDIT1103 pid=16584 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:47 holodor audit[16584]: SYSCALL arch=c00000b7 syscall=64 success=yes exit=4 a0=6 a1=ffffcc276f90 a2=4 a3=0 items=0 ppid=654 pid=16584 auid=1001 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=36 comm="sshd-session" exe="/usr/lib/ssh/sshd-session" key=(null)
+Aug 26 16:49:47 holodor audit: PROCTITLE proctitle=737368642D73657373696F6E3A206465636B205B707269765D
+Aug 26 16:49:47 holodor sshd-session[16584]: pam_unix(sshd:session): session opened for user deck(uid=1001) by deck(uid=0)
+Aug 26 16:49:47 holodor kernel: audit: type=1101 audit(1787730587.965:519): pid=16584 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:accounting grantors=pam_access,pam_unix,pam_permit,pam_time acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:47 holodor systemd-logind[498]: New session '36' of user 'deck' with class 'user' and type 'tty'.
+Aug 26 16:49:48 holodor systemd[1]: Started Session 36 of User deck.
+Aug 26 16:49:48 holodor audit[16584]: AUDIT1105 pid=16584 uid=0 auid=1001 ses=36 msg='op=PAM:session_open grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:48 holodor audit[16602]: AUDIT1103 pid=16602 uid=0 auid=1001 ses=36 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:48 holodor sshd-session[16602]: Received disconnect from 192.168.1.70 port 45212:11: disconnected by user
+Aug 26 16:49:48 holodor sshd-session[16602]: Disconnected from user deck 192.168.1.70 port 45212
+Aug 26 16:49:48 holodor sshd-session[16584]: pam_unix(sshd:session): session closed for user deck
+Aug 26 16:49:48 holodor audit[16584]: AUDIT1106 pid=16584 uid=0 auid=1001 ses=36 msg='op=PAM:session_close grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:48 holodor audit[16584]: AUDIT1104 pid=16584 uid=0 auid=1001 ses=36 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:48 holodor systemd[1]: session-36.scope: Deactivated successfully.
+Aug 26 16:49:48 holodor systemd-logind[498]: Session 36 logged out. Waiting for processes to exit.
+Aug 26 16:49:48 holodor systemd-logind[498]: Removed session 36.
+Aug 26 16:49:56 holodor audit[16688]: AUDIT1101 pid=16688 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:accounting grantors=pam_access,pam_unix,pam_permit,pam_time acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:56 holodor sshd-session[16688]: Accepted publickey for deck from 192.168.1.70 port 58794 ssh2: ED25519 SHA256:IMldK1t6LWbzla9E48miIFnV+q77DwsP8uW2rou8A3E
+Aug 26 16:49:56 holodor kernel: kauditd_printk_skb: 8 callbacks suppressed
+Aug 26 16:49:56 holodor audit[16688]: AUDIT1103 pid=16688 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:56 holodor audit[16688]: SYSCALL arch=c00000b7 syscall=64 success=yes exit=4 a0=6 a1=ffffd2442d90 a2=4 a3=0 items=0 ppid=654 pid=16688 auid=1001 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=37 comm="sshd-session" exe="/usr/lib/ssh/sshd-session" key=(null)
+Aug 26 16:49:56 holodor audit: PROCTITLE proctitle=737368642D73657373696F6E3A206465636B205B707269765D
+Aug 26 16:49:56 holodor kernel: audit: type=1101 audit(1787730596.965:526): pid=16688 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:accounting grantors=pam_access,pam_unix,pam_permit,pam_time acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:56 holodor kernel: audit: type=1103 audit(1787730596.965:527): pid=16688 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:56 holodor kernel: audit: type=1006 audit(1787730596.965:528): pid=16688 uid=0 old-auid=4294967295 auid=1001 tty=(none) old-ses=4294967295 ses=37 res=1
+Aug 26 16:49:56 holodor kernel: audit: type=1300 audit(1787730596.965:528): arch=c00000b7 syscall=64 success=yes exit=4 a0=6 a1=ffffd2442d90 a2=4 a3=0 items=0 ppid=654 pid=16688 auid=1001 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=37 comm="sshd-session" exe="/usr/lib/ssh/sshd-session" key=(null)
+Aug 26 16:49:56 holodor kernel: audit: type=1327 audit(1787730596.965:528): proctitle=737368642D73657373696F6E3A206465636B205B707269765D
+Aug 26 16:49:56 holodor sshd-session[16688]: pam_unix(sshd:session): session opened for user deck(uid=1001) by deck(uid=0)
+Aug 26 16:49:57 holodor iwd[485]: wiphy_estimate_data_rate() failed
+Aug 26 16:49:57 holodor systemd-logind[498]: New session '37' of user 'deck' with class 'user' and type 'tty'.
+Aug 26 16:49:57 holodor systemd[1]: Started Session 37 of User deck.
+Aug 26 16:49:57 holodor audit[16688]: AUDIT1105 pid=16688 uid=0 auid=1001 ses=37 msg='op=PAM:session_open grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:57 holodor kernel: audit: type=1105 audit(1787730597.837:529): pid=16688 uid=0 auid=1001 ses=37 msg='op=PAM:session_open grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:57 holodor audit[16709]: AUDIT1103 pid=16709 uid=0 auid=1001 ses=37 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:57 holodor kernel: audit: type=1103 audit(1787730597.837:530): pid=16709 uid=0 auid=1001 ses=37 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:57 holodor sshd-session[16709]: Received disconnect from 192.168.1.70 port 58794:11: disconnected by user
+Aug 26 16:49:57 holodor sshd-session[16709]: Disconnected from user deck 192.168.1.70 port 58794
+Aug 26 16:49:57 holodor sshd-session[16688]: pam_unix(sshd:session): session closed for user deck
+Aug 26 16:49:57 holodor audit[16688]: AUDIT1106 pid=16688 uid=0 auid=1001 ses=37 msg='op=PAM:session_close grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:57 holodor audit[16688]: AUDIT1104 pid=16688 uid=0 auid=1001 ses=37 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:57 holodor systemd[1]: session-37.scope: Deactivated successfully.
+Aug 26 16:49:57 holodor systemd-logind[498]: Session 37 logged out. Waiting for processes to exit.
+Aug 26 16:49:57 holodor systemd-logind[498]: Removed session 37.
+Aug 26 16:49:57 holodor kernel: audit: type=1106 audit(1787730597.865:531): pid=16688 uid=0 auid=1001 ses=37 msg='op=PAM:session_close grantors=pam_loginuid,pam_keyinit,pam_systemd_home,pam_limits,pam_unix,pam_permit,pam_lastlog2,pam_mail,pam_umask,pam_systemd,pam_env acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'
+Aug 26 16:49:57 holodor kernel: audit: type=1104 audit(1787730597.865:532): pid=16688 uid=0 auid=1001 ses=37 msg='op=PAM:setcred grantors=pam_shells,pam_faillock,pam_permit,pam_env,pam_faillock acct="deck" exe="/usr/lib/ssh/sshd-session" hostname=192.168.1.70 addr=192.168.1.70 terminal=ssh res=success'

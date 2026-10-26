@@ -1,0 +1,52 @@
+From adf55ad00669f91bb22a1ca16c6cc983fe223668 Mon Sep 17 00:00:00 2001
+From: Krishna Chaitanya Chundru <krishna.chundru@oss.qualcomm.com>
+Date: Thu, 17 Sep 2026 17:24:14 +0530
+Subject: arm64: dts: qcom: sm8250: Fix PCIe WAKE# GPIO polarity
+
+The PCIe WAKE# signal is active-low as defined in the PCIe Base
+Specification. Fix the wake-gpios polarity by using GPIO_ACTIVE_LOW
+instead of GPIO_ACTIVE_HIGH.
+
+Reviewed-by: Konrad Dybcio <konrad.dybcio@oss.qualcomm.com>
+Reviewed-by: Manivannan Sadhasivam <mani@kernel.org>
+Signed-off-by: Krishna Chaitanya Chundru <krishna.chundru@oss.qualcomm.com>
+Link: https://patch.msgid.link/20260917-root_port-v2-6-0d627d0856d5@oss.qualcomm.com
+Signed-off-by: Bjorn Andersson <andersson@kernel.org>
+---
+ arch/arm64/boot/dts/qcom/sm8250.dtsi | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm8250.dtsi b/arch/arm64/boot/dts/qcom/sm8250.dtsi
+index 91a7d1ab48df2..eb3f177f6e98e 100644
+--- a/arch/arm64/boot/dts/qcom/sm8250.dtsi
++++ b/arch/arm64/boot/dts/qcom/sm8250.dtsi
+@@ -2210,7 +2210,7 @@
+ 			phy-names = "pciephy";
+ 
+ 			perst-gpios = <&tlmm 79 GPIO_ACTIVE_LOW>;
+-			wake-gpios = <&tlmm 81 GPIO_ACTIVE_HIGH>;
++			wake-gpios = <&tlmm 81 GPIO_ACTIVE_LOW>;
+ 
+ 			pinctrl-names = "default";
+ 			pinctrl-0 = <&pcie0_default_state>;
+@@ -2337,7 +2337,7 @@
+ 			phy-names = "pciephy";
+ 
+ 			perst-gpios = <&tlmm 82 GPIO_ACTIVE_LOW>;
+-			wake-gpios = <&tlmm 84 GPIO_ACTIVE_HIGH>;
++			wake-gpios = <&tlmm 84 GPIO_ACTIVE_LOW>;
+ 
+ 			pinctrl-names = "default";
+ 			pinctrl-0 = <&pcie1_default_state>;
+@@ -2464,7 +2464,7 @@
+ 			phy-names = "pciephy";
+ 
+ 			perst-gpios = <&tlmm 85 GPIO_ACTIVE_LOW>;
+-			wake-gpios = <&tlmm 87 GPIO_ACTIVE_HIGH>;
++			wake-gpios = <&tlmm 87 GPIO_ACTIVE_LOW>;
+ 
+ 			pinctrl-names = "default";
+ 			pinctrl-0 = <&pcie2_default_state>;
+-- 
+cgit 1.3.1-korg
+

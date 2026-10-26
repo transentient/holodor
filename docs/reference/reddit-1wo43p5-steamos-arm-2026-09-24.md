@@ -1,0 +1,111 @@
+# r/OdinHandheld 1wo43p5 'SteamOS for ARM 8gen3 is out!' (fetched 2026-09-24 via RSS)
+
+- **/u/DarkevilPT**: https://steamdeck-images.steamos.cloud/vr/ core > https://steamdeck-packages.steamos.cloud/archlinux-deckard/archlinux/main/core/os/aarch64/ extra > https://steamdeck-packages.steamos.cloud/archlinux-deckard/archlinux/main/extra/os/aarch64/ deckard-arch-hotfixes > https://holo-packages.steamos.cloud/archlinux-deckard-hotfixes/ Update: There you go guys.. fetch 🦴 https://github.com/MaSieS4Fun/SteamOS-ARM-SM8550 Or Fedora ArmadaOS: https://armadaos.dev/ submitted by https://www.reddit.com/user/DarkevilPT https://i.redd.it/90icnyrsf9rh1.jpeg https://www.reddit.com/r/OdinHandheld/comments/1wo43p5/steamos_for_arm_8gen3_is_out/
+- **/u/Rivalx187**: It means we will get an "official" SteamOS for Ayn Thor / Odin2 ( Portal ) / Retroid Pocket 6 ... Soon ?! 😁
+- **/u/g3zz**: soon it seems https://x.com/MaSieS_4Fun/status/2102709171913195916
+- **/u/Glove5751**: Wonder how that performs compares to armada or the other distros
+- **/u/g3zz**: author commented: "If everything is set up correctly, performance tends to be similar across all systems, including Android."
+- **/u/formerglory**: But hopefully with proper sleep working this time.
+- **/u/MrTestiggles**: armada recently got sleep, still a wip though
+- **/u/stopmrdomino**: on my Odin 3 the sleep mode is awful. Drains well over half the entire battery overnight.
+- **/u/RChickenMan**: I got bored and installed Armada on my Odin 2 yesterday! It was just surreal using the same UI on my Odin 2 that I use on my x86 Linux PCs (Rog Ally and desktop). It ran the two games I tried without a hitch! But alas, it just kind of froze at some point when I was navigating the quick access menu whilst in-game, and the sleep battery drain was atrocious (even though it ostensibly supports "native" sleep now). But I still think I caught the bug for lightweight PC gaming on my Odin 2. I've stubbornly held out against doing so, but I may just be inspired to finally check out Game Hub or Game Native.
+- **/u/_streetpaper_**: Both GameHub and GameNative are awesome. I use both. Usually if a game doesn’t work in one it will work on the other.
+- **/u/RChickenMan**: Hell yes. And based on a cursory Google search, both allow you to install games to SD card these days? I remember that was always a sticking point for folks, but it seems this has changed? And on the topic of customizing where games are stored on the device/SD card, is there a way I could configure my storage directories such that both tools (Game Hub and Game Native) essentially share game installs? Say, for example, I download a Steam game via Game Hub, and I experience compatibility issues, could I configure things in such a way that I can easily just try running it on Game Native? Ideally in a way that doesn't feel hacked together (in that example, I would want the game to feel like a first class citizen within Game Native, as opposed to a weird hacked-together scenario in which I can run the game via Game Native as a non-Steam game, but would have to continue managing updates and whatnot through Game Hub).
+- **/u/_streetpaper_**: I’m not sure. I’ve downloaded all mine to the internal storage on my Odin 3. But I’m out of storage so I delete games often. But cloud saves work fairly well so I can always reinstall a game later and pick back up where I was with the cloud saves. That would be really great if I had one download to share between the two softwares. Right now I’m downloading the games into either GameHub or GameNative, as I’m not sure how trying it your suggested way would work or how to even go about trying it.
+- **/u/WearOld4017**: Both GameHub and GameNative are terrible. I've used both. Usually if a game doesn’t work in one it won't work on the other.
+- **/u/_streetpaper_**: I find the exact opposite to be true. I’ve got 50+ games working.
+- **/u/WearOld4017**: Performance is one thing compatibility is what matters, Hardly anything I want to play works through gamenative/gamehub.
+- **/u/dredgedskeleton**: why not Odin 3?
+- **/u/LeninxKautskyTY**: Odin 3 is 8 Elite, not 8 gen 3. Different SoC
+- **/u/No_Spring5725**: but sd 8gen2 and 8 gen 3 are similar enough? cause Odin 2 ist 8 gen 2 and steam os is made for 8 gen3
+- **/u/LeninxKautskyTY**: Yeah, gen 2 and gen 3 are similar . They even use the same GPU architecture A7XX. 8 Elite uses A8XX
+- **/u/FearlessSpiff**: Might just be able to patch the driver though?
+- **/u/LeninxKautskyTY**: Yeah, but it'll probably take some time
+- **/u/TinyMiniPixel**: One can only hope
+- **/u/dukahz**: I know this will be good for a large number of powerful devices, but the Konkr Pocket Fit G3 will benefit a lot from this and will probably gain a little more relevance against the Odin.
+- **/u/DarkevilPT**: Same thing. 8gen3 8gen2 same sack of potatoes
+- **/u/schmoopycat**: Strongly debating canceling my Odin 3 order for this. Been months with no movement :(
+- **/u/DarkevilPT**: There you go guys... Fetch 🦴 https://github.com/MaSieS4Fun/SteamOS-ARM-SM8550
+- **/u/YuzukiMiyazono**: woof
+- **/u/CictorVastro**: Holy shit. I need to see videos
+- **/u/idontusetwitter**: same here. got my odin 2 portal here ready for it edit: tested odin 2 portal with that steamos image. couldnt even run stardew valley lol
+- **/u/CictorVastro**: Why not? What happened?
+- **/u/idontusetwitter**: all it did was the fan blew really intensely and stardew wouldnt boot. even tried different compatibility layers. also the menu was running less than 60fps even when i had the limit set to 120. definitely needs more optimization armadaos is definitely the way to go for now
+- **/u/CictorVastro**: Interesting. Thank you for sharing
+- **/u/nude-rating-bot**: Tbf Stardew was giving issues on Gamehub on Android as well when enabling Steam. Could be the same issue.
+- **/u/DarkevilPT**: Have u tried playing with protons ? Installing proton 11 arm and runtime 4.0 from the apps ?
+- **/u/idontusetwitter**: Yeah I did that, experimental, proton 11 arm, same result
+- **/u/lastjedi23**: So you're telling me it's a good thing I hoarded on both the Odin 2 and Odin 2 portal? I guess my Odin 2 pro becomes my own steam deck now !
+- **/u/DarkevilPT**: Aint this perfect? Ehhe
+- **/u/XahX88**: I was just thinking whether I should sell mine or not (Odin 2)
+- **/u/Vast-Faithlessness32**: I did just to get the Portal. I recommend doing the same or wait for the Odin 3 Portal which might come this year.
+- **/u/TonnaN77**: I just fell to my knees and thanked the heavens. My investment in the O3 Ultra had already paid off but I'm going into the dark greens now
+- **/u/bobigazda**: I'm wondering if we'll get a chance to install this on Y700 8 Elite Gen 5 🤔
+- **/u/YourMomIsCool96**: God that would be amazing
+- **/u/DarkevilPT**: All it takes is a linux pro to port it and thats the hardest part.
+- **/u/Katsuro2304**: It needs an unlocked bootloader first and available drivers which Lenovo (and ZTE with their Astra tablets) keep to themselves. Unlocking a bootloader on 8E Gen 5 is already a hassle, especially if the device has been connected to the internet after purchase and updated.
+- **/u/DarkevilPT**: Thats why those devices are a no go for me.
+- **/u/Katsuro2304**: Yeah, Qualcomm really did a number on the enthusiast part of their customers 🤷🏻 something something security risks, something something for our own good, but between the lines it reads more like: "We do not want you to do cool stuff with devices you paid a premium price for".
+- **/u/fuckandstufff**: Is it Qualcomm or Lenovo locking down the bootloader? Like if we get an eventual 8elite gen 5 chip in an AYN handheld do you think it would be as locked down?
+- **/u/entropy512**: OEMs make the decision whether to lock a bootloader, and also whether or not to provide an unlocking process, Qualcomm just provides the tools.
+- **/u/Katsuro2304**: From what I've read it is Qualcomm's initiative, the manufacturers simply play along with it. How and to what end I don't know 🤷🏻
+- **/u/typical-divergence**: This is genuinely exciting. I’m hoping an image for the Odin 3 will come sometime in the near future.
+- **/u/ZePlotThickener**: Hell yeah! https://github.com/MaSieS4Fun/SteamOS-ARM-SM8550 "Odin 2 mini: supported but untested" Double hell yeah! The screen size seemed to be a huge monkey wrench taking forever to bring other versions of linux over to the mini after the regular Odin 2 had them. Here's hoping "it just works" lol.
+- **/u/Katsuro2304**: This may also benefit Armada 😎
+- **/u/DarkevilPT**: Yep they are at par with it and will adjust their fixes
+- **/u/Benaugust01**: Just waiting for compatibility with my Lenovo Y700 gen 4
+- **/u/Inevitable_Dark3225**: So....should I just go ahead and order an Odin 3?
+- **/u/BobbyHill751**: Go back in time and order it 6 months ago.
+- **/u/Inevitable_Dark3225**: Don't tempt me, I'll do it.
+- **/u/WaterMeow**: I've ordered mine a month ago..still waiting for shipping confirmation :/
+- **/u/DarkevilPT**: 2 months is AYN ETA.
+- **/u/Tbrooks**: It depends on the color and size, the rainbows havn't shipped a unit since late august according to the shipping dashboard.
+- **/u/DarkevilPT**: Only base models gets shipped early. Apart from that is a circus of patience.
+- **/u/Ellanasss**: Me too brother.
+- **/u/DarkevilPT**: Why? U got an 8gen2 like me odin 2 portal it will work just wait for masies image.
+- **/u/Inevitable_Dark3225**: I joke. As much as I wouldn't mind having an Odin 3, I sold my Odin 2 Portal base model and ordered a Thor Pro model.
+- **/u/machinewater**: Hoping for my Mangmi pocket max 🤞
+- **/u/robstaerick**: Does this mean it could also work on 8 gen 2? Or did the hardware change a lot between gen 2 and 3? Anyone knows anything about it?
+- **/u/DarkevilPT**: Will work the same.
+- **/u/YuzukiMiyazono**: holy mother of fuck
+- **/u/WeeklyFlight7120**: Entoces aún no se ouede instalar en odin 3? Solo es la noticia? Alguien sabe como sera la instalacion con respecto a si se intala en la interna o la externa? Perdon por tantas preguntas pero me entusiasmé
+- **/u/DarkevilPT**: There you go.. fetch 🦴 https://github.com/MaSieS4Fun/SteamOS-ARM-SM8550
+- **/u/ButtCommander2000**: This is the wrong build for Odin 3. Odin 3 runs on an SM8750 SoC, not SM8550.
+- **/u/CastlePokemetroid**: Odin 3 isn't even listed in the supported devices list
+- **/u/DarkevilPT**: Correct. It was built for SM8550. Masies might eventually make one for SM8750. He has done it before. Using armbian
+- **/u/DarkevilPT**: ouhhhweeee https://reddit.com/link/pbl3mh4/video/qrmmemrliarh1/player
+- **/u/Ryrywr**: Rp6 booted but touchscreen was off and controller didnt work so couldn't get passed setup
+- **/u/DarkevilPT**: Report it to Masies on discord he said to be fixing some things.
+- **/u/Ryrywr**: Do you have discord link?
+- **/u/DarkevilPT**: Ayn discord odin2-linux channel https://discord.gg/b4qSufJ8pS
+- **/u/Gerryoak**: This is huge, AYN ship with this instead of android for the Odin4 pls
+- **/u/Dangerous-Price8750**: Ayn Thor 2 with Steam OS. A Unleashed Dual Screen SteamDeck!
+- **/u/RetroDando**: This is exciting, just need some ARM compatibility of games to turn my O3 into a mini steam deck (more than it already is)
+- **/u/BeeEducational3906**: Hypothetically speaking would that mean I could play dead by daylight online ?
+- **/u/EffectiveSomewhere28**: How good is it at battery consumption when in sleep mode?
+- **/u/brittonmakesart**: Is this as huge as I think it is!?
+- **/u/Anxious_Look1319**: Great news for me because when I first read up on rocknix and eventually armada, I bought a couple of extra handhelds. Konkr Fit, Portal, Pocket Ace, odin3, and Thor.
+- **/u/gormmlord**: Is this a historic moment in handheld gaming? Should I be like taking pictures to show my grandchildren or something?
+- **/u/x01010001000**: real question is how far down can it trickle.. retroid pocket 5?? (copium i know)
+- **/u/walter_mitty_23**: https://preview.redd.it/d3rtu9e86arh1.jpeg?width=960&format=pjpg&auto=webp&s=d7e53b2d39ec88c3eed3e85a6437a97d5e8f7a8f
+- **/u/SmallTownLoneHunter**: How long untill I can shove SteamOS on my phone?
+- **/u/AdditionalBear**: My Odin 2 Portal is ready!!!
+- **/u/tugoubxs**: Read through whole GitHub page, still have no idea how to flash to an odin2
+- **/u/DarkevilPT**: Flash abl https://github.com/ROCKNIX/abl/wiki/Install#step-1-install-fastboot--drivers Download SteamOS https://www.mediafire.com/file/ylr65a92x6xu0tz/steamos-sm8550.img.gz/ Flash it to an MicroSD Card using Balena Etcher. Insert it on the console Select boot mode to Linux Hit Start
+- **/u/idontusetwitter**: Nice. I'ma test this with the Odin 2 Portal rn. Where did you get that image though? I didn't see this on the github of that other fella edit: nvm i do see it on the releases page, downloaded the wrong file earlier double edit: couldnt even run stardew valley lol
+- **/u/walter_mitty_23**: Anyone already tried this?
+- **/u/Ryrywr**: Booted on rp6 but the touchscreen all over the place and controller didnt work
+- **/u/Ol_Captain_Bad_Eyes**: Sounds like ill have to get a dedicated handheld here sometime soon. I have the Legion Tab 8Gen3 but i use it for too many tablety things to convert it to SteamOS
+- **/u/Phisherman81**: Installed on my Odin 2 Portal Max. For a 1st release it's fun to explore. Played a game of BallXPit and it was very good/great. The power button doesn't seem to sleep the device. Choosing Sleep from the power menu seemed to put it in a coma lol. Holding the power button down rebooted back to the main menu. And I tried to display a power/fps overlay while playing BallXPit, but it didn't show on screen. Once this is refined/matured, it should be a lot of fun. I suppose I can transfer the SD card to my RPNova and boot into it too? What a world! Edit: so I tried moving the sad card over to the RPNova and it boots but no screen, probably the different screen hardware and resolution. But I could hear it. I’ll need to flash a separate SD card for the Nova.
+- **/u/RadiantImpression579**: I’ll test it once the YouTubers try and show me it’s safe. I have my snack and drink ready ahead of time.
+- **/u/Seiferz**: /u/onionsaregross to the rescue
+- **/u/CastlePokemetroid**: I keep forgetting this is retro game corps, what an odd username
+- **/u/SpikeStarkey**: A lot of influencers have weird online handles on socials. Usually for one of the following reasons: Old account before their popular handle. Purposely obtuse usernames, to stop people from being able to find them on platforms other than their main.
+- **/u/Yodeling-Duck**: God damn
+- **/u/rka257**: Appreciate that this is early days, but what would be the advantage over running something like ArmadaOS. I’ve watched videos on installing ArmadaOS. Reading the GitHub page for the SteamOS ARM, I’m a bit lost. Has anyone managed to get this installed and provide a friendlier guide?
+- **/u/Usual_Material_2861**: Will it work on Gen 2?
+- **/u/greenangrowin**: Just another reason why I wish I would have got the Odin 2 portal and not the Odin 3. I do love my Odin 3 still though, but I keep looking at my wife’s Odin 2 portal and now ima like really looking
+- **/u/DarkevilPT**: Idk why this whinning u can just run armadaOS so whats the issue? 8 elite is better than 8 gen 2. Its just the screen size.
+- **/u/greenangrowin**: Yah I know, but hers looks so big and mine looks so small :/
+- **/u/DarkevilPT**: Ah ok that I get... Thats the reason why I didnt wanted the odin 3 cause I already have an 8 elite phone.. for a console over 7 inch is perfect less is.. a phone
+- **/u/WearOld4017**: Thats what they said 😂

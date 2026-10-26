@@ -1,0 +1,42 @@
+# 1080p ladder, 2026-09-07. mesa-next-5 stack, kernel-25, Cyberpunk 2.31 built-in benchmark, Low preset,
+# VSync off, FG off, power max + fan performance, lsfg off unless stated. Driver runs abladder.sh via
+# abladder-all.sh (transient unit holodor-ladder), device on hub ethernet 192.168.1.47, inhibitor held.
+N720-1/2: screenshots lost (su lacked XDG_RUNTIME_DIR in the first script version); presented-fps CSVs exist. Re-run at the end.
+N1080-1 avg=14.02 min=11.36 max=18.48 time=72.13 frames=1011 (1920x1080 native; results screen confirms 1920x1080 / VSync No / Scaling No) 13:50
+N1080-2 avg=14.01 min=11.29 max=18.41 time=72.09 frames=1010 13:52
+Q1080-1 avg=18.07 min=14.34 max=24.38 time=64.75 frames=1170 (1920x1080 + FSR 3.0 Quality, sharpness 0.50; results screen confirms) 13:57
+Q1080-2 avg=17.94 min=14.26 max=24.85 frames=1163 13:59
+Q1080-3 avg=17.96 min=14.24 max=24.40 frames=1165 14:01   => Q1080 mean 17.99
+B1080-1 avg=19.85 min=15.52 max=26.41 time=64.29 frames=1276 (1920x1080 + FSR 3.0 Balanced; confirmed) 14:07
+B1080-2 avg=19.91 min=15.53 max=26.37 frames=1280 14:09
+B1080-3 avg=19.93 min=15.55 max=26.52 frames=1281 14:11   => B1080 mean 19.90
+P1080-1 avg=22.18 min=17.30 max=32.58 time=64.17 frames=1423 (1920x1080 + FSR 3.0 Performance, 960x540 internal; confirmed) 14:16
+P1080-2 avg=22.18 min=17.21 max=32.53 frames=1424 14:18
+P1080-3 avg=22.21 min=17.23 max=32.44 frames=1427 14:20   => P1080 mean 22.19 (= 720p native 22.06 with 960x540 internal: output-res post cost dominates)
+P720-1 avg=30.48 min=22.20 max=45.99 time=64.23 frames=1958 (1280x720 + FSR 3.0 Performance = the shipped AAA config, 08-16 run K was 31.91 on a different settings mix) 14:25
+P720-2 avg=30.74 min=22.22 max=45.99 frames=1975 14:27   => P720 mean 30.61
+Q900-1 avg=21.70 min=16.39 max=31.48 time=64.24 frames=1394 (1600x900 + FSR 3.0 Quality, ~1067x600 internal; game accepted 1600x900) 14:33
+Q900-2 avg=21.79 min=16.76 max=31.07 frames=1398 14:35   => Q900 mean 21.75 (= 720p native fps at 900p output)
+--- batch 2 (abladder-all2.sh)
+N720-1 avg=22.12 min=16.66 max=32.64 frames=1421 14:40 (today's 720p native control)
+N720-2 avg=22.10 min=16.68 max=32.39 frames=1420 14:42   => N720 mean 22.11 (matches 09-06 A 22.11 / A' 22.06)
+N720c-1 avg=21.98 min=15.85 max=34.90 frames=1413 14:47 (gamescope debug_set_fps_limit 60 = composite-cadence cap; reset to 120 after)
+N720c-2 avg=21.96 min=15.72 max=34.71 frames=1413 14:49   => N720c mean 21.97 vs N720 22.11: -0.6%, NULL. DPU ppdone/vblank timeouts: 0. Closed.
+P1080L-1 avg=22.20 (bench counter blind to lsfg as expected) 14:54; presented-fps scene mean 31.6/34.1 = SAME as lsfg-off P1080 (33.4/35.0) => lsfg did NOTHING.
+  CAUSE: /home/deck/.local/share/Steam/steamapps/common/Lossless Scaling/Lossless.dll is MISSING on this fresh internal install
+  (Lossless Scaling not installed); the layer is loaded (host /usr/lib/liblsfg-vk-layer.so mapped) but inert without the DLL.
+  Also learned: proton-cachyos here is aarch64 Wine (lib/wine/aarch64-unix/winevulkan.so mapped) -> the game's Vulkan stack is
+  the HOST ARM loader + turnip + layers regardless of FEX ThunksDB.Vulkan (=0 in the live config). fex-rootfs x86 turnip is unused by it.
+  B1080L / P720L rows from this batch are void for the same reason.
+--- batch 3 (Lossless Scaling 3.2.2 installed 15:00, build 19655272)
+P1080L-1/2 (rerun, lsfg on, DLL present, layer log shows normal init "using profile '(environment)'"): presented scene mean 32.9/34.5 median 24 => STILL no doubling.
+lsfg-vk-cli benchmark -d Lossless.dll -a -w 1280 -h 720 (game running concurrently): 734 generated in 10 s = 73.4 gen fps, 146.9 total => DLL parses and the pipeline generates on this host.
+--- batch 4 (REDlauncher fail-fast + retry, 15 s post-kill delay, second Enter)
+P720L-1 avg=29.21 min=20.86 max=41.71 frames=1875 15:26 (720p FSR Perf + lsfg 2x, DLL present, layer initialised)
+P720L-2 avg=29.18 min=20.48 max=41.24 frames=1874 15:28   => P720L mean 29.20 vs P720 30.61 = -4.6% = the lsfg GPU cost (~1.6 ms/frame): the layer IS generating at 720p.
+  Presented meter (crtc) scene mean 40.4/43.7 vs lsfg-off 39.5/47.6: the meter does NOT show the doubling inside the benchmark. The meter already reads
+  1.1-1.5x the game rate with lsfg off (gamescope re-composites), so it is not a clean lsfg judge here. Whether the panel shows doubled motion = Cliff's eyes.
+P1080L (batch 3, DLL present) avg=21.18 / 21.08 vs P1080 22.19 = -4.8%: lsfg active at 1080p too (~2 ms/frame). 15:05/15:07
+B1080L-1/2 avg=19.08 / 19.02 vs B1080 19.90 = -4.3% (lsfg active) 15:33/15:35
+Q900L-1/2  avg=20.78 / 20.76 vs Q900 21.75 = -4.5% (lsfg active) 15:41/15:43
+LADDER DONE 15:43. lsfg 2x costs 4.3-4.8% of base fps in every config = the layer runs everywhere once Lossless.dll exists.

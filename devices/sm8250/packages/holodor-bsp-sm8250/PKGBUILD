@@ -1,0 +1,143 @@
+# pocknix-bsp-sm8250 — board support for the SM8250 FAMILY (Retroid Pocket 5,
+# Retroid Pocket Flip 2).
+# First per-SoC BSP: ONE package serves every board on the SoC. The runtime
+# board facts live in /usr/lib/pocknix/boards/<board>.conf and
+# /usr/lib/pocknix/device.conf is a sourced DISPATCHER that picks one by
+# devicetree model; InputPlumber configs are gated per-board the same way
+# (matches: on the dt model). Adding an sm8250 board = a new boards/ file +
+# its inputplumber yaml(s) + a dispatcher case arm — no new package.
+#
+# Deliberately ABSENT vs the sm8550 BSPs (all verified against ROCKNIX):
+#   * 10-pocknix-deeponly.conf — s2idle wedging is an SM8550 quirk; ROCKNIX
+#     leaves suspend fully enabled on SM8250 (no 030-suspend_mode).
+#   * 30-pocknix-cpuidle.conf — the cpu0 state1 GMU issue is SM8550-only
+#     (ROCKNIX SM8550 096-cpuidle has no SM8250 counterpart).
+#   * kernel-cmdline — arm-efi: the runtime cmdline lives in grub.cfg
+#     (pocknix-bootloader-sm8250), not in a boot-image rebuild file.
+pkgname=holodor-bsp-sm8250
+pkgver=0.1.0
+pkgrel=51   # 51 (2026-10-26): add boards/rpmini.conf and boards/rpminiv2.conf, lock Retroid Pocket 5/Flip2 Visionox panels to 120Hz in device.conf, and add dynamic DRM DSI mode probing for unrecognized boards. / 50 (2026-10-22): boards/rpflip2.conf: add POCKNIX_GPU_MIN_FREQ=490000000, POCKNIX_GAMESCOPE_REFRESH_PREFER_LOWEST=1, and POCKNIX_GAMESCOPE_REFRESH_DEFAULT_LOWEST=1 to match rp5.conf. / 49 (2026-10-22): 002-audio-quiesce (pre): always load pocknix_sleep_null and suspend alsa_output.platform-sound.* before 010-usb-host runs, even when LPASS_HW_MACRO and LPASS_HW_DCODEC are already 0 at suspend entry (when docked with USB/DP audio active, 010-usb-host unbinds the USB hub before freeze_processes, causing PipeWire/Steam to fall back to the internal speaker sink mid-suspend and hold LPASS_HW_MACRO=2 across s2idle). / 48 (2026-10-21): HiFi-RP.conf enables hardware DRE companders (WSA_COMP1/2 Switch=1, SpkrLeft/Right COMP Switch=1) and hardware soft-clippers (WSA_Softclip0/1 Enable=1) at the RP5 Android vendor operating point (WSA_RX0/1 Digital Volume=96 / +12 dB, SpkrLeft/Right PA Volume=12 / +18 dB); pairs with linux-pocknix-sm8250>=7.1.2-61 (0761 wsa881x DRE gain select + lpass-wsa-macro MCLK sync fix). / 47 (2026-10-20): 002-audio-quiesce checks LPASS_HW_DCODEC as well as LPASS_HW_MACRO, forces SoundWire power/control=auto, and suspends/restores alsa_input.platform-sound.* sources alongside sinks. / 46 (2026-10-19): dynamic deck UID lookup + atomic state write in 002-audio-quiesce; fold 91-pocknix-cmdline.hook into 90-linux-pocknix.hook. / 45 (2026-10-19): add sleep.d/{pre,post}/002-audio-quiesce: qcom_snd_parse_of() marks SM8250 DPCM links ignore_suspend=1, so suspending mid-game or within the 11 s PipeWire/ASoC pmdown_time/SoundWire autosuspend window after the Steam "Sleep" UI click left LPASS_HW_MACRO=3..4 and kept the ADSP awake across s2idle; when LPASS_HW_MACRO > 0 at suspend entry, 002-audio-quiesce parks active sink-inputs on a temporary null sink and suspends alsa_output.platform-sound.* with 0 ms pmdown_time / 50 ms autosuspend (triggering normal pcm_close -> wsa881x_digital_mute -> wsa881x_runtime_suspend sd_n assertion without running UCM DisableSequence, eliminating the speaker pop), waits until LPASS_HW_MACRO==0 and both WSA881x SoundWire slaves are runtime-suspended, and restores the sinks on wake. / 44 (2026-10-18, UAC202-verified on kernel 53): drop 99-wcd938x-nosleep.rules (copied from ROCKNIX before kernel 48 added the TX SoundWire <&pdc 109> wakeup IRQ and PM clock framework votes): with control=auto both SoundWire devices suspend in <8 s, LPASS_HW_MACRO/DCODEC drop to 0 so the ADSP sleeps in s2idle, jack insert/remove wakes the bus in 226 ms, and UAC202 line-in measures identical -9.2/-9.1 dBFS, -67.7 dB (0.04 %) THD, 0.0 dB burst ducking, and identical first-sound onset after idle. / 43 (2026-10-16): boards/rp5.conf POCKNIX_GPU_MIN_FREQ=490 MHz (pocknix-power-mode floor, bsp-common 37+): the Steam library grid at the 305 MHz GPU floor slid-then-snapped; 490 = smooth (Cliff, A/B). / 42 (2026-10-15, UCA202-measured on the release card): headphone jack fixed again: the Headphones enable sequence is written inline (alsa-ucm runs Include'd sequences AFTER the inline csets, so upstream's HPH_COMP 0 + CLS_H_ULP had overridden 40/41) with class AB + ULP power mode + all four companders off (upstream's CLS_H_ULP clipped the jack at ~80 mV: -28 dBFS flat-topped full-scale tone, 24 dB ducking; now -9.6 dBFS at 0.03 % THD, no ducking = the bsp 24 recipe). / 41 (2026-10-15): speaker chain LINEAR (wsa-macro companders off, digital 102) per the NTG sweeps and Cliff's call; the Speaker sequence written out explicitly / 40 (2026-10-15, untested): audio rebuilt from ground truth (docs/audio-architecture-rp5-2026-10-15.md): UCM on upstream codec sequences + the vendor operating point (WSA digital 96, companders on; headphones 84/20, class H ULP, both companders on), HDMI verb Priority 9000 so WirePlumber switches to the dock by itself, ONE WirePlumber drop-in (soft-mixer, default route volume 0.125); DELETED pocknix-speaker-loud (+filter), pocknix-speaker-volume, pocknix-dp-audio-switch, pocknix-sm8250-audio-heal, pocknix-sm8250-audio-resume, 51/52/53 drop-ins. Needs kernel 30+ (S16 back ends) and 31 (S16 front ends). / 39 (2026-10-14, UNTESTED on device): dock audio over DisplayPort is BACK as its own UCM verb/PipeWire profile "HDMI" (HDMI-RP.conf: DisplayPort device hw:0,3, DP0 Jack, DISPLAY_PORT_RX route in the device sequences) + pocknix-dp-audio-switch (user service: wpctl set-profile HDMI while card0-DP-1 is connected, HiFi otherwise, no WirePlumber restart; primes the DP sink twice after the switch = labelled workaround for the first-stream AFE start timeout). Why not inside HiFi: PipeWire ACP marks a WHOLE profile unsupported when one device fails its probe (acp/alsa-mixer.c pa_alsa_profile_set_probe, read 10-14), which is how 27 and 36 killed the speakers on undocked boots; a separate profile can only take itself down. Same design as ROCKNIX's HDMI profile + output_monitor. 53-pocknix-displayport.conf matches the new node name HDMI__DisplayPort__sink. Offline UCM parse OK (both verbs).   # 38 (2026-10-12): pocknix-speaker-volume pins the loud filter sink at volume 1.0 on every pass (a no-sink boot made the filter the default, Steam/rocker set it to 50 %, WirePlumber restored it next boot = the slider counted twice, "50 % too quiet"; Cliff 15:15, Steam itself does not touch the filter).   # 37 (2026-10-12, PROVEN on the device): HiFi-RP.conf DisplayPort device + its verb-level DISPLAY_PORT_RX route REMOVED again. 36 was wrong: kernel 0721 only fixed the drm/msm side; undocked the DSP refuses DEVICE_START on the DISPLAY_PORT_RX AFE port (error 9 -> -22 at prepare), ACP dropped the whole HiFi profile = no Speaker/Headphones on the fresh undocked boot of 20261011 (Cliff, d-pad silent); A/B on the device: device removed + WirePlumber restart = both sinks back in seconds. The idempotent speaker/headphone sequences of 36 stay. Dock audio returns only with a q6afe-dai prepare fix (post-release).   # 36 (2026-10-11, UNTESTED on device): HiFi-RP.conf declares the whole speaker/headphone hardware state in idempotent UCM sequences (companders OFF, digital 122, PA 8, boost 8.5 V; RX companders OFF + digital 122) instead of the upstream includes that re-enabled the companders on every WirePlumber re-parse; the DisplayPort device is UNCONDITIONAL (kernel 0721 accepts prepare with the link down; DP0 Jack + JackHWMute drive availability) and pocknix-dp-audio-watch (WirePlumber restart on dock plug) is REMOVED.   # 35 (2026-10-11, audio audit, UNTESTED on device): heal + speaker-volume address the RetroidPocket card by index (hw:0 was whatever USB audio device was present at boot); speaker-volume re-plants the hardware gains when the Speaker sink is re-created (a WirePlumber restart on dock plug / docked wake re-runs the UCM EnableSequence: companders back ON = the warble, PA 12) and bounds pw-cat with timeout 10; speaker-loud takes the LAST matching card object; dp-audio-watch drops the configured-default pin 2 s after pushing the Speaker (it had made the Speaker beat any Bluetooth sink forever).   # 34 (2026-10-10, dock matrix row 4): pocknix-dp-audio-watch restarts WirePlumber only when the dock is PLUGGED; on unplug the DisplayPort port just goes unavailable and the default is pushed back to the Speaker (a restart on unplug left PipeWire's DP sink retrying the dead AFE port, 31 s of auto_null, Steam's audio dead for the session).   # 33 (2026-10-10): speaker ceiling digital 122 (was 114; +6.7 dB at every slider position, H2 -27 / H3 -32 dBc at full scale, no pumping; Cliff: "max sounded like 50 %"). Inquisitor hardenings: pocknix-speaker-loud waits for the card without a cap (bounded pw-cli), BindsTo + wireplumber.service.wants so a WirePlumber crash re-renders device.id too.   # 32 (2026-10-10): pocknix-speaker-volume: 5 s timeouts on every pw-cli/wpctl call (a `pw-cli ls Node` hung forever during a WirePlumber restart and froze the loop, so the law stayed at Mult 1.0 after a dock re-probe) + retries after a sink appears.   # 31 (2026-10-10): "Speakers (Loud)" gone from Steam's device list again, without touching the class: the loudness filter is now its own user service (pocknix-speaker-loud, PartOf=wireplumber) that renders speaker-loudness.conf.in with the sound card's live object id into device.id; Steam (libpipewire) folds a sink under its Device and only lists device-less sinks (verified with two test sinks). pocknix-speaker-volume re-finds the filter when a sink appears/disappears.   # 30 (2026-10-10): speaker loudness filter back to media.class Audio/Sink: with Audio/Sink/Internal (25) pipewire-pulse never answered any stream-create (its peer test is the exact class; every Speaker stream is moved onto the filter), so Steam UI/Chromium/Pulse games were silent on 20261008 (node running, xrun every cycle). The filter is visible again as "Speakers (Loud)".   # 29 (2026-10-09): dock audio back as a CONDITIONAL device: HiFi-RP.conf wraps the verb in If.dp on ${sys:class/drm/card0-DP-1/enabled} (DisplayPort device + its verb-level route only while the DP output is lit; the verb stays plain otherwise = bsp 28 behaviour undocked), plus pocknix-dp-audio-watch (user service) restarting WirePlumber when that sysfs value changes so the card is re-probed on dock/undock. Candidate U; pairs with linux-pocknix-sm8250 15 (0721).   # 28 (2026-10-09): HiFi-RP.conf DisplayPort device REMOVED (and its verb-level DISPLAY_PORT_RX route): with no dock the hdmi-audio-codec rejects hw_params (-22) and WirePlumber ACP drops the WHOLE HiFi profile = auto_null, no sound on every undocked boot (fresh-card boot of 20261008, Cliff). 27 only ever booted docked. Dock audio returns with a conditional device later. 27 (2026-10-07): DisplayPort audio over a USB-C dock: UCM DisplayPort device (hw:0,3, DP0 Jack, route at verb level) + WirePlumber rule (S16, no mmap) so the DSP port starts.   # 26 (2026-10-06): rp5.conf POCKNIX_GAMESCOPE_REFRESH_DEFAULT_LOWEST=1 (panel 60 Hz unless a game's limit asks for 120; gamescope 6, pocknix-steam 47).   # 25 (2026-10-06): speaker loudness filter hidden from Steam/Pulse device lists (Audio/Sink/Internal; apps pick Speaker, the smart filter still sits in front).   # 24 (2026-10-06, UCA202-measured): headphone jack warble fixed: RX compander off + class-AB amp mode + digital 122 (the stock sequence ducked everything 18 dB on loud passages).   # 23 (2026-10-05): RP5 120 Hz back: boards/rp5.conf drops the 60 Hz pin for POCKNIX_GAMESCOPE_REFRESH_PREFER_LOWEST=1 (Steam menus 120 Hz, a 60 fps limit switches the panel to 60 Hz live). Needs gamescope >= 5, pocknix-steam >= 46.   # 22 (2026-10-05): boards/rp5.conf POCKNIX_GAMESCOPE_REFRESH=60 - game mode on the panel's 60 Hz mode (at 120 Hz frames slipped a refresh every 65-75 ms with or without Steam's limiter; at 60 Hz 98 % of frames last exactly one refresh). Needs pocknix-steam >= 45.   # 21 (2026-10-05, mic-measured on the RP5): speaker compander off (it pumped 4-8 dB = the "warble", and made 45 % and 70 % the same loudness), ceiling = digital 114 (full-scale tone ~3 % THD), limiter makeup +12, NEW pocknix-speaker-volume (user service): plants the gains during playback and gives the slider an even 30 dB law (90 % -3 dB, 50 % -15, 25 % -22.5, 0 = mute; measured within 0.3 dB); 20: Speaker = software volume + fixed gains (digital 124, PA 10), chain at unity — the Odin model; 19: slider -> WSA digital volume remap ("Speakers Digital"), heal no longer plants it; 18: Speaker sink = software volume (no PlaybackMixerElem; slider vs PA register mismatch at boot); 17: boards/*.conf POCKNIX_BOOT_STYLE=qcom-abl (the installer read arm-efi and died looking for EFI/BOOT on the SD; RP5 internal install 2026-09-29); 16: deck-uhid target (the "deck" target is USB/IP-backed in InputPlumber 0.81: loads vhci_hcd, two busy kernel threads, and blocks suspend with -EBUSY); 15: kernel-cmdline fbcon=logo-pos:center (boot logo, like sm8750)
+pkgdesc="pocknix board support: SM8250 family (RP5, RP Flip 2) — runtime board dispatch, input maps, audio UCM, wake quirks"
+arch=('any')
+url="https://github.com/transentient/holodor"
+license=('GPL2')
+# swh-plugins: the LADSPA fast lookahead limiter used by the speaker loudness
+# filter-chain (speaker-loudness.conf.in, run by pocknix-speaker-loud).
+depends=('holodor-bsp-common' 'swh-plugins' 'python' 'libpulse' 'alsa-utils')
+# Exactly one device BSP may be installed: every pocknix-bsp-<target> provides and
+# conflicts 'pocknix-bsp', so pacman refuses a second target's BSP (the wrong-device
+# guard for a shared repo).
+provides=('holodor-bsp' 'pocknix-bsp' 'pocknix-bsp-sm8250')
+conflicts=('holodor-bsp' 'pocknix-bsp' 'pocknix-bsp-sm8250')
+replaces=('pocknix-bsp-sm8250')
+optdepends=('inputplumber: gamepad -> Steam Input mapping (01-retroid-*.yaml)'
+            'alsa-ucm-conf: base UCM (codec include sequences for the RetroidPocket UCM)')
+source=('device.conf' '01-retroid-controller.yaml' 'rp5-gamepad.yaml' '01-retroid-flip2-controller.yaml' 'rpflip2-gamepad.yaml'
+        'RetroidPocket.conf' 'HiFi-RP.conf' 'HDMI-RP.conf' '50-pocknix-retroidpocket.conf'
+        '99-retroid-pocket.rules'
+        'audio-quiesce-pre' 'audio-quiesce-post'
+        'pocknix-sm8250-board-select' 'pocknix-sm8250-board-select.service'
+        'kernel-cmdline')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+  # Runtime device facts: the model dispatcher + per-board files. boards/ is
+  # not in source= (makepkg local sources are flat); taken from startdir,
+  # which build-packages.sh populates with the whole package dir.
+  install -Dm644 "${srcdir}/device.conf" "${pkgdir}/usr/lib/pocknix/device.conf"
+  local b
+  for b in "${startdir}/boards/"*.conf; do
+    install -Dm644 "${b}" "${pkgdir}/usr/lib/pocknix/boards/$(basename "${b}")"
+  done
+
+  # InputPlumber composite-device configs (dt-model gated). Same MCU on both
+  # boards, but the Flip 2 has no back button so it forks the capability map
+  # to carry the Guide+A QAM chord (see rpflip2-gamepad.yaml).
+  install -Dm644 "${srcdir}/01-retroid-controller.yaml" \
+    "${pkgdir}/usr/share/inputplumber/devices/01-retroid-controller.yaml"
+  install -Dm644 "${srcdir}/rp5-gamepad.yaml" \
+    "${pkgdir}/usr/share/inputplumber/capability_maps/rp5-gamepad.yaml"
+  install -Dm644 "${srcdir}/01-retroid-flip2-controller.yaml" \
+    "${pkgdir}/usr/share/inputplumber/devices/01-retroid-flip2-controller.yaml"
+  install -Dm644 "${srcdir}/rpflip2-gamepad.yaml" \
+    "${pkgdir}/usr/share/inputplumber/capability_maps/rpflip2-gamepad.yaml"
+
+  # qcom-abl: the family kernel cmdline the on-device /flash/KERNEL rebuild reads
+  # (linux-pocknix-sm8250's pocknix-build-bootimg via 90-linux-pocknix.hook);
+  # build-packages.sh enforces it byte-matches devices/sm8250/profile.conf KERNEL_CMDLINE.
+  install -Dm644 "${srcdir}/kernel-cmdline" "${pkgdir}/usr/lib/pocknix/kernel-cmdline"
+  # WirePlumber: a never-seen route starts at 1.0, not at the mixer's boot-time 0 (RP5 silent first boot).
+
+  # ALSA UCM for the "RetroidPocket" card (sm8250-sndcard). Mirrors ROCKNIX's
+  # tree: master conf under Qualcomm/sm8250 + card-longname symlinks under
+  # conf.d/sm8250 (plain 0002 names + the RP5 legacy-loader variant from their
+  # patch 0003; extra symlinks are inert — the matching one wins on device).
+  local ucm="${pkgdir}/usr/share/alsa/ucm2"
+  install -Dm644 "${srcdir}/RetroidPocket.conf" "${ucm}/Qualcomm/sm8250/RetroidPocket.conf"
+  install -Dm644 "${srcdir}/HiFi-RP.conf"       "${ucm}/Qualcomm/sm8250/HiFi-RP.conf"
+  # dock audio = its own verb/profile with a Priority above HiFi; WirePlumber switches by itself (HDMI-RP.conf)
+  install -Dm644 "${srcdir}/HDMI-RP.conf"       "${ucm}/Qualcomm/sm8250/HDMI-RP.conf"
+  # 40: the one WirePlumber drop-in (soft-mixer on this card + 50 % default route volume)
+  install -Dm644 "${srcdir}/50-pocknix-retroidpocket.conf" \
+    "${pkgdir}/usr/share/wireplumber/wireplumber.conf.d/50-pocknix-retroidpocket.conf"
+  install -d "${ucm}/conf.d/sm8250"
+  local l
+  for l in RetroidPocket.conf retroidpocket-RetroidPocket5.conf retroid-RetroidPocket5-conf \
+           retroidpocket-RetroidPocketFlip2.conf; do
+    ln -sf "../../Qualcomm/sm8250/RetroidPocket.conf" "${ucm}/conf.d/sm8250/${l}"
+  done
+
+  # udev quirks (gamepad joystick tagging + haptics uaccess).
+  install -Dm644 "${srcdir}/99-retroid-pocket.rules" \
+    "${pkgdir}/usr/lib/udev/rules.d/99-retroid-pocket.rules"
+
+  # 002-audio-quiesce: drain LPASS_HW_MACRO before suspend when an audio stream
+  # or post-click pmdown_time/autosuspend timer is still open on the ignore_suspend
+  # DPCM links, so the ADSP sleeps in s2idle; restore the card profile on wake.
+  install -Dm755 "${srcdir}/audio-quiesce-pre" \
+    "${pkgdir}/usr/lib/pocknix/sleep.d/pre/002-audio-quiesce"
+  install -Dm755 "${srcdir}/audio-quiesce-post" \
+    "${pkgdir}/usr/lib/pocknix/sleep.d/post/002-audio-quiesce"
+
+  # Post-resume PipeWire quantum bounce (ROCKNIX SM8250 wake quirk) as a
+  # suspend.target service — NOT a sleep.d hook: system-sleep hooks run while
+  # user.slice is still frozen, so pw-metadata against the frozen PipeWire
+  # deadlocked systemd-sleep and the slice never thawed ("freeze on wake",
+  # RP5 2026-07-16). Enabled via a shipped wants symlink.
+
+  # bsp 21: the speaker volume daemon (gain structure + slider law), a per-user service enabled for
+  # every user the way pocknix-proton-prep is.
+  # bsp 39: HDMI (dock) profile while card0-DP-1 is connected, HiFi otherwise (user service)
+
+
+  # The RP5 loudness stack (validated by ear 2026-07-16; see each file's header):
+  #   * soft-mixer: PipeWire's hardware-volume mapping caps the path at 0dB
+  #     total, discarding the +54dB of positive gain the UCM plants for the
+  #     tiny speakers (why Steam was drastically quieter than raw-ALSA
+  #     players, on ROCKNIX too). soft-mixer keeps PipeWire off the hardware
+  #     mixer; volume becomes a software attenuator below the hot ceiling.
+  #   * loudness filter-chain: +9dB makeup into a lookahead limiter as a
+  #     WirePlumber SMART filter in front of the speaker sink only (jack
+  #     switching to uncompressed headphones keeps working).
+  #   * the hardware gains themselves are planted by the audio-heal service
+  #     (nothing on Arch executes the UCM BootSequence, and with soft-mixer
+  #     PipeWire never writes the mixer).
+
+  # GRUB board-select correction (see the script header): the static grub.cfg
+  # defaults to the rp5 dtb; on a Flip 2 this service detects the real board
+  # from vbmeta_system_a and writes grubenv so the next boot loads its dtb.
+  install -Dm755 "${srcdir}/pocknix-sm8250-board-select" \
+    "${pkgdir}/usr/lib/pocknix/pocknix-sm8250-board-select"
+  install -Dm644 "${srcdir}/pocknix-sm8250-board-select.service" \
+    "${pkgdir}/usr/lib/systemd/system/pocknix-sm8250-board-select.service"
+  install -d "${pkgdir}/usr/lib/systemd/system/multi-user.target.wants"
+  ln -sf ../pocknix-sm8250-board-select.service \
+    "${pkgdir}/usr/lib/systemd/system/multi-user.target.wants/pocknix-sm8250-board-select.service"
+
+  # LPASS probe self-heal (see the script header): the q6 audio clock services
+  # settle asynchronously after the adsp remoteproc boots, hard-failed macro
+  # probes are never retried by the kernel, so a boot-time service reloads the
+  # losers until the card assembles. Enabled via a shipped wants symlink so a
+  # plain pacman -U activates it (no build-script systemctl needed). It also
+  # plants the validated hardware mixer gains (see above).
+}

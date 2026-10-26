@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+# vtap.py X Y [X Y ...] : virtual touchscreen taps (dev/test). Coordinates in a 0..9999 square,
+# before KWin applies the panel's rotation. Needs root (/dev/uinput).
+import sys, time
+from evdev import UInput, AbsInfo, ecodes as e
+cap = {e.EV_KEY: [e.BTN_TOUCH],
+       e.EV_ABS: [(e.ABS_X, AbsInfo(0, 0, 9999, 0, 0, 40)), (e.ABS_Y, AbsInfo(0, 0, 9999, 0, 0, 40)),
+                  (e.ABS_MT_SLOT, AbsInfo(0, 0, 0, 0, 0, 0)),
+                  (e.ABS_MT_TRACKING_ID, AbsInfo(0, 0, 65535, 0, 0, 0)),
+                  (e.ABS_MT_POSITION_X, AbsInfo(0, 0, 9999, 0, 0, 40)), (e.ABS_MT_POSITION_Y, AbsInfo(0, 0, 9999, 0, 0, 40))]}
+ui = UInput(cap, name="claude-virtual-touch", input_props=[e.INPUT_PROP_DIRECT])
+time.sleep(float(sys.argv[1]) if len(sys.argv) % 2 == 0 else 2.5)   # let libinput/KWin pick the device up
+args = [int(a) for a in sys.argv[(2 if len(sys.argv) % 2 == 0 else 1):]]
+tid = 100
+for x, y in zip(args[0::2], args[1::2]):
+    tid += 1
+    ui.write(e.EV_ABS, e.ABS_MT_SLOT, 0); ui.write(e.EV_ABS, e.ABS_MT_TRACKING_ID, tid)
+    ui.write(e.EV_ABS, e.ABS_MT_POSITION_X, x); ui.write(e.EV_ABS, e.ABS_MT_POSITION_Y, y)
+    ui.write(e.EV_ABS, e.ABS_X, x); ui.write(e.EV_ABS, e.ABS_Y, y)
+    ui.write(e.EV_KEY, e.BTN_TOUCH, 1); ui.syn(); time.sleep(0.08)
+    ui.write(e.EV_ABS, e.ABS_MT_TRACKING_ID, -1); ui.write(e.EV_KEY, e.BTN_TOUCH, 0); ui.syn(); time.sleep(0.6)
+time.sleep(0.5); ui.close()

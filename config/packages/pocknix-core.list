@@ -11,22 +11,22 @@ vulkan-freedreno-next
 
 gamescope              # ROCKNIX-patched (composite rotation); vanilla black-screens rotated panels
 inputplumber           # gamepad -> Steam Input (device config shipped by the device BSP)
-pocknix-steamos-shim   # steamos-update/branch/BIOS stubs so the Deck UI OOBE doesn't dead-end
-pocknix-sdcard-automount
+holodor-steamos-shim   # steamos-update/branch/BIOS stubs so the Deck UI OOBE doesn't dead-end
+holodor-sdcard-automount
 mangohud               # patched (Adreno sysfs reader + mangoapp pacing)
-pocknix-steam          # the Steam session (launcher + installer)
+holodor-steam          # the Steam session (launcher + installer)
 proton-cachyos         # CachyOS ARM64 Proton as a system compat tool (constant Steam entry, updates via pacman).
                        #   HOLODOR sm8250: the localrepo carries proton-cachyos-dxvk2 INSTEAD (SOCS-gated,
                        #   provides/conflicts/replaces proton-cachyos) so this name resolves to the DXVK-2.7
                        #   variant there - a650 lacks 8-bit storage and DXVK 3 rejects it (upstream a8b8635).
-pocknix-proton-medialibs  # libvpx.so.9 + libjpeg.so.62 next to Proton: its bundled gstreamer decoders
+holodor-proton-medialibs  # libvpx.so.9 + libjpeg.so.62 next to Proton: its bundled gstreamer decoders
                           #   (H.264 via libav, VP8/9, JPEG, Theora via Arch libtheora) never loaded on Arch sonames
 fex-emu                # x86 emulator (thunks)
 fex-rootfs             # ~1.1 GB Arch x86 squashfs the games' libraries resolve from
 lsfg-vk                # Lossless Scaling frame-gen Vulkan layer (per-game "Frame Insertion";
                        #   inert unless enabled; user must own+install Lossless Scaling)
-pocknix-desktop        # Plasma Mobile session + game<->desktop switch
-pocknix-decky          # Decky loader + Pocknix Control QAM plugin
+holodor-desktop        # Plasma Mobile session + game<->desktop switch
+holodor-decky          # Decky loader + Pocknix Control QAM plugin
 cloud-guest-utils      # growpart — pocknix-expand-root grows the root partition on first boot.
                        #   NOT in Holo Core; ALARM aarch64 binary carried in the localrepo.
 scx-scheds             # sched_ext schedulers incl. scx_lavd (pocknix-lavd.service, autopilot).
@@ -34,5 +34,5 @@ scx-scheds             # sched_ext schedulers incl. scx_lavd (pocknix-lavd.servi
 plymouth               # boot splash daemon. NOT in Holo Core; ALARM aarch64 binary repackaged
                        #   in the localrepo (packages/plymouth). LATE mode — no initramfs, its
                        #   units self-start at sysinit; cmdline already carries `splash`.
-pocknix-boot-art       # the Holodor boot cutscene as the plymouth theme (ssalmon_px art);
+holodor-boot-art       # the Holodor boot cutscene as the plymouth theme (ssalmon_px art);
                        #   selected by overlay /etc/plymouth/plymouthd.conf (Theme=holodor).

@@ -5,11 +5,11 @@
 # builds. ALARM-side runtime deps (retroarch, ppsspp, fuse2) come from emulation.list.
 # Source-built emulators (dolphin-emu, azahar, cemu) are optional-warn in build-image.sh,
 # not listed here.
-#pocknix-emulation
+#holodor-emulation
 #es-de
-#libretro-cores-pocknix
-#retroarch-autoconfig-pocknix
-#retroarch-shaders-pocknix
+#libretro-cores-holodor
+#retroarch-autoconfig-holodor
+#retroarch-shaders-holodor
 #armsx2-bin
 #rpcs3-bin
 #eden-bin

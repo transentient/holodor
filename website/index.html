@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Holodor — SteamOS-style Linux for the AYN Odin 3</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0 auto; max-width: 44rem; padding: 2rem 1.25rem 4rem;
+    font: 16px/1.6 system-ui, sans-serif;
+    background: #16181d; color: #d8dce2;
+  }
+  @media (prefers-color-scheme: light) {
+    body { background: #fafafa; color: #24292f; }
+    a { color: #0b5cad; }
+    code, pre { background: #eef0f2; }
+    .note { background: #f2ecdd; border-color: #d8c896; }
+  }
+  a { color: #6ab0f3; }
+  h1 { font-size: 1.9rem; margin-bottom: .25rem; }
+  .tagline { font-size: 1.1rem; opacity: .85; margin-top: 0; }
+  h2 { margin-top: 2.2rem; font-size: 1.25rem; border-bottom: 1px solid rgba(128,128,128,.35); padding-bottom: .25rem; }
+  code, pre { background: #22252c; padding: .1em .35em; border-radius: 4px; }
+  pre { padding: .75em 1em; overflow-x: auto; }
+  ul { padding-left: 1.3rem; }
+  .note {
+    background: #2a2618; border: 1px solid #6b5d2a; border-radius: 6px;
+    padding: .75rem 1rem; margin: 1.5rem 0;
+  }
+</style>
+</head>
+<body>
+
+<h1>Holodor</h1>
+<p class="tagline">A SteamOS-style Arch Linux for the AYN Odin 3 handheld.</p>
+
+<div class="note">
+<strong>Status: pre-release.</strong> Holodor works as a daily driver on the
+developer's device, but no public image has been released yet. The first
+downloadable image and install guide will appear on the
+<a href="https://sourceforge.net/projects/holodor/files/">files page</a> when ready.
+</div>
+
+<h2>What it is</h2>
+<p>
+Holodor boots the AYN Odin 3 into a Steam Deck-like experience: Valve's
+Holo Core (the official Arch Linux aarch64 userland behind SteamOS) on top of a
+mainline-based kernel for the Odin 3's Snapdragon hardware, with gamescope,
+the native ARM64 Steam client, and FEX for running x86 Windows games through
+Proton.
+</p>
+
+<h2>What works</h2>
+<ul>
+  <li>Steam Big Picture UI, game downloads, and cloud saves</li>
+  <li>x86-64 Windows games via FEX + Proton (Vulkan on the Adreno GPU through Turnip)</li>
+  <li>Wi-Fi, audio (speakers and headphone jack), controls, rumble, suspend/resume</li>
+  <li>Frame generation (lsfg-vk) with a per-game toggle (needs Lossless Scaling from Steam, installed separately)</li>
+  <li>SD-card boot for trying it out, and an internal install that keeps Android dual-bootable</li>
+</ul>
+
+<h2>Credits</h2>
+<p>
+Holodor stands on the work of several projects:
+<a href="https://rocknix.org/">ROCKNIX</a> (kernel and device support),
+<a href="https://gitlab.steamos.cloud/">Valve's Holo Core</a> (userland),
+<a href="https://github.com/armada-os">ArmadaOS</a> (the first SteamOS-like
+system on the Odin 3, and many device findings), and
+<a href="https://fex-emu.com/">FEX-Emu</a>. Licensed GPL-2.0-or-later.
+</p>
+
+<h2>Links</h2>
+<ul>
+  <li><a href="https://sourceforge.net/projects/holodor/files/">Downloads</a> (empty until first release)</li>
+  <li>Source repository: to be published alongside the first release</li>
+</ul>
+
+</body>
+</html>

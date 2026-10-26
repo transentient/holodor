@@ -106,7 +106,7 @@ build_one() {
       if [ ! -f "${f}" ] || [ -n "$(find "${pkgdir}" -newer "${f}" -print -quit)" ]; then
         uptodate=0; break
       fi
-      case "${name}" in linux-pocknix-*)
+      case "${name}" in linux-pocknix-*|linux-holodor-*)
         if [ -f "${KERNEL_BUILD_DIR}/out/Image" ] && [ "${KERNEL_BUILD_DIR}/out/Image" -nt "${f}" ]; then
           uptodate=0; break
         fi
@@ -123,12 +123,12 @@ build_one() {
   # earlier this run) — only here, when actually building; skipped packages must not
   # each pay a network DB refresh.
   chroot "${BROOT}" pacman -Sy --noconfirm >/dev/null 2>&1 || true
-  # linux-pocknix-<soc> is a THIN package: it doesn't compile the kernel (no makepkg/toolchain
+  # linux-holodor-<soc> is a THIN package: it doesn't compile the kernel (no makepkg/toolchain
   # in the chroot for that), it just packages `make kernel`'s output. Stage build/kernel/out
   # into the package build dir as ./staged so its package() can lay it out as /boot +
   # /usr/lib/modules. NB: only the CURRENT device's SoC kernel can be staged (make kernel
   # builds one SoC at a time); other SoCs' kernel packages skip with a warning.
-  case "${name}" in linux-pocknix-*)
+  case "${name}" in linux-pocknix-*|linux-holodor-*)
     if [ "${name}" != "${KERNEL_PKG}" ]; then
       warn "${name}: not the current SoC's kernel (${KERNEL_PKG}) — skipping (build with the right DEVICE)"
       return 1
@@ -168,8 +168,8 @@ Update one to match the other."
   # cmdline (its "linux /KERNEL <cmdline>" line); the profile's KERNEL_CMDLINE is what the
   # build records and docs promise. They must byte-match, same contract as kernel-cmdline
   # above. Only checked when building the current SoC's own bootloader package.
-  case "${name}" in pocknix-bootloader-*)
-    if [ "${name#pocknix-bootloader-}" = "${SOC}" ] && [ -f "${pkgdir}/grub.cfg" ]; then
+  case "${name}" in pocknix-bootloader-*|holodor-bootloader-*)
+    if [ "${name#*-bootloader-}" = "${SOC}" ] && [ -f "${pkgdir}/grub.cfg" ]; then
       local grub_cmdline
       grub_cmdline="$(sed -n 's|^[[:space:]]*linux /KERNEL ||p' "${pkgdir}/grub.cfg" | head -1)"
       if [ "${grub_cmdline}" != "${KERNEL_CMDLINE}" ]; then
@@ -251,8 +251,16 @@ main() {
   setup_chroot
 
   chroot_mount "${BROOT}"
+  # Migrate reused build chroots and localrepos from legacy pocknix-* package names
+  # to holodor-* so makepkg -s --noconfirm never hits an unconfirmed conflict prompt.
+  chroot "${BROOT}" bash -lc 'old=$(pacman -Qq 2>/dev/null | grep -E "^(pocknix-|linux-pocknix-)|-pocknix$" || true); [ -n "$old" ] && pacman -Rdd --noconfirm $old >/dev/null 2>&1 || true'
+  if compgen -G "${LOCALREPO}/pocknix-*.pkg.tar.*" >/dev/null || compgen -G "${LOCALREPO}/linux-pocknix-*.pkg.tar.*" >/dev/null; then
+    rm -f "${LOCALREPO}"/pocknix-*.pkg.tar.* "${LOCALREPO}"/linux-pocknix-*.pkg.tar.* \
+          "${LOCALREPO}"/*-pocknix-[0-9]*.pkg.tar.* "${LOCALREPO}"/*-pocknix-debug-[0-9]*.pkg.tar.* \
+          "${LOCALREPO}"/pocknix.db* "${LOCALREPO}"/pocknix.files* 2>/dev/null || true
+  fi
   # Keep the local repo bind-mounted throughout so makepkg -s can resolve inter-package
-  # local deps (pocknix-steam -> gamescope, gtk2) from the [pocknix] repo as we go.
+  # local deps (holodor-steam -> gamescope, gtk2) from the [pocknix] repo as we go.
   mkdir -p "${BROOT}/localrepo"
   mount --bind "${LOCALREPO}" "${BROOT}/localrepo"
   # Initialize the [pocknix] db so the repo is valid even on the first/partial run

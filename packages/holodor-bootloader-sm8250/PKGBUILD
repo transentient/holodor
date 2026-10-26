@@ -1,0 +1,57 @@
+# holodor-bootloader-sm8250 — the Holodor ABL kit for SM8250 boards (qcom-abl boot contract).
+#
+# SM8250 boot contract:
+# XBL -> Holodor ABL (based on OpenABL v1.1, flashed once from Android with the
+# scripts in this folder) -> \KERNEL on the SD FAT or internal UFS = an ANDROID!
+# boot image (gzip Image + the board dtbs appended, GPU-firmware ramdisk, cmdline
+# in the header; built by linux-holodor-sm8250's pocknix-build-bootimg /
+# scripts/build-kernel.sh).
+#
+# Contents and provenance (see README.provenance for full details):
+#   abl_signed-SM8250.elf   Holodor ABL (built from OpenHandheldCollective/OpenABL v1.1,
+#                           GPL-3.0-or-later, via scripts/build-openabl.sh and
+#                           scripts/holodor-openabl-v1.1.patch; standalone fork repo at
+#                           https://github.com/transentient/OpenABL).
+#   BootHolodor.apk         1-tap Android app to reboot into Holodor, built from source
+#                           via scripts/build-boot-holodor-apk.py.
+#   *.sh + README.rocknix_abl  Android-side backup/flash/restore/boot scripts (adapted
+#                           from ROCKNIX packages/tools/rocknix-abl/sources, GPL-2.0-only,
+#                           with device allowlists and stock backup preservation).
+pkgname=holodor-bootloader-sm8250
+pkgver=1.1.9              # kept at 1.1.9 with bumped pkgrel for monotonic pacman upgrade ordering
+pkgrel=11  # 11 (2026-10-27): rename pocknix-bootloader-sm8250 -> holodor-bootloader-sm8250 (provides/replaces/conflicts old name), add gamepad navigation in OpenABL menu + "Holodor ABL (based on OpenABL)" attribution, and update README.provenance. 10 (2026-10-26): harden flash_abl.sh, backup_abl.sh, and restore_backup_abl.sh with device allowlist, ELF size verification, and automatic pre-flash stock ABL backup preservation. 9 (2026-10-26): support internal UFS installs (/dev/block/by-name/HOLODOR + BootSource reset) in BootHolodor.apk, boot_holodor.sh, and flash_abl.sh. 8 (2026-10-26): auto-export Android saved Wi-Fi to /flash/wifi.txt on the Holodor SD card in BootHolodor.apk, boot_holodor.sh, and flash_abl.sh. 7 (2026-10-25): add Vol-Down Fastboot escape hatch in Early/RunBoot + direct PMIC button polling + safe SD rail power-cycle. 6 (2026-10-20): ship Holodor ABL (OpenABL v1.1 built from source with Holodor splash wordmark, devinfo OablSettings + legacy BootMode sync, and single-DTB fallback).
+pkgdesc="SM8250 Holodor ABL kit (based on OpenABL v1.1 + Android-side flash/boot scripts and BootHolodor.apk) for the qcom-abl boot contract"
+arch=('any')
+url="https://github.com/transentient/OpenABL"
+license=('GPL-3.0-or-later' 'GPL-2.0-only')
+provides=('pocknix-bootloader-sm8250')
+conflicts=('pocknix-bootloader-sm8250')
+replaces=('pocknix-bootloader-sm8250')
+options=('!strip')
+source=('abl_signed-SM8250.elf'
+        'abl_signed-SM8250.elf.sha256'
+        'backup_abl.sh'
+        'flash_abl.sh'
+        'restore_backup_abl.sh'
+        'boot_holodor.sh'
+        'BootHolodor.apk'
+        'README.rocknix_abl'
+        'README.provenance')
+sha256sums=('a52794fc2f0b0192bb5ba0c62fc93f95ae75d54bdaa8c67eec5c396a0572f15f' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+prepare() {
+  ( cd "${srcdir}" && sha256sum -c abl_signed-SM8250.elf.sha256 ) || return 1
+}
+
+package() {
+  local bl="${pkgdir}/usr/share/bootloader/rocknix_abl"
+  install -Dm644 "${srcdir}/abl_signed-SM8250.elf"        "${bl}/abl_signed-SM8250.elf"
+  install -Dm644 "${srcdir}/abl_signed-SM8250.elf.sha256" "${bl}/abl_signed-SM8250.elf.sha256"
+  install -Dm755 "${srcdir}/backup_abl.sh"                "${bl}/backup_abl.sh"
+  install -Dm755 "${srcdir}/flash_abl.sh"                 "${bl}/flash_abl.sh"
+  install -Dm755 "${srcdir}/restore_backup_abl.sh"        "${bl}/restore_backup_abl.sh"
+  install -Dm755 "${srcdir}/boot_holodor.sh"              "${bl}/boot_holodor.sh"
+  install -Dm644 "${srcdir}/BootHolodor.apk"              "${bl}/BootHolodor.apk"
+  install -Dm644 "${srcdir}/README.rocknix_abl"           "${bl}/README"
+  install -Dm644 "${srcdir}/README.provenance"            "${bl}/README.provenance"
+}
