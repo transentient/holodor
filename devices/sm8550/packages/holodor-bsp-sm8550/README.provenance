@@ -1,0 +1,16 @@
+# `holodor-bsp-sm8550` Provenance & Licensing
+
+## 1. Audio UCM (`AYN-Odin2.conf`, `SM8550-RetroidPocket-I2S.conf`, `HiFi.conf`)
+- **Upstream origin**: Adapted from the SM8550 ALSA Use Case Manager (UCM2) profiles in [ROCKNIX/distribution](https://github.com/ROCKNIX/distribution) (`packages/audio/alsa-ucm-conf`, authored by Teguh Sobirin, licensed under `BSD-3-Clause` / `GPL-2.0-only`) and upstream [`alsa-project/alsa-ucm-conf`](https://github.com/alsa-project/alsa-ucm-conf) (`BSD-3-Clause`).
+- **Holodor modifications (2026-10)**:
+  - Enabled hardware digital volume control (`PlaybackMixerElem "PGA"` / `MultiMedia1 Volume`) paired with the kernel `audioreach_put_vol_ctrl_audio_mixer()` live DSP update patch (`0530`).
+  - Configured `WCD938x` headphone output for Class-AB (`RX_HPH_PWR_Mode` `ULP`, `HPHL`/`HPHR` companders disabled) to prevent Class-H ULP low-voltage clipping on the 3.5mm jack.
+  - Added DisplayPort (`HDMI`) section device for USB-C dock audio output.
+
+## 2. AudioReach Topology (`SM8550-RetroidPocket-I2S-tplg.bin`)
+- **Upstream origin**: Built from Linaro's [Audioreach/audioreach-topology](https://github.com/Audioreach/audioreach-topology) (`BSD-3-Clause`) as packaged in [ROCKNIX/distribution](https://github.com/ROCKNIX/distribution) (`SM8550-AYN-Odin2-tplg.bin` / `SM8550-RetroidPocket-I2S-tplg.bin`).
+- **Holodor modifications (2026-10)**: Added the `DISPLAY_PORT_RX_0` subgraph (`MultiMedia1`/`MultiMedia2` mixers and routes) so USB-C DisplayPort audio and built-in I2S/SoundWire audio coexist in a single topology file.
+
+## 3. InputPlumber & Systemd Helpers
+- `01-rsinput-controller.yaml` and `sm8550-gamepad.yaml` are configured for [ShadowBlip/InputPlumber](https://github.com/ShadowBlip/InputPlumber) (`GPL-3.0-or-later`).
+- All scripts (`device.conf`, `boards/*.conf`, `audio-quiesce-*`, `pocknix-stick-leds*`) are part of Holodor (`GPL-2.0-only`, forked from [shuuri-labs/pocknix-os](https://github.com/shuuri-labs/pocknix-os)).

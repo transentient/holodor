@@ -111,6 +111,6 @@ This project stands on the shoulders of giants. Thanks to:
 
 ## License
 
-GPL-2.0 (see [LICENSE](LICENSE)); OpenABL bootloader components are GPL-3.0-or-later ([transentient/OpenABL](https://github.com/transentient/OpenABL)). Boot art by **ssalmon** (CC-BY 4.0).
+GPL-2.0 (see [LICENSE](LICENSE)); OpenABL bootloader components are GPL-3.0-or-later (see [LICENSE.GPL3](LICENSE.GPL3) and [transentient/OpenABL](https://github.com/transentient/OpenABL)). Boot art by **ssalmon** (CC-BY 4.0).
 
 *Disclaimer: Not affiliated with Valve or AYN. Steam is Valve's trademark. Installing to internal storage will factory-reset your Android partition. Flash at your own risk.*

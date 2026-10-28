@@ -1,0 +1,18 @@
+# `holodor-bsp-sm8750` Provenance & Licensing
+
+## 1. Audio UCM (`AYN-Odin3.conf`, `HiFi.conf`)
+- **Upstream origin**: Adapted from the SM8750 ALSA Use Case Manager (UCM2) profiles in [ROCKNIX/distribution](https://github.com/ROCKNIX/distribution) (`packages/audio/alsa-ucm-conf`, authored by Teguh Sobirin, licensed under `BSD-3-Clause` / `GPL-2.0-only`) and upstream [`alsa-project/alsa-ucm-conf`](https://github.com/alsa-project/alsa-ucm-conf) (`BSD-3-Clause`).
+- **Holodor modifications (2026-09..10)**:
+  - Configured `WCD939x` headphone output on the codec HPH PCM (`HiFi`) path with `RX_COMP1/2` and `HPHL/HPHR_COMP` disabled (matching stock Android mixer state and paired with kernel patch `0075` for stereo crosstalk coefficients).
+  - Added DisplayPort (`HDMI`) section device for USB-C dock audio output.
+
+## 2. AudioReach Topology (`SM8750-AYN-tplg.bin`)
+- **Upstream origin**: Built from Linaro's [Audioreach/audioreach-topology](https://github.com/Audioreach/audioreach-topology) (`BSD-3-Clause`) as packaged in [ROCKNIX/distribution](https://github.com/ROCKNIX/distribution) (`SM8750-AYN-tplg.bin`).
+- **Holodor modifications (2026-10)**: Added the `DISPLAY_PORT_RX_0` subgraph (`MultiMedia1`/`MultiMedia2` mixers and routes) and set Secondary MI2S `lpaif_type=0` / `intf_idx=1` for the `aw88166` speaker amplifiers.
+
+## 3. Vendor Co-Processor Firmware (`soccp.mbn`, `adsp.mbn`)
+- **Origin**: Device co-processor firmware extracted from the AYN Odin 3 Android factory image / [ROCKNIX/distribution](https://github.com/ROCKNIX/distribution) SM8750 firmware overlay (`qcom/sm8750/ayn/odin3/`), staged into `/usr/lib/firmware/qcom/sm8750/ayn/odin3/` at install time so `remoteproc_soccp` (AOSS sleep residency) and `pmic_glink_altmode` (USB-C DisplayPort Alt-Mode `PanPortEnable`) function on existing installs updating via `pacman -Syu`.
+
+## 4. InputPlumber & Systemd Helpers
+- `01-rsinput-controller.yaml` and `sm8750-gamepad.yaml` are configured for [ShadowBlip/InputPlumber](https://github.com/ShadowBlip/InputPlumber) (`GPL-3.0-or-later`).
+- All scripts (`device.conf`, `boards/*.conf`, `audio-quiesce-*`, `pocknix-stick-leds*`, `pocknix-input-calibration`) are part of Holodor (`GPL-2.0-only`, forked from [shuuri-labs/pocknix-os](https://github.com/shuuri-labs/pocknix-os)).
